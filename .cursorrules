@@ -1,0 +1,165 @@
+# Cursor Rules for prompt
+
+You are an AI assistant helping with the `prompt` library, a modern, robust replacement for the go-prompt library designed to provide powerful interactive terminal prompts in Go.
+
+## Project Context
+
+prompt is a Go library that provides interactive terminal prompts with features like:
+- Cross-platform support (Linux, macOS, Windows)
+- Auto-completion with fuzzy matching
+- Command history with reverse search
+- Configurable key bindings and color themes
+- Multi-line input support
+- Context support for timeouts and cancellation
+
+This library replaces the unmaintained go-prompt library, addressing critical bugs like divide-by-zero panics, memory leaks, and platform compatibility issues.
+
+## Development Guidelines
+
+### Code Quality Standards
+- **Test-Driven Development**: Write tests first, maintain test pyramid
+- **Working Code**: Ensure `make test` and `make lint` succeed after every change
+- **80%+ Test Coverage**: Use octocov to verify coverage meets standards
+- **Cross-Platform Support**: Code must work on Linux, macOS, and Windows
+
+### Coding Rules
+- **No Global Variables**: Manage state through function arguments and return values
+- **Follow Effective Go**: Adhere to official Go coding standards
+- **Package Documentation**: Each package must have doc.go with clear purpose
+- **Public API Comments**: All public functions, variables, and struct fields must be documented
+- **Error Handling**: Use errors.Is and errors.As, never omit error handling
+- **English Comments**: All comments in English for international contributors
+
+### Architecture Principles
+- **Modular Design**: Clear separation between input, output, rendering, and completion
+- **Interface-Based**: Use interfaces for testability and extensibility
+- **Resource Management**: Proper cleanup of file descriptors and goroutines
+- **Memory Safety**: Avoid memory leaks and race conditions
+- **Error Recovery**: Graceful handling of terminal resize, signal interruption
+
+## File Structure
+
+Key files in the project:
+- `prompt.go`: Main prompt logic and event loop with functional options API
+- `terminal.go`: Cross-platform terminal interface abstraction
+- `renderer.go`: Terminal rendering and cursor management
+- `history.go`: Command history management with persistence
+- `color_scheme.go`: Color theme definitions and customization
+- `helpers.go`: Utility functions for completion and file operations
+- `doc.go`: Package documentation with comprehensive examples
+
+## API Design Philosophy
+
+The library follows a functional options pattern for configuration:
+
+```go
+type Config struct {
+    Prefix        string
+    Completer     func(Document) []Suggestion
+    HistoryConfig *HistoryConfig
+    ColorScheme   *ColorScheme
+    KeyMap        *KeyMap
+    Multiline     bool
+}
+
+// Options pattern allows for clean, extensible API
+func WithCompleter(completer func(Document) []Suggestion) Option
+func WithMemoryHistory(maxEntries int) Option
+func WithHistory(historyConfig *HistoryConfig) Option
+func WithColorScheme(scheme *ColorScheme) Option
+func WithKeyMap(keyMap *KeyMap) Option
+```
+
+## Thread Safety
+
+⚠️ **IMPORTANT**: This library is **NOT thread-safe**:
+- Do NOT share prompt instances across goroutines
+- Do NOT call methods concurrently on the same prompt instance
+- Do NOT call `Close()` while `Run()` is active in another goroutine
+- Use separate prompt instances for concurrent operations if needed
+
+## Testing Guidelines
+
+- **Readable Test Code**: Avoid excessive optimization (DRY) and aim for clarity
+- **Clear Input/Output**: Create tests with `t.Run()` and clarify test case input/output
+- **Test Descriptions**: The first argument of `t.Run()` should clearly describe the relationship between input and expected output
+- **Parallel Execution**: Use `t.Parallel()` whenever possible
+- **Cross-Platform**: Tests must pass on Linux, macOS, and Windows
+- **Test Data**: Store sample files in the testdata directory
+
+## Development Commands
+
+- `make test`: Run tests and measure coverage
+- `make lint`: Code inspection with golangci-lint
+- `make clean`: Delete generated files
+- `make tools`: Install dependency tools
+
+## Documentation Requirements
+
+- **README Maintenance**: Update README when adding features
+- **CHANGELOG.md**: Include PR numbers and commit hashes with clickable GitHub links
+- **Example Code**: Provide comprehensive examples in documentation
+- **Go Doc**: All public APIs must have proper documentation comments
+
+## Performance Considerations
+
+- **Memory Usage**: Minimize allocations during normal operation
+- **Rendering**: Use efficient diff-based terminal updates
+- **History**: Implement configurable limits with LRU eviction
+- **Completion**: Use lazy evaluation with fuzzy matching
+- **I/O**: Implement non-blocking input with proper timeout handling
+
+## Platform-Specific Notes
+
+- **Windows**: Use mattn/go-colorable for ANSI color support
+- **Unix**: Use golang.org/x/term for raw mode control
+- **macOS**: Ensure compatibility with Terminal.app and iTerm2
+- **Unicode**: Support full UTF-8 character handling including wide characters
+
+## Common Issues to Avoid
+
+1. **Resource Leaks**: Always call `Close()` and use defer patterns
+2. **Platform Assumptions**: Never assume Unix-only behavior
+3. **Global State**: Avoid global variables that could cause concurrency issues
+4. **Error Swallowing**: Always handle and propagate errors appropriately
+5. **Memory Leaks**: Properly clean up goroutines and file descriptors
+
+## Example Usage Patterns
+
+Basic usage:
+```go
+p, err := prompt.New("$ ")
+if err != nil {
+    log.Fatal(err)
+}
+defer p.Close()
+
+input, err := p.Run()
+```
+
+With options:
+```go
+p, err := prompt.New("$ ",
+    prompt.WithCompleter(myCompleter),
+    prompt.WithMemoryHistory(100),
+    prompt.WithColorScheme(prompt.ThemeDracula),
+)
+```
+
+With context:
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer cancel()
+
+input, err := p.RunWithContext(ctx)
+```
+
+## When Making Changes
+
+1. Write tests first (TDD approach)
+2. Ensure cross-platform compatibility
+3. Update documentation if API changes
+4. Run `make test` and `make lint` before submitting
+5. Consider performance and memory implications
+6. Add examples for new features
+7. Update CHANGELOG.md with proper formatting
