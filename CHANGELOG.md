@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.4] - 2025-01-22
+
+### Fixed
+- **Multi-line cursor positioning ([307ee32](https://github.com/nao1215/prompt/commit/307ee32))**: Completely fixed cursor and input character positioning issues in multi-line mode
+  - Fixed cursor positioning calculation for continuation lines to start from line beginning (column 0)
+  - Eliminated progressive character drift that caused input characters to move rightward over time
+  - Simplified position calculations by removing complex prefix-based indentation logic
+  - Added explicit carriage return (`\r`) and line clear (`\x1b[K`) for continuation lines to ensure proper line start positioning
+  - Resolved visual misalignment between cursor position and actual character input location
+
+### Enhanced
+- **Multi-line input reliability**: Continuation lines now consistently start from line beginning without complex position calculations
+- **User experience**: Eliminated confusing cursor/input position discrepancies that made multi-line editing difficult
+- **Code maintainability**: Simplified renderer logic by removing error-prone position calculations for continuation lines
+
+### Technical Improvements
+- **Renderer simplification**: Updated `positionCursor` function to use simple line-start positioning for continuation lines
+- **Consistent behavior**: Both cursor positioning and character rendering now follow the same simple rules
+- **Cross-platform reliability**: Removed Unicode and terminal-specific positioning edge cases
+- **Performance**: Eliminated complex calculations that could cause cumulative positioning errors
+
 ## [0.0.3] - 2025-01-21
 
 ### Fixed
