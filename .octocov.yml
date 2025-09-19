@@ -5,6 +5,7 @@ coverage:
   exclude:
     - "**/example/**"
     - "**/mock.go"
+    - "**/terminal.go"
 diff:
   datastores:
     - artifact://${GITHUB_REPOSITORY}

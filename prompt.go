@@ -16,6 +16,9 @@ import (
 	"github.com/mattn/go-colorable"
 )
 
+// Windows OS name constant
+const windowsOS = "windows"
+
 // Common errors
 var (
 	// ErrEOF is returned when the user presses Ctrl+D or EOF is encountered
@@ -462,7 +465,7 @@ func newFromConfig(config Config) (*Prompt, error) {
 
 	// Setup output writer with color support
 	var output io.Writer = os.Stdout
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == windowsOS {
 		// Use colorable for Windows ANSI color support
 		output = colorable.NewColorableStdout()
 	}
@@ -978,29 +981,7 @@ func (p *Prompt) GetHistory() []string {
 
 // AddHistory adds a command to the history
 func (p *Prompt) AddHistory(command string) {
-	if command == "" {
-		return
-	}
-	if p.historyManager != nil && p.historyManager.IsEnabled() {
-		p.historyManager.AddEntry(command)
-		p.syncHistoryAfterAdd()
-	} else if p.historyManager != nil && !p.historyManager.IsEnabled() {
-		// Do nothing when history is explicitly disabled
-		return
-	} else {
-		// Fallback to in-memory only (when no history manager)
-		if len(p.history) > 0 && p.history[len(p.history)-1] == command {
-			return
-		}
-		p.history = append(p.history, command)
-		maxEntries := 1000 // Default max entries
-		if p.config.HistoryConfig != nil && p.config.HistoryConfig.MaxEntries > 0 {
-			maxEntries = p.config.HistoryConfig.MaxEntries
-		}
-		if len(p.history) > maxEntries {
-			p.history = p.history[len(p.history)-maxEntries:]
-		}
-	}
+	p.addToHistory(command)
 }
 
 // ClearHistory clears the command history
@@ -1020,10 +1001,7 @@ func (p *Prompt) SetHistory(history []string) {
 		p.history = append([]string{}, history...)
 	}
 	// Trim history if it exceeds max size
-	maxEntries := 1000 // Default max entries
-	if p.config.HistoryConfig != nil && p.config.HistoryConfig.MaxEntries > 0 {
-		maxEntries = p.config.HistoryConfig.MaxEntries
-	}
+	maxEntries := p.getMaxHistoryEntries()
 	if len(p.history) > maxEntries {
 		p.history = p.history[len(p.history)-maxEntries:]
 		if p.historyManager != nil && p.historyManager.IsEnabled() {
@@ -1051,9 +1029,9 @@ func (p *Prompt) SetCompleter(completer func(Document) []Suggestion) {
 	p.config.Completer = completer
 }
 
-// fuzzyCompleter provides fuzzy matching for completions (internal implementation)
-type fuzzyCompleter struct {
-	candidates []string
+// fuzzyMatcher provides reusable fuzzy matching logic for completions and history search
+type fuzzyMatcher struct {
+	items []string
 }
 
 // NewFuzzyCompleter creates a new fuzzy completer with the given candidates.
@@ -1084,51 +1062,57 @@ type fuzzyCompleter struct {
 //	defer p.Close()
 //	result, _ := p.Run()
 func NewFuzzyCompleter(candidates []string) func(Document) []Suggestion {
-	fc := &fuzzyCompleter{
-		candidates: candidates,
+	fm := &fuzzyMatcher{
+		items: candidates,
 	}
-	return fc.Complete
+	return fm.completionFunc
 }
 
-// Complete returns fuzzy-matched suggestions for the given document context.
-//
-// The method performs fuzzy string matching against all candidates and returns
-// a sorted list of suggestions. Results are ranked by match quality:
-//   - Exact matches get the highest score (1000)
-//   - Prefix matches get high scores (800+)
-//   - Substring matches get medium scores (500+)
-//   - Character-by-character fuzzy matches get lower scores
-//
-// If input is empty, all candidates are returned. The suggestions include
-// score information in the Description field for debugging purposes.
-//
-// Example usage:
-//
-//	completer := prompt.NewFuzzyCompleter([]string{"git status", "git commit"})
-//	doc := prompt.Document{Text: "git st", CursorPosition: 6}
-//	suggestions := completer.Complete(doc)
-//	// Returns: [{"git status", "score: 850"}, ...]
-func (f *fuzzyCompleter) Complete(d Document) []Suggestion {
+// completionFunc returns fuzzy-matched suggestions for the given document context
+func (f *fuzzyMatcher) completionFunc(d Document) []Suggestion {
 	input := d.TextBeforeCursor()
 	if input == "" {
-		// Return all candidates if no input
-		suggestions := make([]Suggestion, len(f.candidates))
-		for i, candidate := range f.candidates {
+		// Return all items if no input
+		suggestions := make([]Suggestion, len(f.items))
+		for i, item := range f.items {
 			suggestions[i] = Suggestion{
-				Text:        candidate,
+				Text:        item,
 				Description: "",
 			}
 		}
 		return suggestions
 	}
 
-	var matches []fuzzyMatch
-	inputLower := strings.ToLower(input)
+	matches := f.fuzzySearch(input)
+	// Convert to suggestions
+	suggestions := make([]Suggestion, len(matches))
+	for i, match := range matches {
+		suggestions[i] = Suggestion{
+			Text:        match.text,
+			Description: fmt.Sprintf("score: %d", match.score),
+		}
+	}
+	return suggestions
+}
 
-	for _, candidate := range f.candidates {
-		if score := calculateFuzzyScore(inputLower, strings.ToLower(candidate), false); score > 0 {
+type fuzzyMatch struct {
+	text  string
+	score int
+}
+
+// fuzzySearch performs fuzzy matching against items and returns sorted matches
+func (f *fuzzyMatcher) fuzzySearch(query string) []fuzzyMatch {
+	if query == "" {
+		return nil
+	}
+
+	var matches []fuzzyMatch
+	queryLower := strings.ToLower(query)
+
+	for _, item := range f.items {
+		if score := calculateFuzzyScore(queryLower, strings.ToLower(item), false); score > 0 {
 			matches = append(matches, fuzzyMatch{
-				text:  candidate,
+				text:  item,
 				score: score,
 			})
 		}
@@ -1143,21 +1127,7 @@ func (f *fuzzyCompleter) Complete(d Document) []Suggestion {
 		}
 	}
 
-	// Convert to suggestions
-	suggestions := make([]Suggestion, len(matches))
-	for i, match := range matches {
-		suggestions[i] = Suggestion{
-			Text:        match.text,
-			Description: fmt.Sprintf("score: %d", match.score),
-		}
-	}
-
-	return suggestions
-}
-
-type fuzzyMatch struct {
-	text  string
-	score int
+	return matches
 }
 
 // findWordBoundary finds the next word boundary in the given direction for word-based navigation.
@@ -1224,11 +1194,6 @@ func isWordChar(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
 }
 
-// historySearcher provides fuzzy search through command history (internal implementation)
-type historySearcher struct {
-	history []string
-}
-
 // NewHistorySearcher creates a new history searcher for command history.
 //
 // The history searcher provides fuzzy search capabilities through command
@@ -1251,68 +1216,24 @@ type historySearcher struct {
 //	matches := search("git")
 //	// Returns: ["git commit -m 'fix bug'", "git status"] (sorted by relevance)
 func NewHistorySearcher(history []string) func(string) []string {
-	hs := &historySearcher{
-		history: history,
+	fm := &fuzzyMatcher{
+		items: history,
 	}
-	return hs.Search
+	return fm.searchFunc
 }
 
-// Search returns commands from history that match the query using fuzzy matching.
-//
-// The search uses the same fuzzy matching algorithm as the fuzzyCompleter,
-// ranking results by relevance. Exact matches, prefix matches, and substring
-// matches are prioritized over character-by-character fuzzy matches.
-//
-// If the query is empty, the entire history is returned in original order.
-// Results are sorted by match score in descending order (best matches first).
-//
-// Example:
-//
-//	searcher := prompt.NewHistorySearcher([]string{
-//		"git status",
-//		"git commit -m 'initial'",
-//		"docker ps",
-//	})
-//
-//	// Search for commands containing "git"
-//	matches := searcher.Search("git")
-//	// Returns: ["git commit -m 'initial'", "git status"]
-//
-//	// Search for commands containing "st"
-//	matches = searcher.Search("st")
-//	// Returns: ["git status"] (fuzzy match)
-func (h *historySearcher) Search(query string) []string {
+// searchFunc returns items that match the query using fuzzy matching
+func (f *fuzzyMatcher) searchFunc(query string) []string {
 	if query == "" {
-		return h.history
+		return f.items
 	}
 
-	var matches []fuzzyMatch
-	queryLower := strings.ToLower(query)
-
-	for _, command := range h.history {
-		if score := calculateFuzzyScore(queryLower, strings.ToLower(command), false); score > 0 {
-			matches = append(matches, fuzzyMatch{
-				text:  command,
-				score: score,
-			})
-		}
-	}
-
-	// Sort by score (descending)
-	for i := range len(matches) - 1 {
-		for j := i + 1; j < len(matches); j++ {
-			if matches[i].score < matches[j].score {
-				matches[i], matches[j] = matches[j], matches[i]
-			}
-		}
-	}
-
+	matches := f.fuzzySearch(query)
 	// Convert to string slice
 	results := make([]string, len(matches))
 	for i, match := range matches {
 		results[i] = match.text
 	}
-
 	return results
 }
 
@@ -1396,15 +1317,11 @@ func (p *Prompt) renderHistorySearch(query string, results []string, selected in
 }
 
 // syncHistoryAfterAdd synchronizes in-memory history with history manager after adding an entry.
-// This consolidates the common logic shared between AddHistory and addToHistory.
 func (p *Prompt) syncHistoryAfterAdd() {
 	if p.historyManager != nil && p.historyManager.IsEnabled() {
 		p.history = p.historyManager.GetHistory()
 		// Trim in-memory history if it exceeds max size
-		maxEntries := 1000 // Default max entries
-		if p.config.HistoryConfig != nil && p.config.HistoryConfig.MaxEntries > 0 {
-			maxEntries = p.config.HistoryConfig.MaxEntries
-		}
+		maxEntries := p.getMaxHistoryEntries()
 		if len(p.history) > maxEntries {
 			p.history = p.history[len(p.history)-maxEntries:]
 			p.historyManager.SetHistory(p.history)
@@ -1412,28 +1329,40 @@ func (p *Prompt) syncHistoryAfterAdd() {
 	}
 }
 
+// getMaxHistoryEntries returns the configured maximum history entries or default
+func (p *Prompt) getMaxHistoryEntries() int {
+	if p.config.HistoryConfig != nil && p.config.HistoryConfig.MaxEntries > 0 {
+		return p.config.HistoryConfig.MaxEntries
+	}
+	return 1000 // Default max entries
+}
+
+// addToHistory adds text to history, handling both historyManager and in-memory fallback
 func (p *Prompt) addToHistory(text string) {
 	if text == "" {
 		return
 	}
-	if p.historyManager != nil && p.historyManager.IsEnabled() {
-		p.historyManager.AddEntry(text)
-		p.syncHistoryAfterAdd()
-	} else if p.historyManager == nil {
-		// Fallback to original behavior when no history manager
-		if len(p.history) > 0 && p.history[len(p.history)-1] == text {
-			return // Avoid duplicate consecutive entries
+
+	if p.historyManager != nil {
+		if p.historyManager.IsEnabled() {
+			p.historyManager.AddEntry(text)
+			p.syncHistoryAfterAdd()
 		}
-		p.history = append(p.history, text)
-		maxEntries := 1000 // Default max entries
-		if p.config.HistoryConfig != nil && p.config.HistoryConfig.MaxEntries > 0 {
-			maxEntries = p.config.HistoryConfig.MaxEntries
-		}
-		if len(p.history) > maxEntries {
-			p.history = p.history[len(p.history)-maxEntries:]
-		}
+		// Do nothing when history manager exists but is disabled
+		return
 	}
-	// Do nothing when history manager exists but is disabled
+
+	// Fallback to in-memory only (when no history manager)
+	if len(p.history) > 0 && p.history[len(p.history)-1] == text {
+		return // Avoid duplicate consecutive entries
+	}
+	p.history = append(p.history, text)
+
+	// Trim history if it exceeds max size
+	maxEntries := p.getMaxHistoryEntries()
+	if len(p.history) > maxEntries {
+		p.history = p.history[len(p.history)-maxEntries:]
+	}
 }
 
 // isShiftEnter detects if we should add a newline instead of submitting
@@ -1458,63 +1387,79 @@ func (p *Prompt) isMultiLine() bool {
 
 // findLineStart finds the start of the current line
 func (p *Prompt) findLineStart() int {
-	pos := p.cursor
-	for pos > 0 && p.buffer[pos-1] != '\n' {
-		pos--
-	}
-	return pos
+	return p.findLineBoundary(p.cursor, -1)
 }
 
 // findLineEnd finds the end of the current line
 func (p *Prompt) findLineEnd() int {
-	pos := p.cursor
-	for pos < len(p.buffer) && p.buffer[pos] != '\n' {
-		pos++
+	return p.findLineBoundary(p.cursor, 1)
+}
+
+// findLineBoundary finds the line boundary in the given direction
+// direction < 0: finds line start, direction > 0: finds line end
+func (p *Prompt) findLineBoundary(start int, direction int) int {
+	pos := start
+	if direction < 0 {
+		// Find line start
+		for pos > 0 && p.buffer[pos-1] != '\n' {
+			pos--
+		}
+	} else {
+		// Find line end
+		for pos < len(p.buffer) && p.buffer[pos] != '\n' {
+			pos++
+		}
 	}
 	return pos
 }
 
 // findCursorUp moves cursor to the same column on the previous line
 func (p *Prompt) findCursorUp() int {
-	lineStart := p.findLineStart()
-	if lineStart == 0 {
-		return p.cursor // Already at first line
-	}
-
-	// Find column position in current line
-	column := p.cursor - lineStart
-
-	// Find start of previous line
-	prevLineEnd := lineStart - 1 // Skip the newline
-	prevLineStart := 0
-	for i := prevLineEnd - 1; i >= 0; i-- {
-		if p.buffer[i] == '\n' {
-			prevLineStart = i + 1
-			break
-		}
-	}
-
-	// Calculate new cursor position
-	prevLineLength := prevLineEnd - prevLineStart
-	if column < prevLineLength {
-		return prevLineStart + column
-	}
-	return prevLineEnd
+	return p.findCursorVertical(-1)
 }
 
 // findCursorDown moves cursor to the same column on the next line
 func (p *Prompt) findCursorDown() int {
+	return p.findCursorVertical(1)
+}
+
+// findCursorVertical moves cursor vertically maintaining column position
+// direction < 0: move up, direction > 0: move down
+func (p *Prompt) findCursorVertical(direction int) int {
 	lineStart := p.findLineStart()
 	lineEnd := p.findLineEnd()
+	column := p.cursor - lineStart
 
+	if direction < 0 {
+		// Move up
+		if lineStart == 0 {
+			return p.cursor // Already at first line
+		}
+
+		// Find start of previous line
+		prevLineEnd := lineStart - 1 // Skip the newline
+		prevLineStart := 0
+		for i := prevLineEnd - 1; i >= 0; i-- {
+			if p.buffer[i] == '\n' {
+				prevLineStart = i + 1
+				break
+			}
+		}
+
+		// Calculate new cursor position
+		prevLineLength := prevLineEnd - prevLineStart
+		if column < prevLineLength {
+			return prevLineStart + column
+		}
+		return prevLineEnd
+	}
+
+	// Move down
 	if lineEnd >= len(p.buffer) {
 		return p.cursor // Already at last line
 	}
 
-	// Find column position in current line
-	column := p.cursor - lineStart
-
-	// Find start of next line
+	// Find end of next line
 	nextLineStart := lineEnd + 1 // Skip the newline
 	nextLineEnd := len(p.buffer)
 	for i := nextLineStart; i < len(p.buffer); i++ {

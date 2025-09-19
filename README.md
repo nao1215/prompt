@@ -11,7 +11,7 @@
 
 **prompt** is a simple terminal prompt library for Go that provides powerful interactive command-line interfaces. This library is designed as a replacement for the unmaintained [c-bata/go-prompt](https://github.com/c-bata/go-prompt) library, addressing critical issues while adding enhanced functionality and better cross-platform support.
 
-![sample](./doc/img/sample.png)
+![sample](./doc/img/demo.gif)
 
 ## ✨ Features
 

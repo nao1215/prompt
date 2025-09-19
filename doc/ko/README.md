@@ -10,7 +10,7 @@
 
 **prompt**는 강력한 대화형 명령줄 인터페이스를 제공하는 Go용 간단한 터미널 프롬프트 라이브러리입니다. 이 라이브러리는 유지보수되지 않는 [c-bata/go-prompt](https://github.com/c-bata/go-prompt) 라이브러리의 대체제로 설계되어, 중요한 문제들을 해결하면서 향상된 기능과 더 나은 크로스 플랫폼 지원을 추가합니다.
 
-![sample](../img/sample.png)
+![sample](../img/demo.gif)
 
 ## 🎯 왜 prompt인가요?
 

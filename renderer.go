@@ -101,61 +101,14 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 
 // renderMainLine renders the main prompt line with prefix and input.
 func (r *renderer) renderMainLine(prefix, input string, cursor int) error {
-	// Move to beginning of line and clear it
-	if _, err := fmt.Fprint(r.output, "\r\x1b[K"); err != nil {
+	if err := r.renderLines(prefix, input); err != nil {
 		return err
 	}
 
-	// Split input into lines
+	// Position cursor correctly
 	lines := r.splitIntoLines(input)
 	inputRunes := []rune(input)
-
-	// Calculate cursor position in terms of line and column
 	cursorLine, cursorCol := r.findCursorPosition(inputRunes, cursor)
-
-	// Render each line
-	for lineIndex, line := range lines {
-		if lineIndex > 0 {
-			// Continuation lines: ensure we start from line beginning
-			if _, err := fmt.Fprint(r.output, "\r\x1b[K"); err != nil {
-				return err
-			}
-		}
-
-		if lineIndex == 0 {
-			// First line: render prefix
-			if _, err := fmt.Fprint(r.output, r.colorScheme.Prefix.ToANSI()); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(r.output, prefix); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(r.output, Reset()); err != nil {
-				return err
-			}
-		}
-		// Continuation lines: start from beginning with carriage return
-
-		// Render line content with color
-		if _, err := fmt.Fprint(r.output, r.colorScheme.Input.ToANSI()); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprint(r.output, line); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprint(r.output, Reset()); err != nil {
-			return err
-		}
-
-		// Move to next line if not the last line
-		if lineIndex < len(lines)-1 {
-			if _, err := fmt.Fprint(r.output, "\n"); err != nil {
-				return err
-			}
-		}
-	}
-
-	// Position cursor correctly
 	r.positionCursor(lines, cursorLine, cursorCol, len([]rune(prefix)))
 
 	return nil
@@ -163,6 +116,11 @@ func (r *renderer) renderMainLine(prefix, input string, cursor int) error {
 
 // renderMainLineWithoutCursor renders the main prompt line without cursor positioning (for suggestions)
 func (r *renderer) renderMainLineWithoutCursor(prefix, input string) error {
+	return r.renderLines(prefix, input)
+}
+
+// renderLines renders the prompt lines without cursor positioning (shared logic)
+func (r *renderer) renderLines(prefix, input string) error {
 	// Move to beginning of line and clear it
 	if _, err := fmt.Fprint(r.output, "\r\x1b[K"); err != nil {
 		return err
@@ -192,7 +150,6 @@ func (r *renderer) renderMainLineWithoutCursor(prefix, input string) error {
 				return err
 			}
 		}
-		// Continuation lines: start from beginning with carriage return
 
 		// Render line content with color
 		if _, err := fmt.Fprint(r.output, r.colorScheme.Input.ToANSI()); err != nil {

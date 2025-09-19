@@ -64,7 +64,7 @@ func newRealTerminal() (*realTerminal, error) {
 
 	// Setup color-capable output
 	var output io.Writer = os.Stdout
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == windowsOS {
 		// Use colorable for Windows ANSI color support
 		output = colorable.NewColorableStdout()
 	}
