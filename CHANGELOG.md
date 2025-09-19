@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.3] - 2025-01-21
+
+### Fixed
+- **Multi-line history navigation ([b160784](https://github.com/nao1215/prompt/commit/b160784))**: Fixed display position issues when navigating through multi-line command history
+  - Improved `clearPreviousLines` function to properly clear multi-line content
+  - Enhanced line count tracking for accurate terminal positioning
+  - Fixed cursor position management for multi-line input navigation
+
+- **Terminal line wrapping calculation ([b160784](https://github.com/nao1215/prompt/commit/b160784))**: Improved handling of long input lines that wrap across multiple terminal lines
+  - Added `calculateRenderedLines` function to accurately count rendered lines
+  - Accounts for terminal width when calculating line wrapping
+  - Fixed prompt duplication issues when text wraps to next line
+  - Properly handles prefix length in line wrapping calculations
+
+### Technical Improvements
+- **Renderer enhancements**: Added terminal interface to renderer for dynamic size detection
+- **Terminal width awareness**: Renderer now considers terminal width for accurate line wrapping
+- **Line counting accuracy**: More precise calculation of actual rendered lines vs logical lines
+- **State management**: Improved tracking of rendered line count for better screen clearing
+
 ## [0.0.2] - 2025-01-20
 
 ### Fixed
