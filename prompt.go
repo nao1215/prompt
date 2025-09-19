@@ -580,6 +580,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 	historyIndex := len(p.history)
 	var suggestions []Suggestion
 	selectedSuggestion := 0
+	suggestionOffset := 0 // Track the offset for scrolling through suggestions
 
 	for {
 		select {
@@ -661,9 +662,13 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 
 		case ActionMoveUp:
 			if len(suggestions) > 0 {
-				// Navigate suggestions
+				// Navigate suggestions with scrolling
 				if selectedSuggestion > 0 {
 					selectedSuggestion--
+					// Scroll up if needed
+					if selectedSuggestion < suggestionOffset {
+						suggestionOffset = selectedSuggestion
+					}
 				}
 			} else if p.isMultiLine() {
 				// Navigate up within multi-line input
@@ -679,9 +684,14 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 
 		case ActionMoveDown:
 			if len(suggestions) > 0 {
-				// Navigate suggestions
+				// Navigate suggestions with scrolling
+				maxDisplayed := 10 // Maximum suggestions to display at once
 				if selectedSuggestion < len(suggestions)-1 {
 					selectedSuggestion++
+					// Scroll down if needed
+					if selectedSuggestion >= suggestionOffset+maxDisplayed {
+						suggestionOffset = selectedSuggestion - maxDisplayed + 1
+					}
 				}
 			} else if p.isMultiLine() {
 				// Navigate down within multi-line input
@@ -769,6 +779,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 					}
 					suggestions = p.config.Completer(doc)
 					selectedSuggestion = 0
+					suggestionOffset = 0 // Reset scroll position
 
 					// Smart matching: filter suggestions based on current input
 					currentWord := doc.GetWordBeforeCursor()
@@ -837,7 +848,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 		}
 
 		// Re-render with suggestions if any
-		if err := p.renderWithSuggestions(suggestions, selectedSuggestion); err != nil {
+		if err := p.renderWithSuggestionsOffset(suggestions, selectedSuggestion, suggestionOffset); err != nil {
 			return "", fmt.Errorf("failed to render: %w", err)
 		}
 	}
@@ -860,6 +871,12 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 //	// Use the prompt...
 //	result, err := p.Run()
 func (p *Prompt) Close() error {
+	// Restore cursor visibility before closing
+	if p.output != nil {
+		fmt.Fprint(p.output, "\x1b[?25h") // Show cursor
+		fmt.Fprint(p.output, "\n")        // Move to new line
+	}
+
 	// Save history before closing
 	if p.historyManager != nil {
 		if err := p.historyManager.SaveHistory(); err != nil {
@@ -1520,8 +1537,8 @@ func (p *Prompt) render() error {
 	return p.renderer.render(p.config.Prefix, string(p.buffer), p.cursor)
 }
 
-func (p *Prompt) renderWithSuggestions(suggestions []Suggestion, selected int) error {
-	return p.renderer.renderWithSuggestions(p.config.Prefix, string(p.buffer), p.cursor, suggestions, selected)
+func (p *Prompt) renderWithSuggestionsOffset(suggestions []Suggestion, selected int, offset int) error {
+	return p.renderer.renderWithSuggestionsOffset(p.config.Prefix, string(p.buffer), p.cursor, suggestions, selected, offset)
 }
 
 func (p *Prompt) readRune() (rune, error) {

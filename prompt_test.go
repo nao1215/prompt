@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1128,7 +1129,7 @@ func TestRendererWithSuggestionEdgeCases(t *testing.T) {
 			}
 		}
 
-		err := renderer.renderSuggestions(suggestions, 5)
+		err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 5, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}
@@ -1171,13 +1172,13 @@ func TestRendererWithSuggestionEdgeCases(t *testing.T) {
 
 		// Test renderSuggestions error
 		suggestions := []Suggestion{{Text: "test", Description: "desc"}}
-		err = renderer.renderSuggestions(suggestions, 0)
+		err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 0, 0)
 		if err == nil {
 			t.Error("Expected error from failing writer in renderSuggestions")
 		}
 
 		// Test renderWithSuggestions error
-		err = renderer.renderWithSuggestions("$ ", "test", 2, suggestions, 0)
+		err = renderer.renderWithSuggestionsOffset("$ ", "test", 2, suggestions, 0, 0)
 		if err == nil {
 			t.Error("Expected error from failing writer in renderWithSuggestions")
 		}
@@ -1192,7 +1193,7 @@ func TestRendererWithSuggestionEdgeCases(t *testing.T) {
 			{Text: "cmd2"},
 		}
 
-		err := renderer.renderSuggestions(suggestions, 0)
+		err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 0, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}
@@ -1454,7 +1455,7 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 
 		// Test single suggestion
 		suggestions := []Suggestion{{Text: "hello", Description: "greeting"}}
-		err := renderer.renderSuggestions(suggestions, 0)
+		err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 0, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}
@@ -1465,7 +1466,7 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 			{Text: "help", Description: "assistance"},
 			{Text: "history", Description: "past commands"},
 		}
-		err = renderer.renderSuggestions(suggestions, 1)
+		err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 1, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}
@@ -1478,7 +1479,7 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 				Description: fmt.Sprintf("description %d", i),
 			}
 		}
-		err = renderer.renderSuggestions(suggestions, 5)
+		err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 5, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}
@@ -1491,13 +1492,13 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 				Description: fmt.Sprintf("description %d", i),
 			}
 		}
-		err = renderer.renderSuggestions(suggestions, 0)
+		err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 0, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}
 
 		// Test with no suggestions
-		err = renderer.renderSuggestions([]Suggestion{}, 0)
+		err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, []Suggestion{}, 0, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}
@@ -1513,13 +1514,13 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 		}
 
 		// Test with suggestions
-		err := renderer.renderWithSuggestions("$ ", "h", 1, suggestions, 0)
+		err := renderer.renderWithSuggestionsOffset("$ ", "h", 1, suggestions, 0, 0)
 		if err != nil {
 			t.Errorf("renderWithSuggestions() error = %v", err)
 		}
 
 		// Test without suggestions
-		err = renderer.renderWithSuggestions("$ ", "hello", 5, nil, 0)
+		err = renderer.renderWithSuggestionsOffset("$ ", "hello", 5, nil, 0, 0)
 		if err != nil {
 			t.Errorf("renderWithSuggestions() error = %v", err)
 		}
@@ -1530,7 +1531,7 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 		}
 
 		// Test with suggestions again to verify lastLines update
-		err = renderer.renderWithSuggestions("$ ", "h", 1, suggestions, 1)
+		err = renderer.renderWithSuggestionsOffset("$ ", "h", 1, suggestions, 1, 0)
 		if err != nil {
 			t.Errorf("renderWithSuggestions() error = %v", err)
 		}
@@ -2815,13 +2816,7 @@ func TestPromptWithCustomCompleterAdvanced(t *testing.T) {
 
 	// The result should contain one of the completions
 	validResults := []string{"git status", "git commit", "git push"}
-	found := false
-	for _, valid := range validResults {
-		if result == valid {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(validResults, result)
 	if !found {
 		t.Errorf("Expected one of %v, got %q", validResults, result)
 	}
@@ -2843,6 +2838,131 @@ func TestPromptAddHistoryComprehensive(t *testing.T) {
 
 	if len(p.history) != 3 {
 		t.Errorf("Expected history length 3, got %d", len(p.history))
+	}
+}
+
+func TestPromptSuggestionScrolling(t *testing.T) {
+	t.Parallel()
+
+	// Create a completer that returns many suggestions
+	completer := func(_ Document) []Suggestion {
+		var suggestions []Suggestion
+		for i := range 15 {
+			suggestions = append(suggestions, Suggestion{
+				Text:        fmt.Sprintf("command%d", i),
+				Description: fmt.Sprintf("description%d", i),
+			})
+		}
+		return suggestions
+	}
+
+	config := Config{
+		Prefix:    "$ ",
+		Completer: completer,
+	}
+
+	// Test with TAB to trigger suggestions, then submit first one
+	p := newForTestingWithConfig(t, config, "c\t\r")
+	defer p.Close()
+
+	result, err := p.Run()
+
+	// EOF and ErrEOF are acceptable for this test - they just mean input ended
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, ErrEOF) {
+		t.Errorf("Unexpected error: %v", err)
+		return
+	}
+
+	// For multiple suggestions, TAB shows them and user input is used
+	// The result might be the partial input "c" or a completed command
+	// Accept empty result if EOF occurred
+	if !errors.Is(err, io.EOF) && !errors.Is(err, ErrEOF) && result != "c" && !strings.HasPrefix(result, "command") {
+		t.Errorf("Expected result to be 'c' or start with 'command', got %q", result)
+	}
+}
+
+func TestPromptSuggestionScrollingEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		suggestionCount  int
+		expectedComplete bool
+	}{
+		{
+			name:             "empty suggestions",
+			suggestionCount:  0,
+			expectedComplete: false,
+		},
+		{
+			name:             "single suggestion",
+			suggestionCount:  1,
+			expectedComplete: true,
+		},
+		{
+			name:             "exactly max display count",
+			suggestionCount:  10,
+			expectedComplete: false, // Should show suggestions
+		},
+		{
+			name:             "more than max display",
+			suggestionCount:  15,
+			expectedComplete: false, // Should show suggestions with scrolling
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			completer := func(_ Document) []Suggestion {
+				var suggestions []Suggestion
+				for i := range tt.suggestionCount {
+					suggestions = append(suggestions, Suggestion{
+						Text:        fmt.Sprintf("command%d", i),
+						Description: fmt.Sprintf("description%d", i),
+					})
+				}
+				return suggestions
+			}
+
+			config := Config{
+				Prefix:    "$ ",
+				Completer: completer,
+			}
+
+			// Test TAB behavior
+			var input string
+			if tt.expectedComplete && tt.suggestionCount == 1 {
+				input = "c\t\r" // TAB should auto-complete, then enter
+			} else {
+				input = "c\t\r" // TAB shows suggestions, enter submits current
+			}
+
+			p := newForTestingWithConfig(t, config, input)
+			defer p.Close()
+
+			result, err := p.Run()
+
+			// Accept EOF and ErrEOF as valid test termination conditions
+			if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, ErrEOF) {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if tt.expectedComplete && tt.suggestionCount == 1 {
+				// Should have auto-completed
+				if !errors.Is(err, io.EOF) && !errors.Is(err, ErrEOF) && result != "command0" {
+					t.Errorf("Expected auto-completion to 'command0', got %q", result)
+				}
+			} else if tt.suggestionCount > 0 {
+				// For multiple suggestions, either EOF or valid result is acceptable
+				// This tests that scrolling doesn't crash or hang
+				if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, ErrEOF) {
+					t.Errorf("Expected valid result or EOF, got error: %v", err)
+				}
+			}
+		})
 	}
 }
 

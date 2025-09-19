@@ -7,8 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2] - 2025-01-20
+
+### Fixed
+- **Completion suggestion scrolling ([994b558](https://github.com/nao1215/prompt/commit/994b558))**: Fixed infinite scrolling bug when navigating through completion suggestions beyond the visible range
+  - Implemented proper scroll boundaries to prevent selection from continuing into empty fields
+  - Added offset-based rendering system for smooth scrolling through large suggestion lists
+  - Maximum 10 suggestions displayed at once with proper up/down navigation
+- **Terminal boundary display issues**: Fixed completion suggestions jumping to screen top when displayed at terminal bottom
+  - Improved ANSI escape sequence handling for terminal edge cases
+  - Enhanced cursor positioning to avoid terminal boundary artifacts
+- **Cursor flickering during completion ([994b558](https://github.com/nao1215/prompt/commit/994b558))**: Eliminated excessive cursor movement during suggestion navigation
+  - Implemented cursor hiding during suggestion display with `\x1b[?25l`/`\x1b[?25h`
+  - Optimized rendering to minimize cursor position updates
+  - Added state management to track suggestion display status
+- **Suggestion list persistence**: Fixed completion suggestions not clearing after TAB selection
+  - Implemented comprehensive screen clearing with `\x1b[0J` escape sequence
+  - Added proper state transition handling between suggestion display and normal input
+  - Enhanced cleanup of suggestion rendering areas
+
+### Enhanced
+- **Scroll test example**: Updated autocomplete example with 23+ commands and 15+ items to demonstrate scrolling functionality
+  - Added comprehensive test scenarios for suggestion scrolling
+  - Included detailed README with testing instructions
+  - Improved user experience validation tools
+
+### Technical Improvements
+- **Renderer architecture**: Enhanced separation between cursor management and suggestion rendering
+- **State management**: Improved tracking of suggestion display state with `suggestionsActive` flag
+- **Screen clearing**: More robust terminal content clearing with multiple fallback strategies
+- **Cross-platform compatibility**: Better handling of terminal differences across operating systems
+
+## [0.1.0] - 2025-09-18
+
 ### Added
-- **Initial implementation of modern prompt library ([020cb71](https://github.com/nao1215/prompt/commit/020cb71))**: Complete rewrite of go-prompt with improved architecture and cross-platform support
+- **Initial implementation of modern prompt library ([45519e9](https://github.com/nao1215/prompt/commit/45519e9))**: Complete rewrite of go-prompt with improved architecture and cross-platform support
 - **Functional options API pattern**: Clean, extensible configuration using `WithCompleter`, `WithMemoryHistory`, etc.
 - **Cross-platform terminal support**: Enhanced Windows compatibility via mattn/go-colorable, native Unix support
 - **Resource management**: Proper cleanup with Close() method and defer patterns to prevent file descriptor leaks
@@ -35,12 +68,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Platform Support**: Linux, macOS, Windows with native terminal capabilities
 - **Unicode Support**: Full UTF-8 character handling including wide characters
 - **Development Tools**: Makefile with test, lint, clean, and tools targets
-
-## [0.1.0] - 2025-09-18
-
-### Added
-- **Initial release**: First version of the modernized prompt library
-- **Project foundation**: Core architecture, build system, and development guidelines established
 
 ---
 

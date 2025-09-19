@@ -25,45 +25,70 @@ import (
 // visual output and handles complex scenarios like suggestion menus and
 // multi-line editing with proper text wrapping.
 type renderer struct {
-	output      io.Writer    // Target output writer (typically stdout or colorable wrapper)
-	colorScheme *ColorScheme // Color configuration for themed rendering
-	lastLines   int          // Track number of lines rendered for efficient cleanup
+	output            io.Writer    // Target output writer (typically stdout or colorable wrapper)
+	colorScheme       *ColorScheme // Color configuration for themed rendering
+	lastLines         int          // Track number of lines rendered for efficient cleanup
+	suggestionsActive bool         // Track if suggestions are currently displayed
 }
 
 // newRenderer creates a new renderer with the given output and color scheme.
 func newRenderer(output io.Writer, colorScheme *ColorScheme) *renderer {
 	return &renderer{
-		output:      output,
-		colorScheme: colorScheme,
+		output:            output,
+		colorScheme:       colorScheme,
+		lastLines:         1, // Initialize with 1 to handle initial clear correctly
+		suggestionsActive: false,
 	}
 }
 
 // render displays the prompt with the current input.
 func (r *renderer) render(prefix, input string, cursor int) error {
-	return r.renderWithSuggestions(prefix, input, cursor, nil, 0)
+	return r.renderWithSuggestionsOffset(prefix, input, cursor, nil, 0, 0)
 }
 
-// renderWithSuggestions displays the prompt with completion suggestions.
-func (r *renderer) renderWithSuggestions(prefix, input string, cursor int, suggestions []Suggestion, selected int) error {
-	// Clear previous output
+// renderWithSuggestionsOffset displays the prompt with completion suggestions and scrolling support.
+func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int, suggestions []Suggestion, selected int, offset int) error {
+	// Clear previous output using the CURRENT lastLines value
 	r.clearPreviousLines()
 
-	// Render main prompt line
-	if err := r.renderMainLine(prefix, input, cursor); err != nil {
-		return err
-	}
-
-	// Count lines in the input
+	// Count lines in the input for accurate positioning
 	inputLines := len(r.splitIntoLines(input))
 
-	// Render suggestions if any
 	if len(suggestions) > 0 {
-		if err := r.renderSuggestions(suggestions, selected); err != nil {
+		// Hide cursor during suggestion rendering
+		if _, err := fmt.Fprint(r.output, "\x1b[?25l"); err != nil {
 			return err
 		}
+
+		// Render the main prompt line without cursor
+		if err := r.renderMainLineWithoutCursor(prefix, input); err != nil {
+			return err
+		}
+
+		// Render suggestions
+		if err := r.renderSuggestionsWithOffset(prefix, input, cursor, suggestions, selected, offset); err != nil {
+			return err
+		}
+
+		// Update state AFTER rendering
+		visibleCount := min(len(suggestions), 10)
+		r.lastLines = inputLines + visibleCount
+		r.suggestionsActive = true
+	} else {
+		// No suggestions - render normally with cursor
+		if err := r.renderMainLine(prefix, input, cursor); err != nil {
+			return err
+		}
+
+		// Show cursor
+		if _, err := fmt.Fprint(r.output, "\x1b[?25h"); err != nil {
+			return err
+		}
+
+		r.lastLines = inputLines
+		r.suggestionsActive = false
 	}
 
-	r.lastLines = inputLines + len(suggestions) // Input lines + suggestion lines
 	return nil
 }
 
@@ -133,25 +158,98 @@ func (r *renderer) renderMainLine(prefix, input string, cursor int) error {
 	return nil
 }
 
-// renderSuggestions renders the completion suggestions below the main line.
-func (r *renderer) renderSuggestions(suggestions []Suggestion, selected int) error {
-	if _, err := fmt.Fprint(r.output, "\r\n"); err != nil { // Move to next line with proper line ending
+// renderMainLineWithoutCursor renders the main prompt line without cursor positioning (for suggestions)
+func (r *renderer) renderMainLineWithoutCursor(prefix, input string) error {
+	// Move to beginning of line and clear it
+	if _, err := fmt.Fprint(r.output, "\r\x1b[K"); err != nil {
+		return err
+	}
+
+	// Split input into lines
+	lines := r.splitIntoLines(input)
+
+	// Render each line
+	for lineIndex, line := range lines {
+		// Clear current line
+		if lineIndex > 0 {
+			if _, err := fmt.Fprint(r.output, "\x1b[K"); err != nil {
+				return err
+			}
+		}
+
+		if lineIndex == 0 {
+			// First line: render prefix
+			if _, err := fmt.Fprint(r.output, r.colorScheme.Prefix.ToANSI()); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprint(r.output, prefix); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprint(r.output, Reset()); err != nil {
+				return err
+			}
+		} else {
+			// Continuation lines: add appropriate indentation
+			if _, err := fmt.Fprint(r.output, strings.Repeat(" ", len([]rune(prefix)))); err != nil {
+				return err
+			}
+		}
+
+		// Render line content with color
+		if _, err := fmt.Fprint(r.output, r.colorScheme.Input.ToANSI()); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprint(r.output, line); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprint(r.output, Reset()); err != nil {
+			return err
+		}
+
+		// Move to next line if not the last line
+		if lineIndex < len(lines)-1 {
+			if _, err := fmt.Fprint(r.output, "\n"); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// renderSuggestionsWithOffset renders the completion suggestions with scrolling support.
+func (r *renderer) renderSuggestionsWithOffset(_, _ string, _ int, suggestions []Suggestion, selected int, offset int) error {
+	// Start rendering suggestions
+	if _, err := fmt.Fprint(r.output, "\r\n"); err != nil {
 		return err
 	}
 
 	maxSuggestions := 10 // Limit number of displayed suggestions
+
+	// Clamp offset to valid range for all suggestion counts
+	maxOffset := max(0, len(suggestions)-maxSuggestions)
+	offset = max(0, min(offset, maxOffset))
+
+	// Calculate visible range with offset
+	visibleSuggestions := suggestions
 	if len(suggestions) > maxSuggestions {
-		suggestions = suggestions[:maxSuggestions]
+		visibleSuggestions = suggestions[offset:min(offset+maxSuggestions, len(suggestions))]
 	}
 
-	for i, suggestion := range suggestions {
+	// Adjust selected index for visible range
+	visibleSelected := selected - offset
+	if selected < offset || selected >= offset+len(visibleSuggestions) {
+		visibleSelected = -1 // Selected item is not visible
+	}
+
+	for i, suggestion := range visibleSuggestions {
 		// Clear line and move to beginning
 		if _, err := fmt.Fprint(r.output, "\r\x1b[K"); err != nil {
 			return err
 		}
 
 		// Render selection indicator and suggestion
-		if i == selected {
+		if i == visibleSelected {
 			// Selected suggestion
 			if _, err := fmt.Fprint(r.output, r.colorScheme.Selected.ToANSI()); err != nil {
 				return err
@@ -201,38 +299,35 @@ func (r *renderer) renderSuggestions(suggestions []Suggestion, selected int) err
 		}
 
 		// Move to next line (except for last suggestion) with proper line ending
-		if i < len(suggestions)-1 {
+		if i < len(visibleSuggestions)-1 {
 			if _, err := fmt.Fprint(r.output, "\r\n"); err != nil {
 				return err
 			}
 		}
 	}
 
-	// Move cursor back to main input line
-	if len(suggestions) > 0 {
-		if _, err := fmt.Fprintf(r.output, "\x1b[%dA", len(suggestions)); err != nil {
-			return err
-		}
-	}
-
+	// Leave cursor at the end of suggestions
+	// Parent function will handle final cursor positioning
 	return nil
 }
 
 // clearPreviousLines clears the previously rendered lines.
 func (r *renderer) clearPreviousLines() {
 	if r.lastLines <= 1 {
+		// Just clear the current line
+		fmt.Fprint(r.output, "\r\x1b[K")
 		return
 	}
 
-	// Move to beginning of the block and clear all lines
-	for range r.lastLines - 1 {
-		fmt.Fprint(r.output, "\x1b[E") // Move to beginning of next line
-		fmt.Fprint(r.output, "\x1b[K") // Clear line
+	// For multi-line content (suggestions), we need to move cursor up to the beginning
+	// of the content area and then clear everything from there down
+	if r.lastLines > 1 {
+		// Move cursor up to the beginning of the rendered content
+		fmt.Fprintf(r.output, "\x1b[%dA", r.lastLines-1)
 	}
 
-	// Move back to the first line
-	fmt.Fprintf(r.output, "\x1b[%dA", r.lastLines-1)
-	fmt.Fprint(r.output, "\r") // Move to beginning of line
+	// Move to beginning of line and clear from cursor to end of screen
+	fmt.Fprint(r.output, "\r\x1b[0J")
 }
 
 // splitIntoLines splits the input string into individual lines for multi-line rendering.
