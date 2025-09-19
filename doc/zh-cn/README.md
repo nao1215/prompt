@@ -10,7 +10,7 @@
 
 **prompt** 是一个为 Go 提供强大交互式命令行界面的简单终端提示库。该库被设计为不再维护的 [c-bata/go-prompt](https://github.com/c-bata/go-prompt) 库的替代品，解决了关键问题的同时添加了增强功能和更好的跨平台支持。
 
-![sample](../img/sample.png)
+![sample](../img/demo.gif)
 
 ## 🎯 为什么选择 prompt？
 

@@ -10,7 +10,7 @@
 
 **prompt** est une bibliothèque de prompt terminal simple pour Go qui fournit des interfaces de ligne de commande interactives puissantes. Cette bibliothèque est conçue comme un remplacement pour la bibliothèque non maintenue [c-bata/go-prompt](https://github.com/c-bata/go-prompt), en résolvant les problèmes critiques tout en ajoutant des fonctionnalités améliorées et un meilleur support multiplateforme.
 
-![sample](../img/sample.png)
+![sample](../img/demo.gif)
 
 ## 🎯 Pourquoi prompt ?
 
