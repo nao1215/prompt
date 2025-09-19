@@ -1436,12 +1436,19 @@ func (p *Prompt) addToHistory(text string) {
 	// Do nothing when history manager exists but is disabled
 }
 
-// isShiftEnter detects if Shift+Enter was pressed for multi-line input
+// isShiftEnter detects if we should add a newline instead of submitting
 func (p *Prompt) isShiftEnter() bool {
-	// For now, we'll use a simple heuristic: if the buffer already contains
-	// newlines, treat Enter as adding a newline. For a complete implementation,
-	// we'd need to track modifier keys.
-	return p.isMultiLine()
+	currentLine := p.getCurrentLineText()
+
+	// Check for backslash continuation - if present, add newline
+	if strings.HasSuffix(strings.TrimRight(currentLine, " \t"), "\\") {
+		// Remove the backslash and add newline for continuation
+		p.removeTrailingBackslash()
+		return true // Add newline for continuation
+	}
+
+	// If no backslash, Enter submits (both single-line and multiline modes)
+	return false
 }
 
 // isMultiLine checks if the current buffer contains newline characters
@@ -1523,6 +1530,34 @@ func (p *Prompt) findCursorDown() int {
 		return nextLineStart + column
 	}
 	return nextLineEnd
+}
+
+// getCurrentLineText returns the text of the current line where the cursor is positioned
+func (p *Prompt) getCurrentLineText() string {
+	lineStart := p.findLineStart()
+	lineEnd := p.findLineEnd()
+	return string(p.buffer[lineStart:lineEnd])
+}
+
+// removeTrailingBackslash removes the trailing backslash from the current line
+func (p *Prompt) removeTrailingBackslash() {
+	lineStart := p.findLineStart()
+	lineEnd := p.findLineEnd()
+	lineText := string(p.buffer[lineStart:lineEnd])
+
+	// Find the position of the trailing backslash
+	trimmedText := strings.TrimRight(lineText, " \t")
+	if strings.HasSuffix(trimmedText, "\\") {
+		// Calculate the position of the backslash in the original buffer
+		backslashPos := lineStart + len(trimmedText) - 1
+
+		// Remove the backslash from the buffer
+		p.buffer = append(p.buffer[:backslashPos], p.buffer[backslashPos+1:]...)
+
+		// Move cursor to end of line (where the backslash was)
+		// This ensures cursor is positioned for the newline insertion
+		p.cursor = backslashPos
+	}
 }
 
 func (p *Prompt) enterRawMode() error {

@@ -115,9 +115,9 @@ func (r *renderer) renderMainLine(prefix, input string, cursor int) error {
 
 	// Render each line
 	for lineIndex, line := range lines {
-		// Clear current line
 		if lineIndex > 0 {
-			if _, err := fmt.Fprint(r.output, "\x1b[K"); err != nil {
+			// Continuation lines: ensure we start from line beginning
+			if _, err := fmt.Fprint(r.output, "\r\x1b[K"); err != nil {
 				return err
 			}
 		}
@@ -133,12 +133,8 @@ func (r *renderer) renderMainLine(prefix, input string, cursor int) error {
 			if _, err := fmt.Fprint(r.output, Reset()); err != nil {
 				return err
 			}
-		} else {
-			// Continuation lines: add appropriate indentation
-			if _, err := fmt.Fprint(r.output, strings.Repeat(" ", len([]rune(prefix)))); err != nil {
-				return err
-			}
 		}
+		// Continuation lines: start from beginning with carriage return
 
 		// Render line content with color
 		if _, err := fmt.Fprint(r.output, r.colorScheme.Input.ToANSI()); err != nil {
@@ -177,9 +173,9 @@ func (r *renderer) renderMainLineWithoutCursor(prefix, input string) error {
 
 	// Render each line
 	for lineIndex, line := range lines {
-		// Clear current line
 		if lineIndex > 0 {
-			if _, err := fmt.Fprint(r.output, "\x1b[K"); err != nil {
+			// Continuation lines: ensure we start from line beginning
+			if _, err := fmt.Fprint(r.output, "\r\x1b[K"); err != nil {
 				return err
 			}
 		}
@@ -195,12 +191,8 @@ func (r *renderer) renderMainLineWithoutCursor(prefix, input string) error {
 			if _, err := fmt.Fprint(r.output, Reset()); err != nil {
 				return err
 			}
-		} else {
-			// Continuation lines: add appropriate indentation
-			if _, err := fmt.Fprint(r.output, strings.Repeat(" ", len([]rune(prefix)))); err != nil {
-				return err
-			}
 		}
+		// Continuation lines: start from beginning with carriage return
 
 		// Render line content with color
 		if _, err := fmt.Fprint(r.output, r.colorScheme.Input.ToANSI()); err != nil {
@@ -399,24 +391,16 @@ func (r *renderer) findCursorPosition(inputRunes []rune, cursor int) (line, col 
 
 // positionCursor moves the terminal cursor to the correct position using ANSI escape sequences.
 //
-// This function handles the complex task of positioning the cursor accurately in multi-line
-// terminal output. It addresses several critical positioning scenarios:
+// Simplified approach for multiline:
+//   - Single-line input: Normal positioning with prefix
+//   - Multi-line input: Continuation lines always start from line beginning (column 0)
+//   - No complex calculations - just move to target line and position from start
 //
-//   - Single-line input: Positions cursor by moving left from end of line
-//   - Multi-line input: Moves up to correct line, then positions horizontally
-//   - Prefix handling: Accounts for prompt prefix length on the first line
-//   - Continuation lines: Accounts for indentation on wrapped lines
-//
-// The algorithm prevents cursor positioning errors that caused visual glitches
-// and crashes in the original go-prompt. Uses standard ANSI escape codes:
+// Uses standard ANSI escape codes:
 //   - \x1b[<n>A: Move cursor up n lines
 //   - \x1b[<n>C: Move cursor right n characters
-//   - \x1b[<n>D: Move cursor left n characters
 //   - \r: Move cursor to beginning of line
-//
-// Critical for proper visual feedback during editing operations.
 func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol, prefixLen int) {
-	// Calculate how many lines we need to move up from the last line
 	totalLines := len(lines)
 	if totalLines <= 1 {
 		// Single line - move cursor back from end of line
@@ -430,25 +414,34 @@ func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol, prefixL
 		return
 	}
 
-	// Multi-line - move up to correct line, then position horizontally
-	linesToMoveUp := totalLines - 1 - cursorLine
+	// Multi-line positioning: simple approach
+	// 1. Move up to the target line (if needed)
+	// 2. Move to beginning of that line
+	// 3. Move right to cursor position (no prefix calculation for continuation lines)
+
+	// Calculate how many lines to move up from the last line (where cursor currently is)
+	// to the target line (cursorLine)
+	currentLine := totalLines - 1 // We're currently at the last line (0-indexed)
+	linesToMoveUp := currentLine - cursorLine
 	if linesToMoveUp > 0 {
 		fmt.Fprintf(r.output, "\x1b[%dA", linesToMoveUp)
 	}
 
-	// Move to beginning of line and then to correct column
+	// Move to beginning of current line
 	fmt.Fprint(r.output, "\r")
 
-	// Calculate total column position including prefix on first line
-	totalCol := cursorCol
+	// Simple column positioning
 	if cursorLine == 0 {
-		totalCol += prefixLen
+		// First line: add prefix length
+		totalCol := cursorCol + prefixLen
+		if totalCol > 0 {
+			fmt.Fprintf(r.output, "\x1b[%dC", totalCol)
+		}
 	} else {
-		totalCol += prefixLen // Indentation for continuation lines
-	}
-
-	if totalCol > 0 {
-		fmt.Fprintf(r.output, "\x1b[%dC", totalCol)
+		// Continuation lines: just move to cursor column (from line start)
+		if cursorCol > 0 {
+			fmt.Fprintf(r.output, "\x1b[%dC", cursorCol)
+		}
 	}
 }
 
@@ -483,8 +476,8 @@ func (r *renderer) calculateRenderedLines(prefix, input string) int {
 			// First line includes the actual prefix
 			actualLength = prefixLen + len(lineRunes)
 		} else {
-			// Continuation lines have indentation (spaces) equal to prefix length
-			actualLength = prefixLen + len(lineRunes)
+			// Continuation lines have no prefix, just the line content
+			actualLength = len(lineRunes)
 		}
 
 		// Calculate how many terminal lines this will take
