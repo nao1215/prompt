@@ -12,7 +12,9 @@ import (
 
 func main() {
 	fmt.Println("Multiline Input Example")
-	fmt.Println("Enter multiline text. End input with a line containing only '.' or press Ctrl+D")
+	fmt.Println("Enter text:")
+	fmt.Println("  - Use backslash (\\) at line end + Enter for line continuation")
+	fmt.Println("  - Press Enter without backslash to submit")
 	fmt.Println("Type 'exit' to quit")
 	fmt.Println()
 
@@ -26,7 +28,7 @@ func main() {
 	defer p.Close()
 
 	for {
-		fmt.Println("Enter your text (end with '.' on a new line):")
+		fmt.Println("Enter your text:")
 
 		// Run the prompt
 		result, err := p.Run()

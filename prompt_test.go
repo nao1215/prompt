@@ -3481,8 +3481,8 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 			Multiline: true,
 		}
 
-		// Enter multiline content
-		input := "line1\nline2\r"
+		// Test multiline with backslash continuation
+		input := "line1\\\nline2\r"
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
@@ -3493,6 +3493,50 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 
 		if !stringContains(result, "line1") {
 			t.Errorf("Expected multiline result to contain 'line1', got %q", result)
+		}
+	})
+
+	t.Run("BackslashContinuation", func(t *testing.T) {
+		config := Config{
+			Prefix:    "test> ",
+			Multiline: true,
+		}
+
+		// Test backslash continuation in multiline mode
+		input := "line1 \\\nline2\n\r"
+		p := newForTestingWithConfig(t, config, input)
+		defer p.Close()
+
+		result, err := p.RunWithContext(context.Background())
+		if err != nil {
+			t.Fatalf("RunWithContext failed: %v", err)
+		}
+
+		expected := "line1 \nline2"
+		if result != expected {
+			t.Errorf("Expected backslash continuation result %q, got %q", expected, result)
+		}
+	})
+
+	t.Run("SingleLineBackslashContinuation", func(t *testing.T) {
+		config := Config{
+			Prefix:    "test> ",
+			Multiline: false,
+		}
+
+		// Test backslash continuation in single-line mode
+		input := "echo hello \\\nworld\r"
+		p := newForTestingWithConfig(t, config, input)
+		defer p.Close()
+
+		result, err := p.RunWithContext(context.Background())
+		if err != nil {
+			t.Fatalf("RunWithContext failed: %v", err)
+		}
+
+		expected := "echo hello \nworld"
+		if result != expected {
+			t.Errorf("Expected single-line backslash continuation result %q, got %q", expected, result)
 		}
 	})
 }
