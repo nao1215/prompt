@@ -586,7 +586,7 @@ func TestPromptInteractiveFeatures(t *testing.T) {
 				buffer:   []rune{},
 				cursor:   0,
 				history:  []string{},
-				renderer: newRenderer(&output, ThemeDefault),
+				renderer: newRenderer(&output, ThemeDefault, nil),
 			}
 
 			result, err := p.RunWithContext(context.Background())
@@ -630,7 +630,7 @@ func TestPromptWithCompleter(t *testing.T) {
 		buffer:   []rune{},
 		cursor:   0,
 		history:  []string{},
-		renderer: newRenderer(&output, ThemeDefault),
+		renderer: newRenderer(&output, ThemeDefault, nil),
 	}
 
 	result, err := p.RunWithContext(context.Background())
@@ -667,7 +667,7 @@ func TestPromptHistoryNavigation(t *testing.T) {
 		buffer:   []rune{},
 		cursor:   0,
 		history:  []string{"previous command", "another command"},
-		renderer: newRenderer(&output, ThemeDefault),
+		renderer: newRenderer(&output, ThemeDefault, nil),
 	}
 
 	result, err := p.RunWithContext(context.Background())
@@ -700,7 +700,7 @@ func TestPromptBackspaceHandling(t *testing.T) {
 		buffer:   []rune{},
 		cursor:   0,
 		history:  []string{},
-		renderer: newRenderer(&output, ThemeDefault),
+		renderer: newRenderer(&output, ThemeDefault, nil),
 	}
 
 	result, err := p.RunWithContext(context.Background())
@@ -733,7 +733,7 @@ func TestPromptDeleteHandling(t *testing.T) {
 		buffer:   []rune{},
 		cursor:   0,
 		history:  []string{},
-		renderer: newRenderer(&output, ThemeDefault),
+		renderer: newRenderer(&output, ThemeDefault, nil),
 	}
 
 	result, err := p.RunWithContext(context.Background())
@@ -792,7 +792,7 @@ func TestPromptCursorMovement(t *testing.T) {
 				buffer:   []rune{},
 				cursor:   0,
 				history:  []string{},
-				renderer: newRenderer(&output, ThemeDefault),
+				renderer: newRenderer(&output, ThemeDefault, nil),
 			}
 
 			result, err := p.RunWithContext(context.Background())
@@ -863,7 +863,7 @@ func TestPromptRenderError(t *testing.T) {
 	failingWriter := &failingWriter{}
 
 	// Test the renderer directly to ensure it fails
-	renderer := newRenderer(failingWriter, ThemeDefault)
+	renderer := newRenderer(failingWriter, ThemeDefault, nil)
 	err := renderer.render("$ ", "test", 4)
 	if err == nil {
 		t.Error("Expected error from failing writer in renderer")
@@ -945,7 +945,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 			buffer:   []rune{},
 			cursor:   0,
 			history:  []string{},
-			renderer: newRenderer(&output, ThemeDefault),
+			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
 		result, err := p.Run()
@@ -986,7 +986,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 			buffer:   []rune{},
 			cursor:   0,
 			history:  []string{},
-			renderer: newRenderer(&output, ThemeDefault),
+			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1068,7 +1068,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 			buffer:   []rune{},
 			cursor:   0,
 			history:  []string{},
-			renderer: newRenderer(&output, ThemeDefault),
+			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
 		result, err := p.RunWithContext(context.Background())
@@ -1118,7 +1118,7 @@ func TestRendererWithSuggestionEdgeCases(t *testing.T) {
 
 	t.Run("many suggestions truncation", func(t *testing.T) {
 		var output TestWriter
-		renderer := newRenderer(&output, ThemeDefault)
+		renderer := newRenderer(&output, ThemeDefault, nil)
 
 		// Create more than 10 suggestions
 		suggestions := make([]Suggestion, 15)
@@ -1146,7 +1146,7 @@ func TestRendererWithSuggestionEdgeCases(t *testing.T) {
 
 	t.Run("clear multiple lines", func(t *testing.T) {
 		var output TestWriter
-		renderer := newRenderer(&output, ThemeDefault)
+		renderer := newRenderer(&output, ThemeDefault, nil)
 
 		// Simulate having rendered multiple lines
 		renderer.lastLines = 5
@@ -1162,7 +1162,7 @@ func TestRendererWithSuggestionEdgeCases(t *testing.T) {
 	t.Run("render error conditions", func(t *testing.T) {
 		// Test failing writer scenarios
 		failing := &failingWriter{}
-		renderer := newRenderer(failing, ThemeDefault)
+		renderer := newRenderer(failing, ThemeDefault, nil)
 
 		// Test renderMainLine error
 		err := renderer.renderMainLine("$ ", "test", 2)
@@ -1186,7 +1186,7 @@ func TestRendererWithSuggestionEdgeCases(t *testing.T) {
 
 	t.Run("suggestions without descriptions", func(t *testing.T) {
 		var output TestWriter
-		renderer := newRenderer(&output, ThemeDefault)
+		renderer := newRenderer(&output, ThemeDefault, nil)
 
 		suggestions := []Suggestion{
 			{Text: "cmd1"},
@@ -1300,7 +1300,7 @@ func TestRunWithContextCoverage(t *testing.T) {
 			buffer:   []rune{},
 			cursor:   0,
 			history:  []string{},
-			renderer: newRenderer(&output, ThemeDefault),
+			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
 		result, err := p.RunWithContext(context.Background())
@@ -1327,7 +1327,7 @@ func TestRunWithContextCoverage(t *testing.T) {
 			buffer:   []rune{},
 			cursor:   0,
 			history:  []string{"previous command", "another command"},
-			renderer: newRenderer(&output, ThemeDefault),
+			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
 		result, err := p.RunWithContext(context.Background())
@@ -1354,7 +1354,7 @@ func TestRunWithContextCoverage(t *testing.T) {
 			buffer:   []rune{},
 			cursor:   0,
 			history:  []string{},
-			renderer: newRenderer(&output, ThemeDefault),
+			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
 		result, err := p.RunWithContext(context.Background())
@@ -1416,7 +1416,7 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 
 	t.Run("render with cursor positions", func(t *testing.T) {
 		var output TestWriter
-		renderer := newRenderer(&output, ThemeDefault)
+		renderer := newRenderer(&output, ThemeDefault, nil)
 
 		// Test cursor at beginning
 		err := renderer.renderMainLine("$ ", "hello", 0)
@@ -1451,7 +1451,7 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 
 	t.Run("render suggestions with various combinations", func(t *testing.T) {
 		var output TestWriter
-		renderer := newRenderer(&output, ThemeDefault)
+		renderer := newRenderer(&output, ThemeDefault, nil)
 
 		// Test single suggestion
 		suggestions := []Suggestion{{Text: "hello", Description: "greeting"}}
@@ -1506,7 +1506,7 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 
 	t.Run("render with suggestions integration", func(t *testing.T) {
 		var output TestWriter
-		renderer := newRenderer(&output, ThemeDefault)
+		renderer := newRenderer(&output, ThemeDefault, nil)
 
 		suggestions := []Suggestion{
 			{Text: "hello", Description: "greeting"},
@@ -1578,7 +1578,7 @@ func TestAdvancedPromptCoverage(t *testing.T) {
 					terminal: mock,
 					keyMap:   NewDefaultKeyMap(),
 					output:   &output,
-					renderer: newRenderer(&output, ThemeDefault),
+					renderer: newRenderer(&output, ThemeDefault, nil),
 				}
 
 				result, err := p.readEscapeSequence()
@@ -1614,7 +1614,7 @@ func TestAdvancedPromptCoverage(t *testing.T) {
 			buffer:   []rune{},
 			cursor:   0,
 			history:  []string{},
-			renderer: newRenderer(&output, ThemeDefault),
+			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
 		result, err := p.RunWithContext(context.Background())
@@ -1646,7 +1646,7 @@ func TestAdvancedPromptCoverage(t *testing.T) {
 			buffer:   []rune{},
 			cursor:   0,
 			history:  []string{"old1", "old2"}, // Already at limit
-			renderer: newRenderer(&output, ThemeDefault),
+			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
 		result, err := p.RunWithContext(context.Background())
@@ -1673,7 +1673,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 
 	t.Run("cursor positioning edge cases", func(t *testing.T) {
 		var output TestWriter
-		renderer := newRenderer(&output, ThemeDefault)
+		renderer := newRenderer(&output, ThemeDefault, nil)
 
 		// Test cursor at different positions
 		testCases := []struct {
@@ -1734,7 +1734,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 			buffer:   []rune{},
 			cursor:   0,
 			history:  []string{},
-			renderer: newRenderer(&output, ThemeDefault),
+			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
 		result, err := p.RunWithContext(context.Background())
@@ -1761,7 +1761,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 			buffer:   []rune{},
 			cursor:   0,
 			history:  []string{}, // Empty history
-			renderer: newRenderer(&output, ThemeDefault),
+			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
 		result, err := p.RunWithContext(context.Background())
@@ -1801,7 +1801,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 			buffer:   []rune{},
 			cursor:   0,
 			history:  []string{},
-			renderer: newRenderer(&output, ThemeDefault),
+			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
 		result, err := p.RunWithContext(context.Background())
@@ -1829,7 +1829,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 			buffer:   []rune{},
 			cursor:   0,
 			history:  []string{"test"}, // Same command already in history
-			renderer: newRenderer(&output, ThemeDefault),
+			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
 		result, err := p.RunWithContext(context.Background())
@@ -4039,7 +4039,7 @@ func newForTestingWithConfig(t *testing.T, config Config, mockInput string) *Pro
 	}
 
 	// Initialize renderer
-	p.renderer = newRenderer(output, config.ColorScheme)
+	p.renderer = newRenderer(output, config.ColorScheme, p.terminal)
 
 	return p
 }

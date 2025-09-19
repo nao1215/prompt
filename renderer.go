@@ -25,19 +25,21 @@ import (
 // visual output and handles complex scenarios like suggestion menus and
 // multi-line editing with proper text wrapping.
 type renderer struct {
-	output            io.Writer    // Target output writer (typically stdout or colorable wrapper)
-	colorScheme       *ColorScheme // Color configuration for themed rendering
-	lastLines         int          // Track number of lines rendered for efficient cleanup
-	suggestionsActive bool         // Track if suggestions are currently displayed
+	output            io.Writer         // Target output writer (typically stdout or colorable wrapper)
+	colorScheme       *ColorScheme      // Color configuration for themed rendering
+	lastLines         int               // Track number of lines rendered for efficient cleanup
+	suggestionsActive bool              // Track if suggestions are currently displayed
+	terminal          terminalInterface // Terminal interface for getting size information
 }
 
 // newRenderer creates a new renderer with the given output and color scheme.
-func newRenderer(output io.Writer, colorScheme *ColorScheme) *renderer {
+func newRenderer(output io.Writer, colorScheme *ColorScheme, terminal terminalInterface) *renderer {
 	return &renderer{
 		output:            output,
 		colorScheme:       colorScheme,
 		lastLines:         1, // Initialize with 1 to handle initial clear correctly
 		suggestionsActive: false,
+		terminal:          terminal,
 	}
 }
 
@@ -51,8 +53,12 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 	// Clear previous output using the CURRENT lastLines value
 	r.clearPreviousLines()
 
-	// Count lines in the input for accurate positioning
-	inputLines := len(r.splitIntoLines(input))
+	// Calculate the actual number of lines that will be rendered
+	// This accounts for both explicit newlines and terminal wrapping
+	inputLines := r.calculateRenderedLines(prefix, input)
+	if inputLines == 0 {
+		inputLines = 1
+	}
 
 	if len(suggestions) > 0 {
 		// Hide cursor during suggestion rendering
@@ -85,6 +91,7 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 			return err
 		}
 
+		// Update lastLines to match the actual number of lines rendered
 		r.lastLines = inputLines
 		r.suggestionsActive = false
 	}
@@ -319,14 +326,16 @@ func (r *renderer) clearPreviousLines() {
 		return
 	}
 
-	// For multi-line content (suggestions), we need to move cursor up to the beginning
-	// of the content area and then clear everything from there down
-	if r.lastLines > 1 {
-		// Move cursor up to the beginning of the rendered content
-		fmt.Fprintf(r.output, "\x1b[%dA", r.lastLines-1)
-	}
+	// For multi-line content, we need to:
+	// 1. Move cursor up to the beginning of the rendered content
+	// 2. Clear from cursor position to end of screen
+	// This ensures all previously rendered lines are cleared properly
+
+	// Move cursor up to the first line of the previously rendered content
+	fmt.Fprintf(r.output, "\x1b[%dA", r.lastLines-1)
 
 	// Move to beginning of line and clear from cursor to end of screen
+	// \x1b[0J clears from cursor position to end of screen
 	fmt.Fprint(r.output, "\r\x1b[0J")
 }
 
@@ -441,4 +450,59 @@ func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol, prefixL
 	if totalCol > 0 {
 		fmt.Fprintf(r.output, "\x1b[%dC", totalCol)
 	}
+}
+
+// calculateRenderedLines calculates the actual number of lines that will be rendered,
+// accounting for both explicit newlines and terminal wrapping.
+func (r *renderer) calculateRenderedLines(prefix, input string) int {
+	// Get terminal width
+	termWidth := 80 // Default fallback
+	if r.terminal != nil {
+		if width, _, err := r.terminal.Size(); err == nil && width > 0 {
+			termWidth = width
+		}
+	}
+
+	// If input is empty, we still have one line with just the prefix
+	if input == "" {
+		return 1
+	}
+
+	// Split by explicit newlines
+	lines := strings.Split(input, "\n")
+
+	totalLines := 0
+	prefixLen := len([]rune(prefix))
+
+	for i, line := range lines {
+		lineRunes := []rune(line)
+
+		// Calculate the actual length including prefix/indentation
+		var actualLength int
+		if i == 0 {
+			// First line includes the actual prefix
+			actualLength = prefixLen + len(lineRunes)
+		} else {
+			// Continuation lines have indentation (spaces) equal to prefix length
+			actualLength = prefixLen + len(lineRunes)
+		}
+
+		// Calculate how many terminal lines this will take
+		if actualLength == 0 || (i == 0 && actualLength == prefixLen) {
+			// Empty line or just prefix
+			totalLines++
+		} else if termWidth > 0 {
+			// Calculate wrapped lines based on terminal width
+			// Use ceiling division: (actualLength + termWidth - 1) / termWidth
+			wrappedLines := (actualLength + termWidth - 1) / termWidth
+			if wrappedLines == 0 {
+				wrappedLines = 1
+			}
+			totalLines += wrappedLines
+		} else {
+			totalLines++
+		}
+	}
+
+	return totalLines
 }

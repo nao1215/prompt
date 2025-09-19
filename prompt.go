@@ -494,7 +494,7 @@ func newFromConfig(config Config) (*Prompt, error) {
 	}
 
 	// Initialize renderer
-	p.renderer = newRenderer(output, config.ColorScheme)
+	p.renderer = newRenderer(output, config.ColorScheme, p.terminal)
 
 	return p, nil
 }
@@ -1038,7 +1038,7 @@ func (p *Prompt) SetHistory(history []string) {
 func (p *Prompt) SetTheme(theme *ColorScheme) {
 	p.config.ColorScheme = theme
 	p.config.Theme = theme
-	p.renderer = newRenderer(p.output, theme)
+	p.renderer = newRenderer(p.output, theme, p.terminal)
 }
 
 // SetPrefix changes the prompt prefix
