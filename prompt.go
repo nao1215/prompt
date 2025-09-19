@@ -16,6 +16,9 @@ import (
 	"github.com/mattn/go-colorable"
 )
 
+// Windows OS name constant
+const windowsOS = "windows"
+
 // Common errors
 var (
 	// ErrEOF is returned when the user presses Ctrl+D or EOF is encountered
@@ -462,7 +465,7 @@ func newFromConfig(config Config) (*Prompt, error) {
 
 	// Setup output writer with color support
 	var output io.Writer = os.Stdout
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == windowsOS {
 		// Use colorable for Windows ANSI color support
 		output = colorable.NewColorableStdout()
 	}

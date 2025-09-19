@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -1158,5 +1159,313 @@ func TestHistoryFileOperationsWithExpandedPaths(t *testing.T) {
 	loadedHistory := hm2.GetHistory()
 	if len(loadedHistory) != 2 {
 		t.Errorf("Expected 2 history entries, got %d", len(loadedHistory))
+	}
+}
+
+func TestGetDefaultHistoryFile(t *testing.T) {
+	result := GetDefaultHistoryFile()
+
+	// Should return an expanded path
+	if !filepath.IsAbs(result) {
+		t.Errorf("Expected absolute path, got %q", result)
+	}
+
+	// Should contain .config/prompt/history pattern
+	if !strings.Contains(result, filepath.Join(".config", "prompt", "history")) {
+		t.Errorf("Expected path to contain .config/prompt/history, got %q", result)
+	}
+}
+
+func TestRotateHistoryFile(t *testing.T) {
+	if os.Getenv("GITHUB_ACTIONS") == "" {
+		t.Skip("Skipping slow test in local development")
+	}
+
+	tmpDir := t.TempDir()
+	historyFile := filepath.Join(tmpDir, "rotate_test_history")
+
+	// Create initial history file
+	initialContent := []byte("line1\nline2\nline3\n")
+	err := os.WriteFile(historyFile, initialContent, 0600)
+	if err != nil {
+		t.Fatalf("Failed to create initial file: %v", err)
+	}
+
+	config := &HistoryConfig{
+		Enabled:     true,
+		File:        historyFile,
+		MaxFileSize: 100,
+		MaxBackups:  2,
+	}
+
+	hm := NewHistoryManager(config)
+
+	// Test rotation
+	err = hm.rotateHistoryFile()
+	if err != nil {
+		t.Fatalf("rotateHistoryFile failed: %v", err)
+	}
+
+	// Check backup file was created
+	backupFile := historyFile + ".1"
+	if _, err := os.Stat(backupFile); os.IsNotExist(err) {
+		t.Error("Backup file .1 should have been created")
+	}
+
+	// Check backup content matches original
+	backupContent, err := os.ReadFile(filepath.Clean(backupFile)) // #nosec G304 - test file path is controlled
+	if err != nil {
+		t.Fatalf("Failed to read backup file: %v", err)
+	}
+	if !bytes.Equal(backupContent, initialContent) {
+		t.Error("Backup content doesn't match original")
+	}
+
+	// Test multiple rotations
+	err = os.WriteFile(historyFile, []byte("new content\n"), 0600)
+	if err != nil {
+		t.Fatalf("Failed to write new content: %v", err)
+	}
+
+	err = hm.rotateHistoryFile()
+	if err != nil {
+		t.Fatalf("Second rotation failed: %v", err)
+	}
+
+	// Check .2 file was created
+	backup2File := historyFile + ".2"
+	if _, err := os.Stat(backup2File); os.IsNotExist(err) {
+		t.Error("Backup file .2 should have been created")
+	}
+
+	// Test rotation with max backups reached
+	err = os.WriteFile(historyFile, []byte("third content\n"), 0600)
+	if err != nil {
+		t.Fatalf("Failed to write third content: %v", err)
+	}
+
+	err = hm.rotateHistoryFile()
+	if err != nil {
+		t.Fatalf("Third rotation failed: %v", err)
+	}
+
+	// Check that we don't have more than MaxBackups
+	backup3File := historyFile + ".3"
+	if _, err := os.Stat(backup3File); !os.IsNotExist(err) {
+		t.Error("Backup file .3 should NOT exist (MaxBackups=2)")
+	}
+}
+
+func TestLoadHistoryCorruptedFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	historyFile := filepath.Join(tmpDir, "corrupted_history")
+
+	// Create a file with mixed valid and invalid content
+	content := "valid line 1\n\x00\x00\x00\nvalid line 2\n"
+	err := os.WriteFile(historyFile, []byte(content), 0600)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	config := &HistoryConfig{
+		Enabled:     true,
+		File:        historyFile,
+		MaxFileSize: 1024,
+		MaxBackups:  3,
+	}
+
+	hm := NewHistoryManager(config)
+	err = hm.LoadHistory()
+	if err != nil {
+		t.Fatalf("LoadHistory should handle corrupted content gracefully: %v", err)
+	}
+
+	history := hm.GetHistory()
+	// Should load the valid lines
+	if len(history) == 0 {
+		t.Error("Should have loaded some valid entries")
+	}
+}
+
+func TestSaveHistoryPermissionError(t *testing.T) {
+	if os.Getenv("GITHUB_ACTIONS") == "" || runtime.GOOS == windowsOS {
+		t.Skip("Skipping permission test")
+	}
+
+	tmpDir := t.TempDir()
+	readOnlyDir := filepath.Join(tmpDir, "readonly")
+	err := os.Mkdir(readOnlyDir, 0750) // #nosec G301 - test directory permissions
+	if err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
+
+	// Make directory read-only
+	err = os.Chmod(readOnlyDir, 0555) // #nosec G302 - test requires specific permissions
+	if err != nil {
+		t.Fatalf("Failed to set permissions: %v", err)
+	}
+	defer os.Chmod(readOnlyDir, 0755) // #nosec G302 - test cleanup
+
+	historyFile := filepath.Join(readOnlyDir, "history")
+	config := &HistoryConfig{
+		Enabled:     true,
+		File:        historyFile,
+		MaxFileSize: 1024,
+		MaxBackups:  3,
+	}
+
+	hm := NewHistoryManager(config)
+	hm.AddEntry("test")
+
+	err = hm.SaveHistory()
+	if err == nil {
+		t.Error("Expected error when saving to read-only directory")
+	}
+}
+
+func TestHistoryManagerEdgeCases(t *testing.T) {
+	t.Run("LoadEmptyFile", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		historyFile := filepath.Join(tmpDir, "empty_history")
+
+		// Create empty file
+		err := os.WriteFile(historyFile, []byte(""), 0600)
+		if err != nil {
+			t.Fatalf("Failed to create empty file: %v", err)
+		}
+
+		config := &HistoryConfig{
+			Enabled:     true,
+			File:        historyFile,
+			MaxFileSize: 1024,
+			MaxBackups:  3,
+		}
+
+		hm := NewHistoryManager(config)
+		err = hm.LoadHistory()
+		if err != nil {
+			t.Fatalf("LoadHistory failed on empty file: %v", err)
+		}
+
+		history := hm.GetHistory()
+		if len(history) != 0 {
+			t.Errorf("Expected empty history from empty file, got %d entries", len(history))
+		}
+	})
+
+	t.Run("LoadFileWithBlankLines", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		historyFile := filepath.Join(tmpDir, "blank_lines_history")
+
+		// Create file with blank lines
+		content := "line1\n\n\nline2\n\nline3\n"
+		err := os.WriteFile(historyFile, []byte(content), 0600)
+		if err != nil {
+			t.Fatalf("Failed to create file: %v", err)
+		}
+
+		config := &HistoryConfig{
+			Enabled:     true,
+			File:        historyFile,
+			MaxFileSize: 1024,
+			MaxBackups:  3,
+		}
+
+		hm := NewHistoryManager(config)
+		err = hm.LoadHistory()
+		if err != nil {
+			t.Fatalf("LoadHistory failed: %v", err)
+		}
+
+		history := hm.GetHistory()
+		// Should skip blank lines
+		expectedCount := 3
+		if len(history) != expectedCount {
+			t.Errorf("Expected %d non-blank entries, got %d", expectedCount, len(history))
+		}
+	})
+
+	t.Run("SaveWithNoEntries", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		historyFile := filepath.Join(tmpDir, "no_entries_history")
+
+		config := &HistoryConfig{
+			Enabled:     true,
+			File:        historyFile,
+			MaxFileSize: 1024,
+			MaxBackups:  3,
+		}
+
+		hm := NewHistoryManager(config)
+		// Don't add any entries
+
+		err := hm.SaveHistory()
+		if err != nil {
+			t.Fatalf("SaveHistory failed with no entries: %v", err)
+		}
+
+		// File should be created but empty
+		info, err := os.Stat(historyFile)
+		if os.IsNotExist(err) {
+			t.Error("History file should be created even with no entries")
+		}
+		if info != nil && info.Size() > 1 { // Allow for potential newline
+			t.Errorf("Expected empty or near-empty file, got size %d", info.Size())
+		}
+	})
+}
+
+func TestHistoryFileExpansionErrors(t *testing.T) {
+	t.Run("InvalidHomePath", func(t *testing.T) {
+		// Test with a path that looks like home but isn't valid
+		path := "~nonexistentuser/.history"
+		result, err := expandHistoryPath(path)
+		// Should still process it but may not expand correctly
+		if err != nil {
+			// This is acceptable
+			t.Logf("expandHistoryPath returned error as expected: %v", err)
+		} else {
+			// Should at least return something
+			if result == "" {
+				t.Error("Expected non-empty result even for invalid home path")
+			}
+		}
+	})
+}
+
+func TestRotationWithZeroMaxBackups(t *testing.T) {
+	tmpDir := t.TempDir()
+	historyFile := filepath.Join(tmpDir, "zero_backups_test")
+
+	// Create initial file
+	err := os.WriteFile(historyFile, []byte("initial content\n"), 0600)
+	if err != nil {
+		t.Fatalf("Failed to create initial file: %v", err)
+	}
+
+	config := &HistoryConfig{
+		Enabled:     true,
+		File:        historyFile,
+		MaxFileSize: 10, // Very small to trigger rotation
+		MaxBackups:  0,  // No backups
+	}
+
+	hm := NewHistoryManager(config)
+
+	// Try to rotate
+	err = hm.rotateHistoryFile()
+	if err != nil {
+		t.Fatalf("rotateHistoryFile failed: %v", err)
+	}
+
+	// No backup files should exist
+	backupFile := historyFile + ".1"
+	if _, err := os.Stat(backupFile); !os.IsNotExist(err) {
+		t.Error("No backup files should be created when MaxBackups is 0")
+	}
+
+	// Original file should still exist
+	if _, err := os.Stat(historyFile); os.IsNotExist(err) {
+		t.Error("Original file should still exist")
 	}
 }
