@@ -13,7 +13,7 @@ func TestNewRenderer(t *testing.T) {
 	var output bytes.Buffer
 	colorScheme := ThemeDefault
 
-	renderer := newRenderer(&output, colorScheme)
+	renderer := newRenderer(&output, colorScheme, nil)
 
 	if renderer == nil {
 		t.Error("Expected non-nil renderer")
@@ -35,7 +35,7 @@ func TestRendererRender(t *testing.T) {
 
 	var output bytes.Buffer
 	colorScheme := ThemeDefault
-	renderer := newRenderer(&output, colorScheme)
+	renderer := newRenderer(&output, colorScheme, nil)
 
 	err := renderer.render("$ ", "hello world", 6)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestRendererRenderWithSuggestions(t *testing.T) {
 
 	var output bytes.Buffer
 	colorScheme := ThemeDefault
-	renderer := newRenderer(&output, colorScheme)
+	renderer := newRenderer(&output, colorScheme, nil)
 
 	suggestions := []Suggestion{
 		{Text: "hello", Description: "greeting"},
@@ -84,7 +84,7 @@ func TestRendererSplitIntoLines(t *testing.T) {
 	t.Parallel()
 
 	var output bytes.Buffer
-	renderer := newRenderer(&output, ThemeDefault)
+	renderer := newRenderer(&output, ThemeDefault, nil)
 
 	tests := []struct {
 		name     string
@@ -129,7 +129,7 @@ func TestRendererFindCursorPosition(t *testing.T) {
 	t.Parallel()
 
 	var output bytes.Buffer
-	renderer := newRenderer(&output, ThemeDefault)
+	renderer := newRenderer(&output, ThemeDefault, nil)
 
 	tests := []struct {
 		name     string
@@ -188,7 +188,7 @@ func TestRendererPositionCursor(t *testing.T) {
 	t.Parallel()
 
 	var output bytes.Buffer
-	renderer := newRenderer(&output, ThemeDefault)
+	renderer := newRenderer(&output, ThemeDefault, nil)
 
 	lines := []string{"line1", "line2", "line3"}
 
@@ -207,7 +207,7 @@ func TestRendererMultipleRenders(t *testing.T) {
 	t.Parallel()
 
 	var output bytes.Buffer
-	renderer := newRenderer(&output, ThemeDefault)
+	renderer := newRenderer(&output, ThemeDefault, nil)
 
 	// First render
 	err := renderer.render("$ ", "hello", 5)
@@ -309,7 +309,7 @@ func TestRendererSuggestionScrolling(t *testing.T) {
 			t.Parallel()
 
 			var output bytes.Buffer
-			renderer := newRenderer(&output, ThemeDefault)
+			renderer := newRenderer(&output, ThemeDefault, nil)
 
 			err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, tt.suggestions, tt.selected, tt.offset)
 			if err != nil {
@@ -363,7 +363,7 @@ func TestRendererOffsetBoundaryHandling(t *testing.T) {
 	t.Parallel()
 
 	var output bytes.Buffer
-	renderer := newRenderer(&output, ThemeDefault)
+	renderer := newRenderer(&output, ThemeDefault, nil)
 
 	// Test with various edge cases
 	suggestions := createSuggestions(5) // Smaller than max display
@@ -409,7 +409,7 @@ func TestRendererDuplicateRendering(t *testing.T) {
 	// t.Parallel() // Disabled to avoid terminal output conflicts
 
 	var output bytes.Buffer
-	renderer := newRenderer(&output, ThemeDefault)
+	renderer := newRenderer(&output, ThemeDefault, nil)
 
 	suggestions := []Suggestion{
 		{Text: "help", Description: "Show help information"},
@@ -449,7 +449,7 @@ func TestRendererInputWithSuggestions(t *testing.T) {
 	// t.Parallel() // Disabled to avoid terminal output conflicts
 
 	var output bytes.Buffer
-	renderer := newRenderer(&output, ThemeDefault)
+	renderer := newRenderer(&output, ThemeDefault, nil)
 
 	suggestions := []Suggestion{
 		{Text: "create", Description: "Create a new item"},
@@ -488,7 +488,7 @@ func TestRendererSuggestionClearing(t *testing.T) {
 	// t.Parallel() // Disabled to avoid terminal output conflicts
 
 	var output bytes.Buffer
-	renderer := newRenderer(&output, ThemeDefault)
+	renderer := newRenderer(&output, ThemeDefault, nil)
 
 	suggestions := []Suggestion{
 		{Text: "help", Description: "Show help information"},
@@ -621,7 +621,7 @@ func TestRendererRealWorldCompletionBug(t *testing.T) {
 	// t.Parallel() // Disabled to avoid terminal output conflicts
 
 	var output bytes.Buffer
-	renderer := newRenderer(&output, ThemeDefault)
+	renderer := newRenderer(&output, ThemeDefault, nil)
 
 	// Simulate the exact scenario: user types "create " then presses TAB
 	// This triggers create sub-commands to be shown
@@ -748,7 +748,7 @@ func TestRendererArrowKeyNavigationDuplication(t *testing.T) {
 	// t.Parallel() // Disabled to avoid terminal output conflicts
 
 	var output bytes.Buffer
-	renderer := newRenderer(&output, ThemeDefault)
+	renderer := newRenderer(&output, ThemeDefault, nil)
 
 	// Create suggestions similar to the ones that cause the bug
 	suggestions := []Suggestion{
@@ -862,7 +862,7 @@ func TestRendererLongListScrolling(t *testing.T) {
 	// t.Parallel() // Disabled to avoid terminal output conflicts
 
 	var output bytes.Buffer
-	renderer := newRenderer(&output, ThemeDefault)
+	renderer := newRenderer(&output, ThemeDefault, nil)
 
 	// Create many suggestions to trigger scrolling
 	suggestions := []Suggestion{
