@@ -62,7 +62,7 @@ func TestRendererRenderWithSuggestions(t *testing.T) {
 		{Text: "help", Description: "assistance"},
 	}
 
-	err := renderer.renderWithSuggestions("$ ", "he", 2, suggestions, 0)
+	err := renderer.renderWithSuggestionsOffset("$ ", "he", 2, suggestions, 0, 0)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
