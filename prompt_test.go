@@ -3539,6 +3539,48 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 			t.Errorf("Expected single-line backslash continuation result %q, got %q", expected, result)
 		}
 	})
+
+	t.Run("BracketedPasteMultilineInput", func(t *testing.T) {
+		config := Config{
+			Prefix:    "test> ",
+			Multiline: true,
+		}
+
+		input := "\x1b[200~SELECT 1\nSELECT 2\x1b[201~\r"
+		p := newForTestingWithConfig(t, config, input)
+		defer p.Close()
+
+		result, err := p.RunWithContext(context.Background())
+		if err != nil {
+			t.Fatalf("RunWithContext failed: %v", err)
+		}
+
+		expected := "SELECT 1\nSELECT 2"
+		if result != expected {
+			t.Errorf("Expected bracketed paste result %q, got %q", expected, result)
+		}
+	})
+
+	t.Run("BracketedPastePreservesTrailingBackslash", func(t *testing.T) {
+		config := Config{
+			Prefix:    "test> ",
+			Multiline: true,
+		}
+
+		input := "\x1b[200~line1\\\nline2\x1b[201~\r"
+		p := newForTestingWithConfig(t, config, input)
+		defer p.Close()
+
+		result, err := p.RunWithContext(context.Background())
+		if err != nil {
+			t.Fatalf("RunWithContext failed: %v", err)
+		}
+
+		expected := "line1\\\nline2"
+		if result != expected {
+			t.Errorf("Expected pasted backslash result %q, got %q", expected, result)
+		}
+	})
 }
 
 func TestMultilineNavigation(t *testing.T) {

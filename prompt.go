@@ -72,6 +72,13 @@ const (
 	ActionHistoryDown
 	ActionHistorySearch
 	ActionNewLine
+	ActionPasteStart
+	ActionPasteEnd
+)
+
+const (
+	bracketedPasteEnableSequence  = "\x1b[?2004h"
+	bracketedPasteDisableSequence = "\x1b[?2004l"
 )
 
 // KeyMap holds the key binding configuration
@@ -142,6 +149,8 @@ func NewDefaultKeyMap() *KeyMap {
 	km.sequences["[1;5C"] = ActionMoveWordRight // Ctrl+Right
 	km.sequences["[1;5D"] = ActionMoveWordLeft  // Ctrl+Left
 	km.sequences["[3~"] = ActionDeleteChar      // Delete
+	km.sequences["[200~"] = ActionPasteStart
+	km.sequences["[201~"] = ActionPasteEnd
 
 	return km
 }
@@ -581,6 +590,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 	}
 
 	historyIndex := len(p.history)
+	inPaste := false
 	var suggestions []Suggestion
 	selectedSuggestion := 0
 	suggestionOffset := 0 // Track the offset for scrolling through suggestions
@@ -623,9 +633,12 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 				suggestions = nil
 				// Clear suggestions and continue editing without submitting
 			} else {
-				// Proceed with normal submit only if no suggestions were displayed
-				// Check if this is a multi-line context that should add newline instead
-				if p.isShiftEnter() {
+				// Preserve newlines while bracketed paste is active so pasted multi-line
+				// content is inserted into the buffer instead of being submitted early.
+				if inPaste {
+					p.insertRune('\n')
+					suggestions = nil
+				} else if p.isShiftEnter() {
 					p.insertRune('\n')
 					suggestions = nil
 				} else {
@@ -831,6 +844,13 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 		case ActionNewLine:
 			p.insertRune('\n')
 			suggestions = nil
+
+		case ActionPasteStart:
+			inPaste = true
+			suggestions = nil
+
+		case ActionPasteEnd:
+			inPaste = false
 
 		default:
 			// Handle regular character input
@@ -1506,11 +1526,31 @@ func (p *Prompt) removeTrailingBackslash() {
 }
 
 func (p *Prompt) enterRawMode() error {
-	return p.terminal.SetRaw()
+	if err := p.terminal.SetRaw(); err != nil {
+		return err
+	}
+	if p.output != nil {
+		if _, err := fmt.Fprint(p.output, bracketedPasteEnableSequence); err != nil {
+			return errors.Join(err, p.terminal.Restore())
+		}
+	}
+	return nil
 }
 
 func (p *Prompt) exitRawMode() error {
-	return p.terminal.Restore()
+	var errs []error
+	if p.output != nil {
+		if _, err := fmt.Fprint(p.output, bracketedPasteDisableSequence); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := p.terminal.Restore(); err != nil {
+		errs = append(errs, err)
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	return errors.Join(errs...)
 }
 
 func (p *Prompt) render() error {
