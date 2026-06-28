@@ -74,6 +74,9 @@ const (
 	ActionNewLine
 	ActionPasteStart
 	ActionPasteEnd
+	// ActionClearScreen clears the terminal screen and redraws the prompt with
+	// the current input preserved, like Ctrl+L in a typical shell.
+	ActionClearScreen
 )
 
 const (
@@ -102,6 +105,7 @@ type KeyMap struct {
 //   - Ctrl+U: Delete entire line
 //   - Ctrl+W: Delete word backwards
 //   - Ctrl+R: Reverse history search
+//   - Ctrl+L: Clear the screen
 //   - Tab: Auto-completion
 //   - Backspace: Delete character backwards
 //   - Arrow keys: Navigate history and move cursor
@@ -135,6 +139,7 @@ func NewDefaultKeyMap() *KeyMap {
 	km.bindings['\x15'] = ActionDeleteLine     // Ctrl+U
 	km.bindings['\x17'] = ActionDeleteWordBack // Ctrl+W
 	km.bindings['\x12'] = ActionHistorySearch  // Ctrl+R
+	km.bindings['\x0C'] = ActionClearScreen    // Ctrl+L
 	km.bindings['\t'] = ActionComplete
 	km.bindings['\x7f'] = ActionDeleteChar // Backspace
 	km.bindings['\b'] = ActionDeleteChar   // Backspace
@@ -926,6 +931,12 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 
 		case ActionPasteEnd:
 			inPaste = false
+
+		case ActionClearScreen:
+			// Clear the whole screen and redraw the prompt at the top with the
+			// current input preserved. The trailing render below repaints it.
+			p.renderer.clearScreen()
+			suggestions = nil
 
 		default:
 			// Handle regular character input

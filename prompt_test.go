@@ -2415,6 +2415,15 @@ func TestNewDefaultKeyMapAdvanced(t *testing.T) {
 	}
 }
 
+func TestDefaultKeyMapBindsClearScreen(t *testing.T) {
+	t.Parallel()
+
+	km := NewDefaultKeyMap()
+	if got := km.GetAction('\x0C'); got != ActionClearScreen {
+		t.Errorf("Ctrl+L action = %v, want ActionClearScreen", got)
+	}
+}
+
 func TestKeyMapBindAdvanced(t *testing.T) {
 	t.Parallel()
 

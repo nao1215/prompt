@@ -51,6 +51,30 @@ func TestRendererRender(t *testing.T) {
 	}
 }
 
+func TestRendererClearScreen(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	renderer := newRenderer(&output, ThemeDefault, nil)
+	renderer.lastLines = 5 // simulate prior multi-line render
+
+	renderer.clearScreen()
+
+	result := output.String()
+	if !strings.Contains(result, "\x1b[2J") {
+		t.Errorf("clearScreen output = %q, want it to contain the clear-screen escape", result)
+	}
+	if !strings.Contains(result, "\x1b[H") {
+		t.Errorf("clearScreen output = %q, want it to home the cursor", result)
+	}
+	if renderer.lastLines != 1 {
+		t.Errorf("lastLines = %d after clearScreen, want 1", renderer.lastLines)
+	}
+	if renderer.suggestionsActive {
+		t.Error("suggestionsActive should be reset to false after clearScreen")
+	}
+}
+
 func TestRendererRenderWithSuggestions(t *testing.T) {
 	t.Parallel()
 

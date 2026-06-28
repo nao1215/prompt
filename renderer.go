@@ -268,6 +268,15 @@ func (r *renderer) renderSuggestionsWithOffset(_, _ string, _ int, suggestions [
 }
 
 // clearPreviousLines clears the previously rendered lines.
+// clearScreen clears the entire terminal screen and scrollback and homes the
+// cursor, then resets the line-tracking state so the next render draws the
+// prompt at the top. It implements the Ctrl+L clear-screen behavior.
+func (r *renderer) clearScreen() {
+	fmt.Fprint(r.output, "\x1b[H\x1b[2J\x1b[3J")
+	r.lastLines = 1
+	r.suggestionsActive = false
+}
+
 func (r *renderer) clearPreviousLines() {
 	if r.lastLines <= 1 {
 		// Just clear the current line
