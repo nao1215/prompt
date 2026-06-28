@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.7] - 2026-06-28
+
 ### Added
 - **Escaped word boundaries for completion (`WithWordEscape`)**: An embedding app can opt into treating backslash-escaped whitespace as part of the word before the cursor, so a shell-style path like `my\ data.csv` completes and is accepted as one word instead of breaking at the escaped space. The new `Document.GetWordBeforeCursorEscaped` exposes the same boundary rule. Off by default, so existing word boundaries are unchanged.
 
