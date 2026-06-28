@@ -346,7 +346,7 @@ concurrency.
 - `prompt.ErrEOF`: Ctrl+D on an empty buffer
 - `prompt.ErrInterrupted`: Ctrl+C
 - `context.DeadlineExceeded`: the context deadline passed (with `RunWithContext`)
-- `context.Canceled`: the context was cancelled
+- `context.Canceled`: the context was canceled
 
 ## Contributing
 
