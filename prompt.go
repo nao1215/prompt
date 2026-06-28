@@ -244,6 +244,7 @@ type Config struct {
 	Theme         *ColorScheme                // Alias for ColorScheme for compatibility
 	Multiline     bool                        // Enable multiline input mode
 	IsComplete    func(input string) bool     // Decides whether Enter submits in multiline mode (nil = always submit)
+	WordEscape    bool                        // Treat backslash-escaped whitespace as part of a word during completion
 }
 
 // Option represents a configuration option for prompt
@@ -351,6 +352,18 @@ func WithIsComplete(isComplete func(input string) bool) Option {
 	}
 }
 
+// WithWordEscape makes completion treat backslash-escaped whitespace as part of
+// the word before the cursor. A shell-style path like "my\ data.csv" is then
+// completed and accepted as one word instead of breaking at the escaped space.
+// Enable it when the embedding app accepts escaped paths (for example a SQL shell
+// whose .import command honors backslash escapes). Off by default; default word
+// boundaries are unchanged.
+func WithWordEscape() Option {
+	return func(c *Config) {
+		c.WordEscape = true
+	}
+}
+
 // Suggestion represents a completion suggestion.
 type Suggestion struct {
 	Text        string // The text to complete
@@ -402,6 +415,49 @@ func (d *Document) GetWordBeforeCursor() string {
 	start++ // Move to the first character of the word
 
 	return text[start:]
+}
+
+// GetWordBeforeCursorEscaped is like GetWordBeforeCursor but treats whitespace
+// that is backslash-escaped as part of the word, so a shell-style path such as
+// "my\ data.csv" counts as a single word rather than two. A whitespace character
+// is a word boundary only when an even number of backslashes precede it. The
+// prompt uses it for completion when WithWordEscape is set.
+func (d *Document) GetWordBeforeCursorEscaped() string {
+	text := d.TextBeforeCursor()
+	if len(text) == 0 {
+		return ""
+	}
+
+	runes := []rune(text)
+	last := len(runes) - 1
+	if isWordSeparator(runes[last]) && !isEscaped(runes, last) {
+		return ""
+	}
+
+	start := 0
+	for i := last; i >= 0; i-- {
+		if isWordSeparator(runes[i]) && !isEscaped(runes, i) {
+			start = i + 1
+			break
+		}
+	}
+	return string(runes[start:])
+}
+
+// isWordSeparator reports whether r ends a word for completion purposes. It
+// matches the separators GetWordBeforeCursor recognizes.
+func isWordSeparator(r rune) bool {
+	return r == ' ' || r == '\t' || r == '\n'
+}
+
+// isEscaped reports whether the rune at index i is escaped, i.e. preceded by an
+// odd number of backslashes.
+func isEscaped(runes []rune, i int) bool {
+	backslashes := 0
+	for j := i - 1; j >= 0 && runes[j] == '\\'; j-- {
+		backslashes++
+	}
+	return backslashes%2 == 1
 }
 
 // CurrentLine returns the current line
@@ -817,7 +873,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 					suggestionOffset = 0 // Reset scroll position
 
 					// Smart matching: filter suggestions based on current input
-					currentWord := doc.GetWordBeforeCursor()
+					currentWord := p.completionWord(doc)
 					if currentWord != "" {
 						// Filter suggestions to only show those that match the current input
 						filteredSuggestions := make([]Suggestion, 0)
@@ -952,6 +1008,16 @@ func (p *Prompt) setBuffer(text string) {
 	p.cursor = len(p.buffer)
 }
 
+// completionWord returns the word before the cursor used for completion matching
+// and acceptance. It honors backslash-escaped whitespace when WithWordEscape is
+// set so space-containing paths complete as one word.
+func (p *Prompt) completionWord(doc Document) string {
+	if p.config.WordEscape {
+		return doc.GetWordBeforeCursorEscaped()
+	}
+	return doc.GetWordBeforeCursor()
+}
+
 func (p *Prompt) acceptSuggestion(suggestion Suggestion) {
 	// Get current document state for context
 	doc := Document{
@@ -961,7 +1027,7 @@ func (p *Prompt) acceptSuggestion(suggestion Suggestion) {
 
 	// Determine how to apply the suggestion based on context
 	beforeCursor := doc.TextBeforeCursor()
-	currentWord := doc.GetWordBeforeCursor()
+	currentWord := p.completionWord(doc)
 
 	if currentWord == "" {
 		// Cursor is at space or beginning, just insert the suggestion
