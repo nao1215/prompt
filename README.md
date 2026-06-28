@@ -9,37 +9,31 @@
 
 ![logo](./doc/img/logo-small.png)
 
-**prompt** is a simple terminal prompt library for Go that provides powerful interactive command-line interfaces. This library is designed as a replacement for the unmaintained [c-bata/go-prompt](https://github.com/c-bata/go-prompt) library, addressing critical issues while adding enhanced functionality and better cross-platform support.
+prompt is a terminal prompt library for Go for building interactive command-line interfaces. It is a maintained replacement for the archived [c-bata/go-prompt](https://github.com/c-bata/go-prompt), keeping the same core idea, a read loop with completion and history, while running on Linux, macOS, and Windows.
 
 ![sample](./doc/img/demo.gif)
 
-## ✨ Features
+## Features
 
-- 🖥️ **Cross-Platform Support** - Works seamlessly on Linux, macOS, and Windows
-- 🔍 **Auto-Completion** - Tab completion with fuzzy matching and customizable suggestions
-- 📚 **Command History** - Navigation with arrow keys, persistent history, and reverse search (Ctrl+R)
-- ⌨️ **Key Bindings** - Comprehensive shortcuts including Emacs-style navigation
-- 🌈 **Color Themes** - Built-in color schemes and customizable theming
-- 📝 **Multi-line Input** - Support for multi-line input with proper cursor navigation
-- 🔧 **Simple API** - Clean, modern API design with functional options pattern
+- Tab completion, including fuzzy matching, with customizable suggestions
+- Command history with arrow-key navigation, persistence, and reverse search (Ctrl+R)
+- Emacs-style key bindings
+- Multi-line input with cursor navigation
+- Built-in color themes
+- A small API using the functional options pattern
+- Runs on Linux, macOS, and Windows
 
-## 📦 Installation
+## Installation
 
 ```bash
 go get github.com/nao1215/prompt
 ```
 
-## 🔧 Requirements
+Building needs Go 1.24 or later.
 
-- **Go Version**: 1.24 or later
-- **Operating Systems**:
-  - Linux
-  - macOS
-  - Windows
+## Quick start
 
-## 🚀 Quick Start
-
-### Basic Usage
+### Basic usage
 
 ```go
 package main
@@ -77,7 +71,7 @@ func main() {
 }
 ```
 
-### With Auto-completion
+### With auto-completion
 
 ```go
 package main
@@ -124,13 +118,14 @@ func main() {
 }
 ```
 
-### With History and Advanced Features
+### With history and a context deadline
 
 ```go
 package main
 
 import (
     "context"
+    "errors"
     "fmt"
     "log"
     "time"
@@ -138,7 +133,6 @@ import (
 )
 
 func main() {
-    // Create prompt with history and timeout
     p, err := prompt.New(">>> ",
         prompt.WithMemoryHistory(100),
         prompt.WithColorScheme(prompt.ThemeDracula),
@@ -148,12 +142,11 @@ func main() {
     }
     defer p.Close()
 
-    // Use context for timeout support
     ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
     defer cancel()
 
     input, err := p.RunWithContext(ctx)
-    if err == context.DeadlineExceeded {
+    if errors.Is(err, context.DeadlineExceeded) {
         fmt.Println("Timeout reached")
         return
     }
@@ -162,7 +155,7 @@ func main() {
 }
 ```
 
-### SQL-like Interactive Shell
+### SQL-like interactive shell
 
 ```go
 package main
@@ -226,12 +219,11 @@ func main() {
 }
 ```
 
-## 🔧 Advanced Usage
+## Advanced usage
 
-### Using Fuzzy Completion
+### Fuzzy completion
 
 ```go
-// Create a fuzzy completer for commands
 commands := []string{
     "git status", "git commit", "git push", "git pull",
     "docker run", "docker build", "docker ps",
@@ -245,11 +237,11 @@ p, err := prompt.New("$ ",
 )
 ```
 
-### Custom Key Bindings
+### Custom key bindings
 
 ```go
 keyMap := prompt.NewDefaultKeyMap()
-// Add Ctrl+L to clear the line
+// Bind Ctrl+L to clear the line.
 keyMap.Bind('\x0C', prompt.ActionDeleteLine)
 
 p, err := prompt.New("$ ",
@@ -257,7 +249,7 @@ p, err := prompt.New("$ ",
 )
 ```
 
-### Persistent History
+### Persistent history
 
 ```go
 historyConfig := &prompt.HistoryConfig{
@@ -273,9 +265,25 @@ p, err := prompt.New("$ ",
 )
 ```
 
-## ⌨️ Key Bindings
+### Multi-line submit control
 
-The library supports comprehensive key bindings out of the box:
+In multiline mode, `WithIsComplete` decides whether Enter submits the buffer or
+starts a new line. It receives the whole buffer and returns true when the input
+is ready to run, so an app can buffer multi-line input such as SQL until a
+trailing `;`. Backslash continuation and bracketed paste are unaffected.
+
+```go
+isComplete := func(input string) bool {
+    return strings.HasSuffix(strings.TrimSpace(input), ";")
+}
+
+p, err := prompt.New("sql> ",
+    prompt.WithMultiline(true),
+    prompt.WithIsComplete(isComplete),
+)
+```
+
+## Key bindings
 
 | Key | Action |
 |-----|--------|
@@ -295,9 +303,7 @@ The library supports comprehensive key bindings out of the box:
 | Delete | Delete character forwards |
 | Ctrl+←/→ | Move by word boundaries |
 
-## 🎨 Color Themes
-
-Built-in color themes:
+## Color themes
 
 ```go
 // Available themes
@@ -314,52 +320,40 @@ p, err := prompt.New("$ ",
 )
 ```
 
-## 📋 Examples
+## Examples
 
-See the [example](./example) directory for complete working examples:
+The [example](./example) directory has complete programs:
 
-- [**Basic Usage**](./example/basic) - Simple prompt with basic functionality
-- [**Auto-completion**](./example/autocomplete) - Tab completion with suggestions
-- [**Command History**](./example/history) - History navigation and persistence
-- [**Multi-line Input**](./example/multiline) - Multi-line editing support
-- [**Interactive Shell**](./example/shell) - File explorer shell example
+- [Basic usage](./example/basic) - a simple prompt
+- [Auto-completion](./example/autocomplete) - tab completion with suggestions
+- [Command history](./example/history) - history navigation and persistence
+- [Multi-line input](./example/multiline) - multi-line editing
+- [Interactive shell](./example/shell) - a file explorer shell
 
-## ⚠️ Important Notes
+## Notes
 
-### Thread Safety
-⚠️ **IMPORTANT**: This library is **NOT thread-safe**:
-- **Do NOT** share prompt instances across goroutines
-- **Do NOT** call methods concurrently on the same prompt instance
-- **Do NOT** call `Close()` while `Run()` is active in another goroutine
-- Use separate prompt instances for concurrent operations if needed
+### Thread safety
 
-### Error Handling
-The library provides specific error types:
-- `prompt.ErrEOF`: User pressed Ctrl+D with empty buffer
-- `prompt.ErrInterrupted`: User pressed Ctrl+C
-- `context.DeadlineExceeded`: Timeout reached (when using context)
-- `context.Canceled`: Context was cancelled
+This library is not thread-safe. Do not share a prompt instance across
+goroutines, call its methods concurrently, or call `Close()` while `Run()` is
+active in another goroutine. Use a separate instance per goroutine if you need
+concurrency.
 
+### Error handling
 
-## 🤝 Contributing
+`Run` and `RunWithContext` return specific errors:
 
-Contributions are welcome! Please see the [Contributing Guide](./CONTRIBUTING.md) for more details.
+- `prompt.ErrEOF`: Ctrl+D on an empty buffer
+- `prompt.ErrInterrupted`: Ctrl+C
+- `context.DeadlineExceeded`: the context deadline passed (with `RunWithContext`)
+- `context.Canceled`: the context was cancelled
 
-### Development Requirements
+## Contributing
 
-- Go 1.24 or later
-- golangci-lint for code quality
-- Cross-platform testing on Linux, macOS, and Windows
+Contributions are welcome; see the [Contributing Guide](./CONTRIBUTING.md). A
+GitHub Star also helps and motivates development. Development needs Go 1.24 or
+later and golangci-lint, with tests run on Linux, macOS, and Windows.
 
-## 💖 Support
+## License
 
-If you find this project useful, please consider:
-
-- ⭐ Giving it a star on GitHub - it helps others discover the project
-- 💝 [Becoming a sponsor](https://github.com/sponsors/nao1215) - your support keeps the project alive and motivates continued development
-
-Your support, whether through stars, sponsorships, or contributions, is what drives this project forward. Thank you!
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
