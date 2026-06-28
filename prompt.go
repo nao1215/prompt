@@ -243,6 +243,7 @@ type Config struct {
 	KeyMap        *KeyMap                     // Key bindings (nil for default)
 	Theme         *ColorScheme                // Alias for ColorScheme for compatibility
 	Multiline     bool                        // Enable multiline input mode
+	IsComplete    func(input string) bool     // Decides whether Enter submits in multiline mode (nil = always submit)
 }
 
 // Option represents a configuration option for prompt
@@ -334,6 +335,19 @@ func WithTheme(theme *ColorScheme) Option {
 func WithMultiline(multiline bool) Option {
 	return func(c *Config) {
 		c.Multiline = multiline
+	}
+}
+
+// WithIsComplete sets a predicate that decides, in multiline mode, whether
+// pressing Enter submits the buffer or inserts a newline. The predicate receives
+// the whole buffer and returns true when the input is a complete statement ready
+// to run; when false, Enter inserts a newline so an embedding app can buffer
+// multi-line input (for example SQL until a trailing ";"). A trailing backslash
+// and bracketed paste still force a newline regardless of the predicate. When nil
+// (default) or when multiline mode is off, Enter always submits.
+func WithIsComplete(isComplete func(input string) bool) Option {
+	return func(c *Config) {
+		c.IsComplete = isComplete
 	}
 }
 
@@ -639,6 +653,11 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 					p.insertRune('\n')
 					suggestions = nil
 				} else if p.isShiftEnter() {
+					p.insertRune('\n')
+					suggestions = nil
+				} else if p.config.Multiline && p.config.IsComplete != nil && !p.config.IsComplete(string(p.buffer)) {
+					// The app reports the statement is incomplete, so keep editing on a
+					// new line instead of submitting (e.g. SQL buffered until ";").
 					p.insertRune('\n')
 					suggestions = nil
 				} else {

@@ -110,6 +110,39 @@ func TestPromptWithMockTerminal(t *testing.T) {
 			expected: "",
 			config:   Config{Prefix: "$ "},
 		},
+		{
+			// IsComplete reports incomplete until a trailing ";", so the bare
+			// newlines buffer into one statement instead of submitting per line.
+			name:     "multiline buffers until IsComplete returns true",
+			input:    "SELECT 1\nUNION ALL\nSELECT 2;\n",
+			expected: "SELECT 1\nUNION ALL\nSELECT 2;",
+			config: Config{
+				Prefix:     "$ ",
+				Multiline:  true,
+				IsComplete: func(in string) bool { return strings.HasSuffix(strings.TrimSpace(in), ";") },
+			},
+		},
+		{
+			// A statement already terminated with ";" submits on the first Enter.
+			name:     "complete statement submits immediately",
+			input:    "SELECT 1;\n",
+			expected: "SELECT 1;",
+			config: Config{
+				Prefix:     "$ ",
+				Multiline:  true,
+				IsComplete: func(in string) bool { return strings.HasSuffix(strings.TrimSpace(in), ";") },
+			},
+		},
+		{
+			// Without multiline mode the predicate is ignored and Enter submits.
+			name:     "IsComplete ignored when multiline is off",
+			input:    "SELECT 1\n",
+			expected: "SELECT 1",
+			config: Config{
+				Prefix:     "$ ",
+				IsComplete: func(in string) bool { return strings.HasSuffix(strings.TrimSpace(in), ";") },
+			},
+		},
 	}
 
 	for _, tt := range tests {
