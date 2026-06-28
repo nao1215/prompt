@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-06-28
+
 ### Added
 - **Clear-screen action (`ActionClearScreen`)**: A new key action clears the terminal screen and scrollback and redraws the prompt at the top with the current input preserved. The default key map binds it to Ctrl+L, matching the typical shell shortcut.
 
