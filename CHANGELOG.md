@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Multiline submit predicate (`WithIsComplete`)**: In multiline mode, an embedding app can supply a predicate that decides whether Enter submits the buffer or inserts a newline to keep editing. When it returns false, the input is treated as incomplete, so apps can buffer multi-line input (for example SQL until a trailing `;`). Backslash continuation and bracketed paste are unaffected; with no predicate or with multiline off, Enter always submits.
+
 ### Fixed
 - **Bracketed paste multiline handling ([04b4805](https://github.com/nao1215/prompt/commit/04b4805))**: Preserve pasted newlines and trailing backslashes in multiline prompts without changing manual backslash continuation behavior
 
