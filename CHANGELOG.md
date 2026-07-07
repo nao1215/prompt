@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Interactive sessions broken on macOS by the v0.0.10 raw-mode change ([#13](https://github.com/nao1215/prompt/issues/13))**: v0.0.10 routed raw mode through go-tty's `Raw` on every platform, which sets raw mode on a `/dev/tty` descriptor go-tty opens itself. On macOS that regressed interactive sessions: the terminal ended up in a state where the first read returned immediately and the prompt exited without accepting input. Raw mode is now split by platform — Unix keeps the proven `golang.org/x/term.MakeRaw` on `os.Stdin` (the pty slave, the same terminal go-tty reads through), and only Windows routes raw mode through go-tty, where its read handle (CONIN$) genuinely differs from `os.Stdin`. This keeps the Windows ConPTY fix while restoring the working Unix path.
+
 ## [0.0.10] - 2026-07-07
 
 ### Fixed
