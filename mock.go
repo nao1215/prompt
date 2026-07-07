@@ -21,6 +21,8 @@ type mockTerminal struct {
 	inputPos     int    // Current position in the input sequence
 	rawMode      bool   // Track raw mode state for test verification
 	terminalSize [2]int // Fixed terminal dimensions [width, height]
+	setRawCount  int    // Number of SetRaw calls, for verifying raw mode is entered once per session
+	restoreCount int    // Number of Restore calls, for verifying restoration happens
 }
 
 func newMockTerminal(input string) *mockTerminal {
@@ -34,11 +36,13 @@ func newMockTerminal(input string) *mockTerminal {
 
 func (m *mockTerminal) SetRaw() error {
 	m.rawMode = true
+	m.setRawCount++
 	return nil
 }
 
 func (m *mockTerminal) Restore() error {
 	m.rawMode = false
+	m.restoreCount++
 	return nil
 }
 
