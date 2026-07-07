@@ -7,7 +7,6 @@ import (
 
 	"github.com/mattn/go-colorable"
 	"github.com/mattn/go-tty"
-	"golang.org/x/term"
 )
 
 // terminalInterface abstracts terminal operations for testability and cross-platform compatibility.
@@ -42,16 +41,16 @@ type terminalInterface interface {
 //   - Safe size fallbacks: Returns 80x24 if terminal size detection fails
 //   - Color support: Uses go-colorable for Windows ANSI escape sequence processing
 //   - Resource management: Properly closes TTY to prevent file descriptor leaks
-//   - Proper raw mode handling: Uses golang.org/x/term for reliable terminal state management
+//   - Single-handle raw mode: enters raw mode through go-tty so it applies to the
+//     same handle go-tty reads from
 //
 // The terminal properly manages raw mode state to ensure terminal restoration
 // even when interrupted by Ctrl-C or other signals.
 type realTerminal struct {
-	tty           *tty.TTY    // TTY handle from go-tty for cross-platform terminal operations
-	output        io.Writer   // Color-capable output writer (colorable on Windows, stdout elsewhere)
-	closed        bool        // Track if terminal is already closed to prevent double-close panic on Windows
-	stdinFd       int         // File descriptor for stdin for raw mode management
-	originalState *term.State // Original terminal state to restore on exit
+	tty        *tty.TTY     // TTY handle from go-tty for cross-platform terminal operations
+	output     io.Writer    // Color-capable output writer (colorable on Windows, stdout elsewhere)
+	closed     bool         // Track if terminal is already closed to prevent double-close panic on Windows
+	restoreRaw func() error // Restores the pre-raw terminal state; nil when not in raw mode
 }
 
 // newRealTerminal creates a new terminal instance following simplified design
@@ -69,45 +68,41 @@ func newRealTerminal() (*realTerminal, error) {
 		output = colorable.NewColorableStdout()
 	}
 
-	// Get stdin file descriptor for raw mode management
-	stdinFd := int(os.Stdin.Fd())
-
 	return &realTerminal{
-		tty:     t,
-		output:  output,
-		stdinFd: stdinFd,
+		tty:    t,
+		output: output,
 	}, nil
 }
 
+// SetRaw enters raw mode through go-tty. Using go-tty's own Raw (rather than
+// golang.org/x/term.MakeRaw on os.Stdin) applies raw mode to the very handle
+// go-tty reads from — its /dev/tty on Unix, its CONIN$ on Windows. Setting raw
+// mode on os.Stdin while reading from a different handle left the read path
+// ungoverned on a Windows ConPTY, where input delivered right after a prompt was
+// re-rendered could be mishandled instead of buffered. It is idempotent: when
+// already in raw mode it does nothing, so a persistent session enters raw mode
+// once and Restore stays balanced.
 func (t *realTerminal) SetRaw() error {
-	// Always capture current terminal state before entering raw mode
-	// This ensures proper restoration regardless of how many times we enter/exit raw mode
-	if term.IsTerminal(t.stdinFd) {
-		state, err := term.GetState(t.stdinFd)
-		if err != nil {
-			return err
-		}
-		t.originalState = state
-
-		// Use golang.org/x/term to enter raw mode instead of relying solely on go-tty
-		// This gives us better control over terminal state management
-		_, err = term.MakeRaw(t.stdinFd)
-		if err != nil {
-			return err
-		}
+	if t.restoreRaw != nil || t.tty == nil {
+		return nil
 	}
+	restore, err := t.tty.Raw()
+	if err != nil {
+		return err
+	}
+	t.restoreRaw = restore
 	return nil
 }
 
+// Restore returns the terminal to the state captured when SetRaw entered raw
+// mode. It is idempotent: when not in raw mode it does nothing.
 func (t *realTerminal) Restore() error {
-	// Restore original terminal state to fix cursor position and input visibility
-	if t.originalState != nil && term.IsTerminal(t.stdinFd) {
-		err := term.Restore(t.stdinFd, t.originalState)
-		// Reset the state so that SetRaw can capture a fresh baseline next time
-		t.originalState = nil
-		return err
+	if t.restoreRaw == nil {
+		return nil
 	}
-	return nil
+	restore := t.restoreRaw
+	t.restoreRaw = nil
+	return restore()
 }
 
 func (t *realTerminal) Size() (width, height int, err error) {

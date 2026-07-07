@@ -455,6 +455,39 @@ func TestRealTerminalMultipleSetRawRestore(t *testing.T) {
 	}
 }
 
+func TestRealTerminalSetRawWithoutTTY(t *testing.T) {
+	t.Parallel()
+
+	// With no tty, SetRaw is a no-op (nothing to make raw) and must not panic or
+	// leave a restore hook, so a later Restore is also a safe no-op.
+	terminal := &realTerminal{tty: nil}
+
+	if err := terminal.SetRaw(); err != nil {
+		t.Errorf("SetRaw() with nil tty should not error, got: %v", err)
+	}
+	if terminal.restoreRaw != nil {
+		t.Error("SetRaw() with nil tty should not install a restore hook")
+	}
+	if err := terminal.Restore(); err != nil {
+		t.Errorf("Restore() with nil tty should not error, got: %v", err)
+	}
+}
+
+func TestRealTerminalRestoreIdempotentWithoutRaw(t *testing.T) {
+	t.Parallel()
+
+	// Restore before any SetRaw, and a second Restore, must both be safe no-ops so
+	// the interrupt, EOF, defer, and Close cleanup paths can all call it.
+	terminal := &realTerminal{tty: nil}
+
+	if err := terminal.Restore(); err != nil {
+		t.Errorf("first Restore() should be a no-op, got: %v", err)
+	}
+	if err := terminal.Restore(); err != nil {
+		t.Errorf("second Restore() should be a no-op, got: %v", err)
+	}
+}
+
 func TestRealTerminalCloseWithoutTTY(t *testing.T) {
 	// Create terminal with nil tty
 	terminal := &realTerminal{
