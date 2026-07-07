@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.0.10] - 2026-07-07
 
 ### Fixed
 - **Raw mode applied to the wrong handle on Windows ([#13](https://github.com/nao1215/prompt/issues/13))**: The terminal entered raw mode with `golang.org/x/term.MakeRaw` on `os.Stdin`, but read input through go-tty's own handle (its `/dev/tty` on Unix, `CONIN$` on Windows). On a Windows ConPTY those are different handles, so raw mode never governed the handle reads actually came from, and input delivered right after a prompt was re-rendered could be mishandled instead of buffered — a command could be typed but never executed. Raw mode now goes through go-tty's `Raw`, so it and the read path share one handle. `SetRaw`/`Restore` are also idempotent, so a persistent session enters raw mode once and cleanup paths stay balanced.
