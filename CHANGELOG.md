@@ -7,11 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.9] - 2026-07-07
+
 ### Added
-- **Persistent raw mode (`WithPersistentRawMode`) ([#10](https://github.com/nao1215/prompt/issues/10))**: An embedding REPL can keep the terminal in raw mode across consecutive `Run` calls instead of re-acquiring it on every call. Raw mode is entered once on the first `Run` and restored once — by `Close`, on interrupt (Ctrl+C), or on EOF. Off by default, so the classic single-shot usage keeps cooked-mode output after each `Run`.
+- **Persistent raw mode (`WithPersistentRawMode`) (PR [#11](https://github.com/nao1215/prompt/pull/11), [3f8681a](https://github.com/nao1215/prompt/commit/3f8681a))**: An embedding REPL can keep the terminal in raw mode across consecutive `Run` calls instead of re-acquiring it on every call. Raw mode is entered once on the first `Run` and restored once — by `Close`, on interrupt (Ctrl+C), or on EOF. Off by default, so the classic single-shot usage keeps cooked-mode output after each `Run`.
 
 ### Fixed
-- **Interactive input lost between lines ([#10](https://github.com/nao1215/prompt/issues/10))**: A REPL that calls `Run` once per line toggled the terminal between raw and cooked around every command. Input a fast or automated driver (a pipe or pseudo-terminal) sent right after a re-rendered prompt could be dropped in the mode-switch window, making scripted sessions hang intermittently. `WithPersistentRawMode` removes that window; `enterRawMode`/`exitRawMode` are now idempotent so raw mode is acquired and released exactly once per session.
+- **Interactive input lost between lines ([#10](https://github.com/nao1215/prompt/issues/10), PR [#11](https://github.com/nao1215/prompt/pull/11), [3f8681a](https://github.com/nao1215/prompt/commit/3f8681a))**: A REPL that calls `Run` once per line toggled the terminal between raw and cooked around every command. Input a fast or automated driver (a pipe or pseudo-terminal) sent right after a re-rendered prompt could be dropped in the mode-switch window, making scripted sessions hang intermittently. `WithPersistentRawMode` removes that window; `enterRawMode`/`exitRawMode` are now idempotent so raw mode is acquired and released exactly once per session.
 
 ## [0.0.8] - 2026-06-28
 
