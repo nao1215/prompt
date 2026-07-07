@@ -9,6 +9,12 @@ import (
 	"github.com/mattn/go-tty"
 )
 
+// rawEnter is defined per platform (terminal_unix.go, terminal_windows.go). It
+// puts the terminal into raw mode and returns a function that restores the
+// pre-raw state. When there is nothing to make raw (input is not a terminal, or
+// there is no tty), it returns a nil restore func and a nil error so SetRaw
+// becomes a no-op. See each file for why the platforms differ.
+
 // terminalInterface abstracts terminal operations for testability and cross-platform compatibility.
 //
 // This interface provides a clean abstraction over platform-specific terminal operations,
@@ -41,8 +47,8 @@ type terminalInterface interface {
 //   - Safe size fallbacks: Returns 80x24 if terminal size detection fails
 //   - Color support: Uses go-colorable for Windows ANSI escape sequence processing
 //   - Resource management: Properly closes TTY to prevent file descriptor leaks
-//   - Single-handle raw mode: enters raw mode through go-tty so it applies to the
-//     same handle go-tty reads from
+//   - Raw mode on the read handle: raw mode is applied to whatever handle input is
+//     read from, per platform, so a re-rendered prompt cannot outrun raw mode
 //
 // The terminal properly manages raw mode state to ensure terminal restoration
 // even when interrupted by Ctrl-C or other signals.
@@ -74,19 +80,15 @@ func newRealTerminal() (*realTerminal, error) {
 	}, nil
 }
 
-// SetRaw enters raw mode through go-tty. Using go-tty's own Raw (rather than
-// golang.org/x/term.MakeRaw on os.Stdin) applies raw mode to the very handle
-// go-tty reads from — its /dev/tty on Unix, its CONIN$ on Windows. Setting raw
-// mode on os.Stdin while reading from a different handle left the read path
-// ungoverned on a Windows ConPTY, where input delivered right after a prompt was
-// re-rendered could be mishandled instead of buffered. It is idempotent: when
-// already in raw mode it does nothing, so a persistent session enters raw mode
+// SetRaw enters raw mode via the platform-specific rawEnter, which applies raw
+// mode to the handle input is actually read from. It is idempotent: once a
+// restore hook is held it does nothing, so a persistent session enters raw mode
 // once and Restore stays balanced.
 func (t *realTerminal) SetRaw() error {
-	if t.restoreRaw != nil || t.tty == nil {
+	if t.restoreRaw != nil {
 		return nil
 	}
-	restore, err := t.tty.Raw()
+	restore, err := t.rawEnter()
 	if err != nil {
 		return err
 	}
