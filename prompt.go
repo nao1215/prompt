@@ -38,6 +38,7 @@ type Prompt struct {
 	renderer       *renderer
 	terminal       terminalInterface
 	keyMap         *KeyMap
+	rawActive      bool // Whether the terminal is currently in raw mode
 }
 
 // KeyBinding represents a keyboard shortcut mapping
@@ -250,6 +251,10 @@ type Config struct {
 	Multiline     bool                        // Enable multiline input mode
 	IsComplete    func(input string) bool     // Decides whether Enter submits in multiline mode (nil = always submit)
 	WordEscape    bool                        // Treat backslash-escaped whitespace as part of a word during completion
+	// PersistentRawMode keeps the terminal in raw mode across consecutive Run
+	// calls instead of re-acquiring it on every call. See WithPersistentRawMode
+	// for the rationale and caveats.
+	PersistentRawMode bool
 }
 
 // Option represents a configuration option for prompt
@@ -354,6 +359,30 @@ func WithMultiline(multiline bool) Option {
 func WithIsComplete(isComplete func(input string) bool) Option {
 	return func(c *Config) {
 		c.IsComplete = isComplete
+	}
+}
+
+// WithPersistentRawMode keeps the terminal in raw mode across consecutive Run
+// (RunWithContext) calls instead of entering raw mode at the start of every call
+// and restoring it when the call returns.
+//
+// A REPL that calls Run once per line otherwise toggles the terminal between raw
+// and cooked around every command. Between one line's restore and the next line's
+// re-acquisition the read loop is not consuming input, so bytes that a fast or
+// automated driver (a pipe or pseudo-terminal) sends right after the prompt is
+// re-rendered can be lost. Entering raw mode once for the whole session closes
+// that window and makes input handling deterministic regardless of timing or
+// machine load.
+//
+// When enabled, raw mode is acquired on the first Run call and released once, by
+// Close, on interrupt (Ctrl+C), or when input reaches EOF. Because the terminal
+// stays in raw mode between calls, an embedding application that prints its own
+// output between prompts must terminate lines with "\r\n" rather than "\n". It is
+// off by default so the classic single-shot usage keeps cooked-mode output after
+// each Run.
+func WithPersistentRawMode() Option {
+	return func(c *Config) {
+		c.PersistentRawMode = true
 	}
 }
 
@@ -646,14 +675,17 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("failed to enter raw mode: %w", err)
 	}
 
-	restored := false
 	defer func() {
-		// Only restore if not already restored (prevents double restoration)
-		if !restored {
-			if err := p.exitRawMode(); err != nil {
-				// Log error but don't return it as we're in defer
-				fmt.Fprintf(os.Stderr, "Warning: failed to exit raw mode: %v\n", err)
-			}
+		// In persistent mode the terminal stays in raw mode across calls; it is
+		// restored by Close, on interrupt, or on EOF instead of per call. In the
+		// default mode restore on every return. exitRawMode is idempotent, so the
+		// interrupt and EOF paths that restore early make this a no-op.
+		if p.config.PersistentRawMode {
+			return
+		}
+		if err := p.exitRawMode(); err != nil {
+			// Log error but don't return it as we're in defer
+			fmt.Fprintf(os.Stderr, "Warning: failed to exit raw mode: %v\n", err)
 		}
 	}()
 
@@ -681,6 +713,9 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 		r, err := p.readRune()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				// Input reached EOF; the session is over, so restore the terminal
+				// even in persistent mode (the deferred cleanup skips it there).
+				p.restoreOnExit()
 				return "", ErrEOF
 			}
 			return "", fmt.Errorf("failed to read input: %w", err)
@@ -727,18 +762,16 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 						p.addToHistory(result)
 					}
 					fmt.Fprint(p.output, "\r\n")
-					// Terminal will be restored by defer, no need to mark as restored here
+					// The deferred cleanup restores the terminal in the default
+					// mode; in persistent mode it is kept for the next Run.
 					return result, nil
 				}
 			}
 
 		case ActionCancel:
-			// Ensure terminal state is properly restored before returning
-			if err := p.exitRawMode(); err != nil {
-				// Log warning but continue with interrupt handling
-				fmt.Fprintf(os.Stderr, "Warning: failed to restore terminal state: %v\n", err)
-			}
-			restored = true // Mark as restored to prevent double restoration in defer
+			// Ensure terminal state is properly restored before returning. The
+			// interrupt ends the session, so restore even in persistent mode.
+			p.restoreOnExit()
 			fmt.Fprint(p.output, "^C\r\n")
 			return "", ErrInterrupted
 
@@ -951,6 +984,9 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 				historyIndex = len(p.history) // Reset history position
 			} else if r == '\x04' { // Ctrl+D (EOF)
 				if len(p.buffer) == 0 {
+					// Ctrl+D on an empty buffer ends the session; restore the
+					// terminal even in persistent mode before returning.
+					p.restoreOnExit()
 					return "", io.EOF
 				}
 			}
@@ -980,6 +1016,12 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 //	// Use the prompt...
 //	result, err := p.Run()
 func (p *Prompt) Close() error {
+	// Restore raw mode if a persistent session (WithPersistentRawMode) left the
+	// terminal in raw mode. Idempotent, so it is a no-op in the default mode.
+	if err := p.exitRawMode(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to exit raw mode: %v\n", err)
+	}
+
 	// Restore cursor visibility before closing
 	if p.output != nil {
 		fmt.Fprint(p.output, "\x1b[?25h") // Show cursor
@@ -1621,19 +1663,43 @@ func (p *Prompt) removeTrailingBackslash() {
 	}
 }
 
+// enterRawMode puts the terminal into raw mode and enables bracketed paste. It is
+// idempotent: when the terminal is already in raw mode it does nothing, so a
+// persistent session (see WithPersistentRawMode) acquires raw mode exactly once
+// across many Run calls.
 func (p *Prompt) enterRawMode() error {
+	if p.rawActive {
+		return nil
+	}
 	if err := p.terminal.SetRaw(); err != nil {
 		return err
 	}
+	p.rawActive = true
 	if p.output != nil {
 		if _, err := fmt.Fprint(p.output, bracketedPasteEnableSequence); err != nil {
-			return errors.Join(err, p.terminal.Restore())
+			return errors.Join(err, p.exitRawMode())
 		}
 	}
 	return nil
 }
 
+// restoreOnExit restores the terminal from a return path that ends the session
+// (interrupt or EOF), logging any failure. It is used so a persistent session is
+// restored on those paths even though the deferred per-call cleanup skips restore.
+func (p *Prompt) restoreOnExit() {
+	if err := p.exitRawMode(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to restore terminal state: %v\n", err)
+	}
+}
+
+// exitRawMode disables bracketed paste and restores the original terminal state.
+// It is idempotent: when the terminal is not in raw mode it does nothing, so it is
+// safe to call from multiple cleanup paths (defer, interrupt, EOF, Close).
 func (p *Prompt) exitRawMode() error {
+	if !p.rawActive {
+		return nil
+	}
+	p.rawActive = false
 	var errs []error
 	if p.output != nil {
 		if _, err := fmt.Fprint(p.output, bracketedPasteDisableSequence); err != nil {
@@ -1642,9 +1708,6 @@ func (p *Prompt) exitRawMode() error {
 	}
 	if err := p.terminal.Restore(); err != nil {
 		errs = append(errs, err)
-	}
-	if len(errs) == 0 {
-		return nil
 	}
 	return errors.Join(errs...)
 }

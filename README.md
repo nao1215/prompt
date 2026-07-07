@@ -283,6 +283,42 @@ p, err := prompt.New("sql> ",
 )
 ```
 
+### Persistent raw mode (REPL loops)
+
+A REPL that calls `Run` once per line normally enters raw mode at the start of
+each call and restores it when the call returns. Between one line's restore and
+the next line's re-acquisition the read loop is not consuming input, so bytes that
+a fast or automated driver (a pipe or pseudo-terminal) sends right after the
+prompt is re-rendered can be lost, making scripted sessions hang intermittently.
+
+`WithPersistentRawMode` keeps the terminal in raw mode across consecutive `Run`
+calls, closing that window and making input deterministic regardless of timing or
+load. Raw mode is acquired once on the first `Run` and released once — by `Close`,
+on interrupt (Ctrl+C), or when input reaches EOF. Because the terminal stays in
+raw mode between calls, print your own output between prompts with `\r\n` rather
+than `\n`.
+
+```go
+p, err := prompt.New("$ ",
+    prompt.WithPersistentRawMode(),
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer p.Close()
+
+for {
+    line, err := p.Run()
+    if errors.Is(err, prompt.ErrEOF) || errors.Is(err, prompt.ErrInterrupted) {
+        break
+    }
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("you typed: %s\r\n", line) // note the \r\n
+}
+```
+
 ## Key bindings
 
 | Key | Action |
