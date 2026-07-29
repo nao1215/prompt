@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **A wide or zero-width character misplaced the cursor and miscounted wrapped rows ([#19](https://github.com/nao1215/prompt/issues/19))**: Prefix and line widths were counted in runes. A rune is not a terminal cell: `"データ> "` is 5 runes and 8 columns, an emoji is 1 rune and 2 columns, and a combining mark is a rune that occupies none. A CJK or emoji prompt prefix therefore left the cursor several columns from the character it was meant to sit on, and a line that wrapped at the terminal edge was counted as fitting, so the redraw cleared too few rows and left stale text behind. Cursor positioning and the wrapped-row count now measure display cells, including the text before the cursor on its own line, which the multi-line branch had ignored entirely.
+
 ## [0.0.12] - 2026-07-29
 
 ### Added

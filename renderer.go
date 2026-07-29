@@ -4,7 +4,18 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/mattn/go-runewidth"
 )
+
+// displayWidth returns how many terminal cells s occupies. Cursor positioning
+// and line-wrap arithmetic are in cells, not runes: "データ> " is 5 runes and 8
+// columns, an emoji is 1 rune and 2 columns, and a combining mark is a rune that
+// occupies none. Counting runes moved the cursor to the wrong column and
+// miscounted how many rows the input took, which left stale rows on redraw.
+func displayWidth(s string) int {
+	return runewidth.StringWidth(s)
+}
 
 // renderer handles the display of the prompt and suggestions with advanced terminal control.
 //
@@ -119,7 +130,7 @@ func (r *renderer) renderMainLine(prefix, input string, cursor int) error {
 	lines := r.splitIntoLines(input)
 	inputRunes := []rune(input)
 	cursorLine, cursorCol := r.findCursorPosition(inputRunes, cursor)
-	r.positionCursor(lines, cursorLine, cursorCol, len([]rune(prefix)))
+	r.positionCursor(lines, cursorLine, cursorCol, prefix)
 
 	return nil
 }
@@ -381,15 +392,18 @@ func (r *renderer) findCursorPosition(inputRunes []rune, cursor int) (line, col 
 //   - \x1b[<n>A: Move cursor up n lines
 //   - \x1b[<n>C: Move cursor right n characters
 //   - \r: Move cursor to beginning of line
-func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol, prefixLen int) {
+//
+// cursorCol is a rune index within its line; every distance written here is the
+// display width of the text it spans, so a wide or zero-width character lands the
+// cursor on the cell the user sees.
+func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol int, prefix string) {
 	totalLines := len(lines)
 	if totalLines <= 1 {
 		// Single line - move cursor back from end of line
-		lineLen := len([]rune(lines[0]))
-		if cursorCol < lineLen {
-			runesAfterCursor := lineLen - cursorCol
-			if runesAfterCursor > 0 {
-				fmt.Fprintf(r.output, "\x1b[%dD", runesAfterCursor)
+		lineRunes := []rune(lines[0])
+		if cursorCol < len(lineRunes) {
+			if back := displayWidth(string(lineRunes[cursorCol:])); back > 0 {
+				fmt.Fprintf(r.output, "\x1b[%dD", back)
 			}
 		}
 		return
@@ -398,7 +412,7 @@ func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol, prefixL
 	// Multi-line positioning: simple approach
 	// 1. Move up to the target line (if needed)
 	// 2. Move to beginning of that line
-	// 3. Move right to cursor position (no prefix calculation for continuation lines)
+	// 3. Move right by the width of that line's prefix plus the text before the cursor
 
 	// Calculate how many lines to move up from the last line (where cursor currently is)
 	// to the target line (cursorLine)
@@ -411,20 +425,19 @@ func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol, prefixL
 	// Move to beginning of current line
 	fmt.Fprint(r.output, "\r")
 
-	// Simple column positioning
+	// The first line carries the prompt prefix; the rest carry the continuation
+	// prefix, which is empty unless the caller set one.
+	linePrefix := r.continuationPrefix
 	if cursorLine == 0 {
-		// First line: add prefix length
-		totalCol := cursorCol + prefixLen
-		if totalCol > 0 {
-			fmt.Fprintf(r.output, "\x1b[%dC", totalCol)
-		}
-	} else {
-		// Continuation lines: add the continuation prefix, which is empty unless
-		// the caller set one.
-		totalCol := cursorCol + len([]rune(r.continuationPrefix))
-		if totalCol > 0 {
-			fmt.Fprintf(r.output, "\x1b[%dC", totalCol)
-		}
+		linePrefix = prefix
+	}
+	lineRunes := []rune(lines[cursorLine])
+	if cursorCol > len(lineRunes) {
+		cursorCol = len(lineRunes)
+	}
+	totalCol := displayWidth(linePrefix) + displayWidth(string(lineRunes[:cursorCol]))
+	if totalCol > 0 {
+		fmt.Fprintf(r.output, "\x1b[%dC", totalCol)
 	}
 }
 
@@ -448,20 +461,21 @@ func (r *renderer) calculateRenderedLines(prefix, input string) int {
 	lines := strings.Split(input, "\n")
 
 	totalLines := 0
-	prefixLen := len([]rune(prefix))
+	// Widths are in terminal cells: a wide rune fills two of them, so counting
+	// runes reported a line as fitting when it actually wrapped.
+	prefixLen := displayWidth(prefix)
+	continuationLen := displayWidth(r.continuationPrefix)
 
 	for i, line := range lines {
-		lineRunes := []rune(line)
-
 		// Calculate the actual length including prefix/indentation
 		var actualLength int
 		if i == 0 {
 			// First line includes the actual prefix
-			actualLength = prefixLen + len(lineRunes)
+			actualLength = prefixLen + displayWidth(line)
 		} else {
 			// Continuation lines carry the continuation prefix, which is empty
 			// unless the caller set one
-			actualLength = len([]rune(r.continuationPrefix)) + len(lineRunes)
+			actualLength = continuationLen + displayWidth(line)
 		}
 
 		// Calculate how many terminal lines this will take

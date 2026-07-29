@@ -217,7 +217,7 @@ func TestRendererPositionCursor(t *testing.T) {
 	lines := []string{"line1", "line2", "line3"}
 
 	// This mainly tests that the method doesn't crash
-	renderer.positionCursor(lines, 1, 2, 2)
+	renderer.positionCursor(lines, 1, 2, "$ ")
 
 	// Check that some output was written
 	result := output.String()
@@ -1011,6 +1011,104 @@ func TestRendererContinuationPrefix(t *testing.T) {
 		}
 		if prefixed != 3 {
 			t.Errorf("calculateRenderedLines() with a continuation prefix = %d, want 3", prefixed)
+		}
+	})
+}
+
+func TestRendererDisplayWidth(t *testing.T) {
+	t.Parallel()
+
+	// A rune is not a terminal cell. "データ> " is 5 runes but 8 columns, so a
+	// rune count moved the cursor three columns short of the character it was
+	// meant to sit on, and undercounted how many rows the input occupied.
+	cursorTests := []struct {
+		name   string
+		lines  []string
+		line   int
+		col    int
+		prefix string
+		want   string
+		why    string
+	}{
+		{
+			name:   "wide prefix",
+			lines:  []string{"ab", "cd"},
+			line:   0,
+			col:    2,
+			prefix: "データ> ",
+			want:   "\x1b[10C",
+			why:    "8 columns of prefix plus 2 of text, not 5 plus 2",
+		},
+		{
+			name:   "wide line content",
+			lines:  []string{"あい", "x"},
+			line:   0,
+			col:    2,
+			prefix: "$ ",
+			want:   "\x1b[6C",
+			why:    "2 columns of prefix plus 4 of text, not 2 plus 2",
+		},
+		{
+			name:   "single line moves back by cells",
+			lines:  []string{"あいう"},
+			line:   0,
+			col:    1,
+			prefix: "$ ",
+			want:   "\x1b[4D",
+			why:    "the two remaining wide runes are 4 columns, not 2",
+		},
+		{
+			// "e" followed by U+0301 is 2 runes and 1 column.
+			name:   "combining mark adds no column",
+			lines:  []string{"e\u0301x", "y"},
+			line:   0,
+			col:    3,
+			prefix: "$ ",
+			want:   "\x1b[4C",
+			why:    "2 columns of prefix plus 2 of text",
+		},
+	}
+
+	for _, tt := range cursorTests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var output bytes.Buffer
+			renderer := newRenderer(&output, ThemeDefault, nil)
+			renderer.positionCursor(tt.lines, tt.line, tt.col, tt.prefix)
+
+			if got := output.String(); !strings.Contains(got, tt.want) {
+				t.Errorf("positionCursor() wrote %q, want it to contain %q (%s)", got, tt.want, tt.why)
+			}
+		})
+	}
+
+	t.Run("wrapped-line count measures cells", func(t *testing.T) {
+		t.Parallel()
+
+		var output bytes.Buffer
+		renderer := newRenderer(&output, ThemeDefault, nil)
+
+		// 41 wide runes are 82 columns, which does not fit an 80-column row.
+		if got := renderer.calculateRenderedLines("", strings.Repeat("あ", 41)); got != 2 {
+			t.Errorf("calculateRenderedLines() = %d, want 2 (82 columns wraps at 80)", got)
+		}
+		// A prefix of 8 columns plus 76 of text is 84, also two rows.
+		if got := renderer.calculateRenderedLines("データ> ", strings.Repeat("x", 76)); got != 2 {
+			t.Errorf("calculateRenderedLines() = %d, want 2 (84 columns wraps at 80)", got)
+		}
+	})
+
+	t.Run("continuation prefix is measured in cells too", func(t *testing.T) {
+		t.Parallel()
+
+		var output bytes.Buffer
+		renderer := newRenderer(&output, ThemeDefault, nil)
+		renderer.setContinuationPrefix("続き> ")
+
+		renderer.positionCursor([]string{"a", "bc"}, 1, 2, "$ ")
+		if got := output.String(); !strings.Contains(got, "\x1b[8C") {
+			t.Errorf("positionCursor() wrote %q, want it to contain %q (6 columns of prefix plus 2 of text)", got, "\x1b[8C")
 		}
 	})
 }
