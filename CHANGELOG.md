@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.0.12] - 2026-07-29
 
 ### Added
 - **Continuation prefix (`WithContinuationPrefix`, `SetContinuationPrefix`) (PR [#18](https://github.com/nao1215/prompt/pull/18), [e89e17b](https://github.com/nao1215/prompt/commit/e89e17b))**: A multiline prompt can now draw a marker in front of every line after the first. Without one, a buffer that `WithIsComplete` declined left the cursor on a bare line with nothing in front of it, which is indistinguishable from a hung program — the user could not tell that the prompt was waiting for the rest of a statement. This is the state sqlite3 shows as "   ...> ", psql as "db-# ", and mysql as "    -> ". The prefix is drawn in the prompt's own color, counted when positioning the cursor and when measuring how many terminal rows the input occupies, and never enters the returned input. The default is empty, which preserves the previous appearance.
