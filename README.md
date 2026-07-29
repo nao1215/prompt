@@ -295,7 +295,7 @@ p, err := prompt.New("sql> ",
 )
 ```
 
-```
+```text
 sql> SELECT id,
  ..> name FROM users;
 ```
