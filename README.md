@@ -283,6 +283,29 @@ p, err := prompt.New("sql> ",
 )
 ```
 
+Pair it with `WithContinuationPrefix` so a buffered line says it is waiting.
+Without one, a statement `IsComplete` declined leaves the cursor on a bare line
+with nothing in front of it, which is indistinguishable from a hung program:
+
+```go
+p, err := prompt.New("sql> ",
+    prompt.WithMultiline(true),
+    prompt.WithIsComplete(isComplete),
+    prompt.WithContinuationPrefix(" ..> "),
+)
+```
+
+```
+sql> SELECT id,
+ ..> name FROM users;
+```
+
+The prefix is drawn in the prompt's color and counted when positioning the cursor
+and measuring how many rows the input occupies, so editing a continuation line
+lands where the character is. It never appears in the returned input. Use
+`SetContinuationPrefix` to change it between calls, as `SetPrefix` does for the
+main prefix.
+
 ### Persistent raw mode (REPL loops)
 
 A REPL that calls `Run` once per line normally enters raw mode at the start of

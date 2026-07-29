@@ -4171,3 +4171,70 @@ func newForTestingWithConfig(t *testing.T, config Config, mockInput string) *Pro
 
 	return p
 }
+
+func TestContinuationPrefix(t *testing.T) {
+	t.Parallel()
+
+	incomplete := func(in string) bool { return strings.HasSuffix(strings.TrimSpace(in), ";") }
+
+	t.Run("marks buffered lines without entering the result", func(t *testing.T) {
+		t.Parallel()
+
+		p := newForTestingWithConfig(t, Config{
+			Prefix:             "$ ",
+			Multiline:          true,
+			IsComplete:         incomplete,
+			ContinuationPrefix: "...> ",
+		}, "SELECT 1\nUNION ALL\nSELECT 2;\n")
+		defer p.Close()
+
+		var output bytes.Buffer
+		p.output = &output
+		p.renderer = newRenderer(&output, p.config.ColorScheme, p.terminal)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		result, err := p.RunWithContext(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "SELECT 1\nUNION ALL\nSELECT 2;", result, "the continuation prefix must not enter the returned input")
+		assert.Contains(t, output.String(), "...> ", "the continuation prefix should have been drawn")
+	})
+
+	t.Run("is absent by default", func(t *testing.T) {
+		t.Parallel()
+
+		p := newForTestingWithConfig(t, Config{
+			Prefix:     "$ ",
+			Multiline:  true,
+			IsComplete: incomplete,
+		}, "SELECT 1\nSELECT 2;\n")
+		defer p.Close()
+
+		var output bytes.Buffer
+		p.output = &output
+		p.renderer = newRenderer(&output, p.config.ColorScheme, p.terminal)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		result, err := p.RunWithContext(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "SELECT 1\nSELECT 2;", result)
+		assert.NotContains(t, output.String(), "...> ")
+	})
+
+	t.Run("option and setter reach the config", func(t *testing.T) {
+		t.Parallel()
+
+		var cfg Config
+		WithContinuationPrefix("...> ")(&cfg)
+		assert.Equal(t, "...> ", cfg.ContinuationPrefix)
+
+		p := newForTestingWithConfig(t, cfg, "")
+		defer p.Close()
+
+		p.SetContinuationPrefix("  -> ")
+		assert.Equal(t, "  -> ", p.config.ContinuationPrefix)
+	})
+}

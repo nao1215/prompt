@@ -251,6 +251,9 @@ type Config struct {
 	Multiline     bool                        // Enable multiline input mode
 	IsComplete    func(input string) bool     // Decides whether Enter submits in multiline mode (nil = always submit)
 	WordEscape    bool                        // Treat backslash-escaped whitespace as part of a word during completion
+	// ContinuationPrefix is drawn in front of every line after the first while a
+	// multiline entry is still being typed. See WithContinuationPrefix.
+	ContinuationPrefix string
 	// PersistentRawMode keeps the terminal in raw mode across consecutive Run
 	// calls instead of re-acquiring it on every call. See WithPersistentRawMode
 	// for the rationale and caveats.
@@ -359,6 +362,27 @@ func WithMultiline(multiline bool) Option {
 func WithIsComplete(isComplete func(input string) bool) Option {
 	return func(c *Config) {
 		c.IsComplete = isComplete
+	}
+}
+
+// WithContinuationPrefix sets the string drawn in front of every line after the
+// first while a multiline entry is still being typed.
+//
+// Without one, a buffer that WithIsComplete declined leaves the cursor on a bare
+// line with nothing in front of it, which is indistinguishable from a hung
+// program: the user cannot tell that the prompt is waiting for the rest of a
+// statement. A continuation prefix is how sqlite3 ("   ...> "), psql ("db-# "),
+// and mysql ("    -> ") show the same state.
+//
+// The prefix is drawn in the prompt's own color and is counted when positioning
+// the cursor and when measuring how many terminal rows the input occupies, so
+// editing on a continuation line lands where the character is. It has no effect
+// on the returned input, which never contains it, and none outside multiline
+// mode, where there is only ever one line. The default is empty, which preserves
+// the previous appearance.
+func WithContinuationPrefix(prefix string) Option {
+	return func(c *Config) {
+		c.ContinuationPrefix = prefix
 	}
 }
 
@@ -1182,6 +1206,13 @@ func (p *Prompt) SetPrefix(prefix string) {
 	p.config.Prefix = prefix
 }
 
+// SetContinuationPrefix changes the string drawn in front of every line after
+// the first while a multiline entry is still being typed. See
+// WithContinuationPrefix.
+func (p *Prompt) SetContinuationPrefix(prefix string) {
+	p.config.ContinuationPrefix = prefix
+}
+
 // SetCompleter changes the completion function
 func (p *Prompt) SetCompleter(completer func(Document) []Suggestion) {
 	p.config.Completer = completer
@@ -1713,10 +1744,12 @@ func (p *Prompt) exitRawMode() error {
 }
 
 func (p *Prompt) render() error {
+	p.renderer.setContinuationPrefix(p.config.ContinuationPrefix)
 	return p.renderer.render(p.config.Prefix, string(p.buffer), p.cursor)
 }
 
 func (p *Prompt) renderWithSuggestionsOffset(suggestions []Suggestion, selected int, offset int) error {
+	p.renderer.setContinuationPrefix(p.config.ContinuationPrefix)
 	return p.renderer.renderWithSuggestionsOffset(p.config.Prefix, string(p.buffer), p.cursor, suggestions, selected, offset)
 }
 

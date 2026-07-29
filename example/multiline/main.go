@@ -18,9 +18,12 @@ func main() {
 	fmt.Println("Type 'exit' to quit")
 	fmt.Println()
 
-	// Create prompt for multiline input
+	// Create prompt for multiline input. The continuation prefix marks the lines
+	// that are still being buffered, so a continued entry cannot be mistaken for
+	// a hung program.
 	p, err := prompt.New("multi> ",
 		prompt.WithMultiline(true),
+		prompt.WithContinuationPrefix("  ...> "),
 	)
 	if err != nil {
 		log.Fatal(err)
