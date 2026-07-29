@@ -30,6 +30,10 @@ type renderer struct {
 	lastLines         int               // Track number of lines rendered for efficient cleanup
 	suggestionsActive bool              // Track if suggestions are currently displayed
 	terminal          terminalInterface // Terminal interface for getting size information
+	// continuationPrefix is drawn in front of every line after the first, so a
+	// multiline entry shows that the prompt is still collecting input. Empty
+	// (the default) keeps continuation lines flush against the left margin.
+	continuationPrefix string
 }
 
 // newRenderer creates a new renderer with the given output and color scheme.
@@ -41,6 +45,12 @@ func newRenderer(output io.Writer, colorScheme *ColorScheme, terminal terminalIn
 		suggestionsActive: false,
 		terminal:          terminal,
 	}
+}
+
+// setContinuationPrefix sets the string drawn in front of every line after the
+// first. It is applied on the next render.
+func (r *renderer) setContinuationPrefix(prefix string) {
+	r.continuationPrefix = prefix
 }
 
 // render displays the prompt with the current input.
@@ -138,12 +148,17 @@ func (r *renderer) renderLines(prefix, input string) error {
 			}
 		}
 
+		// The first line carries the prompt prefix; the rest carry the
+		// continuation prefix, which is empty unless the caller set one.
+		linePrefix := r.continuationPrefix
 		if lineIndex == 0 {
-			// First line: render prefix
+			linePrefix = prefix
+		}
+		if linePrefix != "" {
 			if _, err := fmt.Fprint(r.output, r.colorScheme.Prefix.ToANSI()); err != nil {
 				return err
 			}
-			if _, err := fmt.Fprint(r.output, prefix); err != nil {
+			if _, err := fmt.Fprint(r.output, linePrefix); err != nil {
 				return err
 			}
 			if _, err := fmt.Fprint(r.output, Reset()); err != nil {
@@ -404,9 +419,11 @@ func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol, prefixL
 			fmt.Fprintf(r.output, "\x1b[%dC", totalCol)
 		}
 	} else {
-		// Continuation lines: just move to cursor column (from line start)
-		if cursorCol > 0 {
-			fmt.Fprintf(r.output, "\x1b[%dC", cursorCol)
+		// Continuation lines: add the continuation prefix, which is empty unless
+		// the caller set one.
+		totalCol := cursorCol + len([]rune(r.continuationPrefix))
+		if totalCol > 0 {
+			fmt.Fprintf(r.output, "\x1b[%dC", totalCol)
 		}
 	}
 }
@@ -442,8 +459,9 @@ func (r *renderer) calculateRenderedLines(prefix, input string) int {
 			// First line includes the actual prefix
 			actualLength = prefixLen + len(lineRunes)
 		} else {
-			// Continuation lines have no prefix, just the line content
-			actualLength = len(lineRunes)
+			// Continuation lines carry the continuation prefix, which is empty
+			// unless the caller set one
+			actualLength = len([]rune(r.continuationPrefix)) + len(lineRunes)
 		}
 
 		// Calculate how many terminal lines this will take

@@ -938,3 +938,79 @@ func TestRendererLongListScrolling(t *testing.T) {
 		}
 	}
 }
+
+func TestRendererContinuationPrefix(t *testing.T) {
+	t.Parallel()
+
+	t.Run("continuation lines carry the prefix", func(t *testing.T) {
+		t.Parallel()
+
+		var output bytes.Buffer
+		renderer := newRenderer(&output, ThemeDefault, nil)
+		renderer.setContinuationPrefix("...> ")
+
+		if err := renderer.render("$ ", "SELECT id,\nname", 15); err != nil {
+			t.Fatalf("render() error = %v", err)
+		}
+
+		got := output.String()
+		if !strings.Contains(got, "$ ") {
+			t.Errorf("render() lost the first-line prefix: %q", got)
+		}
+		if !strings.Contains(got, "...> ") {
+			t.Errorf("render() did not draw the continuation prefix: %q", got)
+		}
+		if strings.Count(got, "...> ") != 1 {
+			t.Errorf("render() drew the continuation prefix %d times, want 1: %q", strings.Count(got, "...> "), got)
+		}
+	})
+
+	t.Run("no continuation prefix is drawn by default", func(t *testing.T) {
+		t.Parallel()
+
+		var output bytes.Buffer
+		renderer := newRenderer(&output, ThemeDefault, nil)
+
+		if err := renderer.render("$ ", "SELECT id,\nname", 15); err != nil {
+			t.Fatalf("render() error = %v", err)
+		}
+		if strings.Contains(output.String(), "...> ") {
+			t.Errorf("render() drew a continuation prefix without one being set: %q", output.String())
+		}
+	})
+
+	t.Run("single-line input never draws the continuation prefix", func(t *testing.T) {
+		t.Parallel()
+
+		var output bytes.Buffer
+		renderer := newRenderer(&output, ThemeDefault, nil)
+		renderer.setContinuationPrefix("...> ")
+
+		if err := renderer.render("$ ", "SELECT 1;", 9); err != nil {
+			t.Fatalf("render() error = %v", err)
+		}
+		if strings.Contains(output.String(), "...> ") {
+			t.Errorf("render() drew the continuation prefix on a single line: %q", output.String())
+		}
+	})
+
+	t.Run("wrapped-line count accounts for the continuation prefix", func(t *testing.T) {
+		t.Parallel()
+
+		var output bytes.Buffer
+		renderer := newRenderer(&output, ThemeDefault, nil)
+
+		plain := renderer.calculateRenderedLines("$ ", "a\n"+strings.Repeat("b", 78))
+		renderer.setContinuationPrefix("...> ")
+		prefixed := renderer.calculateRenderedLines("$ ", "a\n"+strings.Repeat("b", 78))
+
+		// 78 columns fits one 80-column row alone but not once a 5-column
+		// continuation prefix sits in front of it.
+		if plain != 2 {
+			t.Errorf("calculateRenderedLines() without a continuation prefix = %d, want 2", plain)
+		}
+		if prefixed != 3 {
+			t.Errorf("calculateRenderedLines() with a continuation prefix = %d, want 3", prefixed)
+		}
+	})
+}
