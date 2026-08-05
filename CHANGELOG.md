@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **The prompt erased the last line of whatever was printed before it (PR [#28](https://github.com/nao1215/prompt/pull/28))**: the renderer remembers the block it drew so it can erase it on the next keystroke, and it still remembered it after the line was submitted. By then that block belongs to the finished line, and the application has printed its own output underneath it, so the next prompt moved up into that output and erased from there. One row up per row the entry had occupied: a single-line entry erased nothing extra, while a statement typed across a continuation line ate the last line of the result printed for it — a table lost its bottom border. The renderer now forgets the block when a line ends, so a fresh prompt erases only the line it is on.
+
 ## [0.0.16] - 2026-08-05
 
 ### Added
