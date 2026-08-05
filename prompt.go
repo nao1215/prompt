@@ -84,6 +84,10 @@ const (
 const (
 	bracketedPasteEnableSequence  = "\x1b[?2004h"
 	bracketedPasteDisableSequence = "\x1b[?2004l"
+	// maxCSILength bounds how many runes are read after "ESC [" while looking for
+	// the sequence's final byte. It is far longer than any key sequence a
+	// terminal sends, and exists so a malformed one cannot read forever.
+	maxCSILength = 32
 )
 
 // KeyMap holds the key binding configuration
@@ -758,7 +762,11 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 		case r == '\x1b':
 			seq, err := p.readEscapeSequence()
 			if err != nil {
-				continue
+				if errors.Is(err, io.EOF) {
+					p.restoreOnExit()
+					return "", ErrEOF
+				}
+				return "", fmt.Errorf("failed to read input: %w", err)
 			}
 			if seq == "" {
 				// A bare Escape closes the completion popup, as it does in an
@@ -767,9 +775,15 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 				suggestions = nil
 			}
 			action = p.keyMap.GetSequenceAction(seq)
-			// Inside a paste only the end marker is a signal. Any other sequence
-			// is content the terminal passed through and must not be obeyed.
+			// Inside a paste only the end marker is a signal. Anything else is
+			// content the terminal passed through: the ESC that introduced it is a
+			// control byte and is dropped, while the rest of the sequence is text
+			// and is kept, so pasting a colored log does not lose its words.
 			if inPaste && action != ActionPasteEnd {
+				for _, pasted := range seq {
+					lastPasted = p.insertPastedRune(pasted, lastPasted)
+				}
+				suggestions = nil
 				action = ActionNone
 			}
 		case inPaste:
@@ -1012,6 +1026,9 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 
 		case ActionPasteStart:
 			inPaste = true
+			// Each paste starts its own CRLF state: a paste ending in CR must not
+			// swallow the newline a later paste begins with.
+			lastPasted = 0
 			suggestions = nil
 
 		case ActionPasteEnd:
@@ -1848,10 +1865,11 @@ func (p *Prompt) readEscapeSequence() (string, error) {
 
 	// CSI is ESC [ parameters intermediates final, and ends at the first byte in
 	// the final range. Reading to that byte keeps a long sequence (bracketed
-	// paste markers, Ctrl+arrow) whole instead of cutting it after three runes.
+	// paste markers, Ctrl+arrow, a mouse or paste report with many parameters)
+	// whole instead of cutting it after three runes.
 	seq := make([]rune, 0, 8)
 	seq = append(seq, r)
-	for range 9 { // Limit to prevent an unbounded read on a malformed sequence
+	for range maxCSILength { // Bound the read so a malformed sequence cannot hang the prompt
 		r, err := p.readRune()
 		if err != nil {
 			return "", err
@@ -1861,5 +1879,8 @@ func (p *Prompt) readEscapeSequence() (string, error) {
 			return string(seq), nil
 		}
 	}
-	return string(seq), nil
+	// No final byte within the bound: the terminal is sending something this
+	// prompt cannot name. Report no sequence rather than a truncated one, whose
+	// unread tail would otherwise be inserted into the buffer as typed text.
+	return "", nil
 }

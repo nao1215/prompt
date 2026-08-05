@@ -235,6 +235,13 @@ func TestInterruptedLineIsDiscardedAndSessionContinues(t *testing.T) {
 
 	mock := newMockTerminal("SELE\x03SELECT 1;\r")
 	p := newTestPrompt(mock, WithPersistentRawMode())
+	// The session holds the terminal across calls, so it is closed here rather
+	// than left raw on any exit path.
+	defer func() {
+		if err := p.Close(); err != nil {
+			t.Errorf("Close returned error: %v", err)
+		}
+	}()
 
 	if _, err := p.RunWithContext(context.Background()); !errors.Is(err, ErrInterrupted) {
 		t.Fatalf("first Run error = %v, want ErrInterrupted", err)

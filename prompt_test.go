@@ -555,6 +555,11 @@ func TestReadEscapeSequenceBareEscape(t *testing.T) {
 		{name: "ESC followed by a digit reports no sequence and keeps the digit", input: "1;", wantSeq: "", wantNex: '1'},
 		{name: "CSI arrow is still recognized as a sequence", input: "[Ax", wantSeq: "[A", wantNex: 'x'},
 		{name: "SS3 function key is still recognized as a sequence", input: "OPx", wantSeq: "OP", wantNex: 'x'},
+		{name: "long CSI is read to its final byte", input: "[1;2;3;4;5;6;7;8;9;10Cx", wantSeq: "[1;2;3;4;5;6;7;8;9;10C", wantNex: 'x'},
+		// A sequence with no final byte within the bound is reported as no
+		// sequence. Returning the truncated prefix would leave its tail to be read
+		// as typed text.
+		{name: "CSI without a final byte reports no sequence", input: "[" + strings.Repeat("1", 40) + "x", wantSeq: "", wantNex: '1'},
 	}
 
 	for _, tt := range tests {
@@ -3779,6 +3784,53 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		expected := "SELECT 1"
 		if result != expected {
 			t.Errorf("Expected pasted control byte to be dropped, want %q, got %q", expected, result)
+		}
+	})
+
+	// Pasting terminal output can carry an escape sequence. The ESC is a control
+	// byte and goes, but the characters after it are text the user pasted and
+	// must survive, and the sequence must not move the cursor.
+	t.Run("BracketedPasteKeepsTextOfAnEscapeSequence", func(t *testing.T) {
+		config := Config{
+			Prefix:    "test> ",
+			Multiline: true,
+		}
+
+		input := "\x1b[200~ab\x1b[Acd\x1b[201~\r"
+		p := newForTestingWithConfig(t, config, input)
+		defer p.Close()
+
+		result, err := p.RunWithContext(context.Background())
+		if err != nil {
+			t.Fatalf("RunWithContext failed: %v", err)
+		}
+
+		expected := "ab[Acd"
+		if result != expected {
+			t.Errorf("Expected pasted escape sequence to keep its text, want %q, got %q", expected, result)
+		}
+	})
+
+	// The CRLF pairing is per paste. A paste that ends in CR must not swallow the
+	// newline the next paste begins with.
+	t.Run("BracketedPasteResetsCRLFStateBetweenPastes", func(t *testing.T) {
+		config := Config{
+			Prefix:    "test> ",
+			Multiline: true,
+		}
+
+		input := "\x1b[200~a\r\x1b[201~\x1b[200~\nb\x1b[201~\r"
+		p := newForTestingWithConfig(t, config, input)
+		defer p.Close()
+
+		result, err := p.RunWithContext(context.Background())
+		if err != nil {
+			t.Fatalf("RunWithContext failed: %v", err)
+		}
+
+		expected := "a\n\nb"
+		if result != expected {
+			t.Errorf("Expected each paste to keep its own line break, want %q, got %q", expected, result)
 		}
 	})
 }
