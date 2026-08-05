@@ -538,6 +538,91 @@ func TestReadEscapeSequence(t *testing.T) {
 	}
 }
 
+// TestReadEscapeSequenceBareEscape covers ESC that does not introduce a
+// sequence: a bare Escape key, or Alt+key. The rune that follows belongs to the
+// input, so it must be pushed back rather than consumed as sequence bytes —
+// consuming it ate the next characters the user typed.
+func TestReadEscapeSequenceBareEscape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		wantSeq string
+		wantNex rune
+	}{
+		{name: "ESC followed by a letter reports no sequence and keeps the letter", input: "abc", wantSeq: "", wantNex: 'a'},
+		{name: "ESC followed by a digit reports no sequence and keeps the digit", input: "1;", wantSeq: "", wantNex: '1'},
+		{name: "CSI arrow is still recognized as a sequence", input: "[Ax", wantSeq: "[A", wantNex: 'x'},
+		{name: "SS3 function key is still recognized as a sequence", input: "OPx", wantSeq: "OP", wantNex: 'x'},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &Prompt{
+				config:   Config{Prefix: "test> "},
+				terminal: newMockTerminal(tt.input),
+				keyMap:   NewDefaultKeyMap(),
+			}
+
+			seq, err := p.readEscapeSequence()
+			if err != nil {
+				t.Fatalf("readEscapeSequence returned error: %v", err)
+			}
+			if seq != tt.wantSeq {
+				t.Errorf("sequence = %q, want %q", seq, tt.wantSeq)
+			}
+
+			next, err := p.readRune()
+			if err != nil {
+				t.Fatalf("reading the rune after the sequence: %v", err)
+			}
+			if next != tt.wantNex {
+				t.Errorf("next rune = %q, want %q", next, tt.wantNex)
+			}
+		})
+	}
+}
+
+// TestEscapeDoesNotSwallowTypedCharacters drives the whole read loop: pressing
+// Escape and then typing must leave the typed text intact.
+func TestEscapeDoesNotSwallowTypedCharacters(t *testing.T) {
+	t.Parallel()
+
+	mock := newMockTerminal("\x1bSELECT 1\r")
+	p := newTestPrompt(mock)
+
+	got, err := p.RunWithContext(context.Background())
+	if err != nil {
+		t.Fatalf("RunWithContext returned error: %v", err)
+	}
+	if want := "SELECT 1"; got != want {
+		t.Errorf("input after Escape = %q, want %q", got, want)
+	}
+}
+
+// TestEscapeDismissesSuggestions pins Escape as the way out of a completion
+// popup. With suggestions on screen Enter accepts one instead of submitting, so
+// a popup that Escape could not close left the user unable to run the line.
+func TestEscapeDismissesSuggestions(t *testing.T) {
+	t.Parallel()
+
+	mock := newMockTerminal("se\t\x1b\r")
+	p := newTestPrompt(mock, WithCompleter(func(Document) []Suggestion {
+		return []Suggestion{{Text: "select"}, {Text: "session"}}
+	}))
+
+	got, err := p.RunWithContext(context.Background())
+	if err != nil {
+		t.Fatalf("RunWithContext returned error: %v", err)
+	}
+	if want := "se"; got != want {
+		t.Errorf("input after dismissing the popup = %q, want %q", got, want)
+	}
+}
+
 func TestNewRealTerminal(t *testing.T) {
 	if os.Getenv("GITHUB_ACTIONS") == "" {
 		t.Skip("Skipping real terminal test in local development")
@@ -3621,6 +3706,79 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		expected := "line1\\\nline2"
 		if result != expected {
 			t.Errorf("Expected pasted backslash result %q, got %q", expected, result)
+		}
+	})
+
+	// Pasted text is data, not keystrokes. A TAB inside it must reach the buffer
+	// instead of running completion, which silently deleted the TAB (and, with a
+	// matching candidate, rewrote the pasted word).
+	t.Run("BracketedPasteKeepsTabAsText", func(t *testing.T) {
+		config := Config{
+			Prefix:    "test> ",
+			Multiline: true,
+			Completer: func(Document) []Suggestion {
+				return []Suggestion{{Text: "abcdef"}}
+			},
+		}
+
+		input := "\x1b[200~SELECT ab\tc\x1b[201~\r"
+		p := newForTestingWithConfig(t, config, input)
+		defer p.Close()
+
+		result, err := p.RunWithContext(context.Background())
+		if err != nil {
+			t.Fatalf("RunWithContext failed: %v", err)
+		}
+
+		expected := "SELECT ab\tc"
+		if result != expected {
+			t.Errorf("Expected pasted TAB result %q, got %q", expected, result)
+		}
+	})
+
+	// A terminal sends CRLF for the line breaks of text copied on Windows. Both
+	// bytes submit, so pasting one line break inserted two.
+	t.Run("BracketedPasteCollapsesCRLFToOneNewline", func(t *testing.T) {
+		config := Config{
+			Prefix:    "test> ",
+			Multiline: true,
+		}
+
+		input := "\x1b[200~SELECT 1\r\nFROM t\x1b[201~\r"
+		p := newForTestingWithConfig(t, config, input)
+		defer p.Close()
+
+		result, err := p.RunWithContext(context.Background())
+		if err != nil {
+			t.Fatalf("RunWithContext failed: %v", err)
+		}
+
+		expected := "SELECT 1\nFROM t"
+		if result != expected {
+			t.Errorf("Expected pasted CRLF result %q, got %q", expected, result)
+		}
+	})
+
+	// A control byte carried in pasted text must not be obeyed as a keystroke:
+	// a stray 0x03 ended the whole prompt with ErrInterrupted.
+	t.Run("BracketedPasteIgnoresControlBytes", func(t *testing.T) {
+		config := Config{
+			Prefix:    "test> ",
+			Multiline: true,
+		}
+
+		input := "\x1b[200~SELECT\x03 1\x1b[201~\r"
+		p := newForTestingWithConfig(t, config, input)
+		defer p.Close()
+
+		result, err := p.RunWithContext(context.Background())
+		if err != nil {
+			t.Fatalf("RunWithContext failed: %v", err)
+		}
+
+		expected := "SELECT 1"
+		if result != expected {
+			t.Errorf("Expected pasted control byte to be dropped, want %q, got %q", expected, result)
 		}
 	})
 }

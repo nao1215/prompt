@@ -67,8 +67,9 @@
 // The library supports comprehensive key bindings out of the box:
 //
 //   - Enter: Submit input (Shift+Enter for multi-line in appropriate contexts)
-//   - Ctrl+C: Cancel and return ErrInterrupted
+//   - Ctrl+C: Discard the current line and return ErrInterrupted
 //   - Ctrl+D: EOF when buffer is empty
+//   - Esc: Close the completion popup
 //   - Arrow keys: Navigate history (up/down) and move cursor (left/right)
 //   - Ctrl+A / Home: Move to beginning of line
 //   - Ctrl+E / End: Move to end of line

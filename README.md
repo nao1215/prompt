@@ -316,8 +316,9 @@ prompt is re-rendered can be lost, making scripted sessions hang intermittently.
 
 `WithPersistentRawMode` keeps the terminal in raw mode across consecutive `Run`
 calls, closing that window and making input deterministic regardless of timing or
-load. Raw mode is acquired once on the first `Run` and released once — by `Close`,
-on interrupt (Ctrl+C), or when input reaches EOF. Because the terminal stays in
+load. Raw mode is acquired once on the first `Run` and released once — by `Close`
+or when input reaches EOF. Ctrl+C does not release it, because it ends the line
+rather than the session and the next `Run` continues where it left off. Because the terminal stays in
 raw mode between calls, print your own output between prompts with `\r\n` rather
 than `\n`.
 
@@ -347,7 +348,7 @@ for {
 | Key | Action |
 |-----|--------|
 | Enter | Submit input |
-| Ctrl+C | Cancel and return ErrInterrupted |
+| Ctrl+C | Discard the current line and return ErrInterrupted |
 | Ctrl+D | EOF when buffer is empty |
 | ↑/↓ | Navigate history (or lines in multi-line mode) |
 | ←/→ | Move cursor |
@@ -361,6 +362,7 @@ for {
 | Backspace | Delete character backwards |
 | Delete | Delete character forwards |
 | Ctrl+←/→ | Move by word boundaries |
+| Esc | Close the completion popup |
 
 ## Color themes
 

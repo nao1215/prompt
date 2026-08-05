@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Ctrl+C no longer releases the terminal in persistent raw mode**: the interrupt ends the line, not the session, so a REPL that reports `ErrInterrupted` and calls `Run` again used to pay a raw-to-cooked-to-raw switch on every Ctrl+C — the same mode-switch window `WithPersistentRawMode` exists to close, reopened at the moment the user is typing. Raw mode is now released by `Close` or at EOF. An application that treats `ErrInterrupted` as fatal must call `Close`, as it should anyway. The default (non-persistent) mode is unchanged: every `Run` still restores the terminal before returning.
+
+### Fixed
+- **Pasted text was obeyed as keystrokes**: a bracketed paste was inserted literally only for Enter. Every other byte still ran its key binding, so a TAB inside pasted text ran completion instead of reaching the buffer — it silently disappeared, and with a matching candidate the pasted word was rewritten (`SELECT ab<TAB>c` became `SELECT abcdefc`). A 0x03 carried in the pasted text ended the prompt with `ErrInterrupted`. Paste is now content: printable runes and TAB are inserted, other control bytes are dropped, and only the paste-end marker leaves paste mode.
+- **A pasted CRLF became two line breaks**: text copied on Windows arrives as CR LF and both bytes submit, so each line break in the paste inserted a blank line. A line break now yields exactly one "\n" however the terminal spells it.
+- **Escape swallowed the characters typed after it**: the escape reader consumed up to three more runes whatever they were, so a bare Escape — or Alt+key, or any unmapped ESC-prefixed key — ate the start of the next word. Pressing Escape and typing `SELECT 1` ran `ECT 1`. Only CSI (`[`) and SS3 (`O`) now introduce a sequence; anything else is pushed back for the read loop. A CSI sequence is also read to its real final byte instead of being cut after three runes.
+- **Escape could not close the completion popup**: with suggestions on screen Enter accepts one instead of submitting, and nothing dismissed them, so the popup could leave a line unrunnable. A bare Escape now closes it.
+
 ## [0.0.14] - 2026-08-05
 
 ### Fixed

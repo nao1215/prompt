@@ -183,7 +183,7 @@ func main() {
 | 키 | 동작 |
 |----|------|
 | Enter | 입력 제출 |
-| Ctrl+C | 취소하고 ErrInterrupted 반환 |
+| Ctrl+C | 현재 줄을 버리고 ErrInterrupted 반환 |
 | Ctrl+D | 버퍼가 비어있을 때 EOF |
 | ↑/↓ | 히스토리 탐색 (멀티라인 모드에서는 줄) |
 | ←/→ | 커서 이동 |
@@ -197,6 +197,7 @@ func main() {
 | Backspace | 뒤쪽 문자 삭제 |
 | Delete | 앞쪽 문자 삭제 |
 | Ctrl+←/→ | 단어 경계로 이동 |
+| Esc | 자동 완성 목록 닫기 |
 
 ## 🎨 색상 테마
 

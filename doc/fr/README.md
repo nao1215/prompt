@@ -183,7 +183,7 @@ La bibliothèque supporte des raccourcis clavier complets dès le départ :
 | Touche | Action |
 |--------|--------|
 | Entrée | Soumettre l'entrée |
-| Ctrl+C | Annuler et retourner ErrInterrupted |
+| Ctrl+C | Abandonner la ligne courante et retourner ErrInterrupted |
 | Ctrl+D | EOF quand le buffer est vide |
 | ↑/↓ | Naviguer dans l'historique (ou lignes en mode multilignes) |
 | ←/→ | Déplacer le curseur |
@@ -197,6 +197,7 @@ La bibliothèque supporte des raccourcis clavier complets dès le départ :
 | Retour arrière | Supprimer le caractère vers l'arrière |
 | Suppr | Supprimer le caractère vers l'avant |
 | Ctrl+←/→ | Se déplacer par limites de mots |
+| Esc | Fermer la liste de complétion |
 
 ## 🎨 Thèmes de Couleur
 
