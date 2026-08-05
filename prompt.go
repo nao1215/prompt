@@ -689,7 +689,7 @@ func (p *Prompt) Run() (string, error) {
 
 // RunWithContext starts the interactive prompt with context support.
 //
-// The prompt can be cancelled via the provided context, allowing for timeouts
+// The prompt can be canceled via the provided context, allowing for timeouts
 // or cancellation from other goroutines. The function supports all configured
 // key bindings, multi-line input, completion, and history navigation.
 //
@@ -1895,7 +1895,7 @@ func (p *Prompt) stashTypeAhead(r rune) {
 //
 // The goroutine ends when the terminal reports an error, which Close causes, and
 // the error is delivered to every later read. It cannot be stopped otherwise:
-// a terminal read in progress cannot be cancelled on every platform, and a
+// a terminal read in progress cannot be canceled on every platform, and a
 // goroutine abandoned mid-read would eat the next key.
 func (p *Prompt) startInputReader() <-chan readResult {
 	p.readerOnce.Do(func() {

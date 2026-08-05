@@ -122,7 +122,7 @@
 //   - prompt.ErrInterrupted: User pressed Ctrl+C
 //   - io.EOF: User pressed Ctrl+D with empty buffer
 //   - context.DeadlineExceeded: Timeout reached (when using context)
-//   - context.Canceled: Context was cancelled
+//   - context.Canceled: Context was canceled
 //
 // Multi-line Input:
 //

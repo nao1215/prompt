@@ -31,7 +31,7 @@ const ctrlC = '\x03'
 // Everything else typed while the work runs is the user's input, not the
 // watcher's to consume: it is held and delivered to the next Run in the order it
 // was typed, so typing ahead keeps working. The Ctrl+C itself is taken, which is
-// what stops it from also cancelling the next line.
+// what stops it from also canceling the next line.
 //
 // The returned context is a child of the one passed in, so a caller whose own
 // context is canceled still sees the work stop. It is canceled by the returned
