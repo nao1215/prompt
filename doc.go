@@ -70,6 +70,11 @@
 //   - Ctrl+C: Discard the current line and return ErrInterrupted
 //   - Ctrl+D: EOF when buffer is empty
 //   - Esc: Close the completion popup
+//
+// While an application runs work between prompts (a query, an import), no one is
+// reading the terminal, so Ctrl+C is a byte that simply waits in the buffer.
+// WatchInterrupt watches for it during that gap and returns a context canceled
+// when it arrives.
 //   - Arrow keys: Navigate history (up/down) and move cursor (left/right)
 //   - Ctrl+A / Home: Move to beginning of line
 //   - Ctrl+E / End: Move to end of line
@@ -117,7 +122,7 @@
 //   - prompt.ErrInterrupted: User pressed Ctrl+C
 //   - io.EOF: User pressed Ctrl+D with empty buffer
 //   - context.DeadlineExceeded: Timeout reached (when using context)
-//   - context.Canceled: Context was cancelled
+//   - context.Canceled: Context was canceled
 //
 // Multi-line Input:
 //
