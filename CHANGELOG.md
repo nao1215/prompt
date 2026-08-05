@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.0.15] - 2026-08-05
 
 ### Changed
 - **Ctrl+C no longer releases the terminal in persistent raw mode (PR [#24](https://github.com/nao1215/prompt/pull/24))**: the interrupt ends the line, not the session, so a REPL that reports `ErrInterrupted` and calls `Run` again used to pay a raw-to-cooked-to-raw switch on every Ctrl+C — the same mode-switch window `WithPersistentRawMode` exists to close, reopened at the moment the user is typing. Raw mode is now released by `Close` or at EOF. An application that treats `ErrInterrupted` as fatal must call `Close`, as it should anyway. The default (non-persistent) mode is unchanged: every `Run` still restores the terminal before returning.
