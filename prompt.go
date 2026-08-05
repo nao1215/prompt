@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/mattn/go-colorable"
 )
@@ -38,8 +39,27 @@ type Prompt struct {
 	renderer       *renderer
 	terminal       terminalInterface
 	keyMap         *KeyMap
-	rawActive      bool   // Whether the terminal is currently in raw mode
-	pending        []rune // Runes read ahead and pushed back, newest first
+	rawActive      bool // Whether the terminal is currently in raw mode
+
+	// pending holds runes that were read before they were needed and must be
+	// delivered before anything else: a rune read past the end of an escape
+	// sequence, or input typed while WatchInterrupt was watching. It is read from
+	// the front, so the order the user typed in is the order they come back.
+	pendingMu sync.Mutex
+	pending   []rune
+
+	// reads is the shared input channel, started by the first WatchInterrupt and
+	// used from then on so a watcher and the line editor cannot each take half of
+	// what was typed. It is nil until then, leaving the classic path a direct
+	// terminal read.
+	readerOnce sync.Once
+	reads      chan readResult
+	readErr    error // the error that ended the reader; read after reads is closed
+}
+
+// readResult is one rune from the shared input reader.
+type readResult struct {
+	r rune
 }
 
 // KeyBinding represents a keyboard shortcut mapping
@@ -1822,19 +1842,80 @@ func (p *Prompt) renderWithSuggestionsOffset(suggestions []Suggestion, selected 
 }
 
 func (p *Prompt) readRune() (rune, error) {
-	if n := len(p.pending); n > 0 {
-		r := p.pending[n-1]
-		p.pending = p.pending[:n-1]
+	if r, ok := p.takePending(); ok {
 		return r, nil
+	}
+	// Once a watcher has started the shared reader, every rune must come from it:
+	// a second reader on the same terminal would take bytes the other was waiting
+	// for.
+	if p.reads != nil {
+		res, ok := <-p.reads
+		if !ok {
+			return 0, p.readErr
+		}
+		return res.r, nil
 	}
 	r, _, err := p.terminal.ReadRune()
 	return r, err
 }
 
+// takePending removes and returns the oldest rune held back, if any.
+func (p *Prompt) takePending() (rune, bool) {
+	p.pendingMu.Lock()
+	defer p.pendingMu.Unlock()
+	if len(p.pending) == 0 {
+		return 0, false
+	}
+	r := p.pending[0]
+	p.pending = p.pending[1:]
+	return r, true
+}
+
 // unreadRune pushes a rune back so the next readRune returns it. It is used when
-// a rune read ahead turns out to be input rather than part of a key sequence.
+// a rune read ahead turns out to be input rather than part of a key sequence, so
+// it goes to the front: it was read before everything already held.
 func (p *Prompt) unreadRune(r rune) {
+	p.pendingMu.Lock()
+	defer p.pendingMu.Unlock()
+	p.pending = append([]rune{r}, p.pending...)
+}
+
+// stashTypeAhead holds a rune read while WatchInterrupt was watching, to be
+// delivered to the next Run. It goes to the back, because it was typed after
+// everything already held.
+func (p *Prompt) stashTypeAhead(r rune) {
+	p.pendingMu.Lock()
+	defer p.pendingMu.Unlock()
 	p.pending = append(p.pending, r)
+}
+
+// startInputReader starts the goroutine that reads the terminal into a channel,
+// and returns that channel. Reading in one place is what lets a watcher and the
+// line editor take turns without either losing a keystroke to the other.
+//
+// The goroutine ends when the terminal reports an error, which Close causes, and
+// the error is delivered to every later read. It cannot be stopped otherwise:
+// a terminal read in progress cannot be cancelled on every platform, and a
+// goroutine abandoned mid-read would eat the next key.
+func (p *Prompt) startInputReader() <-chan readResult {
+	p.readerOnce.Do(func() {
+		// Buffered so a burst typed during long work does not block the reader,
+		// which would leave the terminal unread and lose the keys after it.
+		reads := make(chan readResult, 1024)
+		p.reads = reads
+		go func() {
+			for {
+				r, _, err := p.terminal.ReadRune()
+				if err != nil {
+					p.readErr = err
+					close(reads)
+					return
+				}
+				reads <- readResult{r: r}
+			}
+		}()
+	})
+	return p.reads
 }
 
 // readEscapeSequence reads what follows ESC and returns the key sequence it

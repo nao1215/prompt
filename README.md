@@ -343,6 +343,39 @@ for {
 }
 ```
 
+### Interrupting work between prompts
+
+`Run` returns as soon as a line is submitted, so while the application executes
+that line nothing is reading the terminal. In raw mode Ctrl+C is a byte rather
+than a signal, so it cannot reach the running work: it waits in the input buffer
+and is read as part of the next line once the work is over.
+
+`WatchInterrupt` watches for it during that gap and returns a context canceled
+when the key arrives:
+
+```go
+for {
+    line, err := p.Run()
+    if err != nil {
+        break
+    }
+
+    ctx, stop := p.WatchInterrupt(context.Background())
+    err = runQuery(ctx, line) // a long query, an import, anything slow
+    stop()
+
+    if errors.Is(err, context.Canceled) {
+        fmt.Print("canceled\r\n")
+        continue
+    }
+}
+```
+
+Everything else typed while the work runs belongs to the next line: it is held
+and delivered to the following `Run` in the order it was typed, so typing ahead
+keeps working. Do not call `Run` while a watch is active — a line editor and a
+watcher cannot both own one terminal.
+
 ## Key bindings
 
 | Key | Action |
