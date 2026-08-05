@@ -173,13 +173,47 @@ func TestPersistentRawModeRestoresOnEOF(t *testing.T) {
 	}
 }
 
-// TestPersistentRawModeRestoresOnInterrupt asserts Ctrl+C restores the terminal
-// and returns ErrInterrupted even in persistent mode.
-func TestPersistentRawModeRestoresOnInterrupt(t *testing.T) {
+// TestPersistentRawModeKeepsTerminalOnInterrupt asserts Ctrl+C returns
+// ErrInterrupted without releasing the terminal in persistent mode. A REPL
+// treats the interrupt as "discard this line" and calls Run again, so releasing
+// the terminal there would reopen the mode-switch window persistent raw mode
+// exists to close. Close still restores it.
+func TestPersistentRawModeKeepsTerminalOnInterrupt(t *testing.T) {
 	t.Parallel()
 
 	mock := newMockTerminal("\x03") // Ctrl+C
 	p := newTestPrompt(mock, WithPersistentRawMode())
+
+	_, err := p.RunWithContext(context.Background())
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("Run error = %v, want ErrInterrupted", err)
+	}
+	if mock.restoreCount != 0 {
+		t.Errorf("Restore called %d times after interrupt, want 0 in persistent mode", mock.restoreCount)
+	}
+	if !mock.rawMode {
+		t.Error("terminal should stay in raw mode after an interrupt in persistent mode")
+	}
+
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if mock.restoreCount != 1 {
+		t.Errorf("Restore called %d times after Close, want 1", mock.restoreCount)
+	}
+	if mock.rawMode {
+		t.Error("terminal should be restored to cooked mode by Close")
+	}
+}
+
+// TestDefaultModeRestoresOnInterrupt keeps the single-shot contract: without
+// persistent raw mode every Run restores the terminal before returning,
+// interrupt included.
+func TestDefaultModeRestoresOnInterrupt(t *testing.T) {
+	t.Parallel()
+
+	mock := newMockTerminal("\x03") // Ctrl+C
+	p := newTestPrompt(mock)
 
 	_, err := p.RunWithContext(context.Background())
 	if !errors.Is(err, ErrInterrupted) {
@@ -190,6 +224,38 @@ func TestPersistentRawModeRestoresOnInterrupt(t *testing.T) {
 	}
 	if mock.rawMode {
 		t.Error("terminal should be restored to cooked mode after interrupt")
+	}
+}
+
+// TestInterruptedLineIsDiscardedAndSessionContinues models the REPL loop a shell
+// runs: a half-typed line is interrupted, the next Run starts empty and reads the
+// next line, and raw mode was acquired once for the whole session.
+func TestInterruptedLineIsDiscardedAndSessionContinues(t *testing.T) {
+	t.Parallel()
+
+	mock := newMockTerminal("SELE\x03SELECT 1;\r")
+	p := newTestPrompt(mock, WithPersistentRawMode())
+	// The session holds the terminal across calls, so it is closed here rather
+	// than left raw on any exit path.
+	defer func() {
+		if err := p.Close(); err != nil {
+			t.Errorf("Close returned error: %v", err)
+		}
+	}()
+
+	if _, err := p.RunWithContext(context.Background()); !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("first Run error = %v, want ErrInterrupted", err)
+	}
+
+	got, err := p.RunWithContext(context.Background())
+	if err != nil {
+		t.Fatalf("second Run returned error: %v", err)
+	}
+	if want := "SELECT 1;"; got != want {
+		t.Errorf("line after the interrupt = %q, want %q (the discarded line must not leak in)", got, want)
+	}
+	if mock.setRawCount != 1 {
+		t.Errorf("SetRaw called %d times across the interrupted session, want 1", mock.setRawCount)
 	}
 }
 

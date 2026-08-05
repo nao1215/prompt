@@ -38,7 +38,8 @@ type Prompt struct {
 	renderer       *renderer
 	terminal       terminalInterface
 	keyMap         *KeyMap
-	rawActive      bool // Whether the terminal is currently in raw mode
+	rawActive      bool   // Whether the terminal is currently in raw mode
+	pending        []rune // Runes read ahead and pushed back, newest first
 }
 
 // KeyBinding represents a keyboard shortcut mapping
@@ -83,6 +84,10 @@ const (
 const (
 	bracketedPasteEnableSequence  = "\x1b[?2004h"
 	bracketedPasteDisableSequence = "\x1b[?2004l"
+	// maxCSILength bounds how many runes are read after "ESC [" while looking for
+	// the sequence's final byte. It is far longer than any key sequence a
+	// terminal sends, and exists so a malformed one cannot read forever.
+	maxCSILength = 32
 )
 
 // KeyMap holds the key binding configuration
@@ -399,11 +404,15 @@ func WithContinuationPrefix(prefix string) Option {
 // machine load.
 //
 // When enabled, raw mode is acquired on the first Run call and released once, by
-// Close, on interrupt (Ctrl+C), or when input reaches EOF. Because the terminal
-// stays in raw mode between calls, an embedding application that prints its own
-// output between prompts must terminate lines with "\r\n" rather than "\n". It is
-// off by default so the classic single-shot usage keeps cooked-mode output after
-// each Run.
+// Close or when input reaches EOF. An interrupt (Ctrl+C) does not release it: it
+// ends the line rather than the session, and a REPL that calls Run again would
+// otherwise pay the mode switch on every Ctrl+C. An application that treats
+// ErrInterrupted as fatal must therefore call Close, as it should anyway.
+//
+// Because the terminal stays in raw mode between calls, an embedding application
+// that prints its own output between prompts must terminate lines with "\r\n"
+// rather than "\n". It is off by default so the classic single-shot usage keeps
+// cooked-mode output after each Run.
 func WithPersistentRawMode() Option {
 	return func(c *Config) {
 		c.PersistentRawMode = true
@@ -666,8 +675,9 @@ func (p *Prompt) Run() (string, error) {
 //
 // Supported key bindings include:
 //   - Enter: Submit input (or add newline in multi-line mode)
-//   - Ctrl+C: Cancel and return ErrInterrupted
+//   - Ctrl+C: Discard the current line and return ErrInterrupted
 //   - Ctrl+D: EOF when buffer is empty
+//   - Esc: Close the completion popup
 //   - Arrow keys: Navigate history or move cursor
 //   - Ctrl+A/Home: Move to beginning of line
 //   - Ctrl+E/End: Move to end of line
@@ -722,6 +732,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 
 	historyIndex := len(p.history)
 	inPaste := false
+	lastPasted := rune(0)
 	var suggestions []Suggestion
 	selectedSuggestion := 0
 	suggestionOffset := 0 // Track the offset for scrolling through suggestions
@@ -748,13 +759,45 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 		var action KeyAction
 
 		// Handle escape sequences
-		if r == '\x1b' {
+		switch {
+		case r == '\x1b':
 			seq, err := p.readEscapeSequence()
 			if err != nil {
-				continue
+				if errors.Is(err, io.EOF) {
+					p.restoreOnExit()
+					return "", ErrEOF
+				}
+				return "", fmt.Errorf("failed to read input: %w", err)
+			}
+			if seq == "" {
+				// A bare Escape closes the completion popup, as it does in an
+				// editor. Enter accepts a suggestion while one is displayed, so a
+				// popup with no way out left the line unrunnable.
+				suggestions = nil
 			}
 			action = p.keyMap.GetSequenceAction(seq)
-		} else {
+			// Inside a paste only the end marker is a signal. Anything else is
+			// content the terminal passed through: the ESC that introduced it is a
+			// control byte and is dropped, while the rest of the sequence is text
+			// and is kept, so pasting a colored log does not lose its words.
+			if inPaste && action != ActionPasteEnd {
+				for _, pasted := range seq {
+					lastPasted = p.insertPastedRune(pasted, lastPasted)
+				}
+				suggestions = nil
+				action = ActionNone
+			}
+		case inPaste:
+			// Pasted content is data, not keystrokes: it goes into the buffer as
+			// written instead of running completion (TAB), ending the prompt
+			// (Ctrl+C), or submitting (Enter).
+			lastPasted = p.insertPastedRune(r, lastPasted)
+			suggestions = nil
+			if err := p.renderWithSuggestionsOffset(nil, 0, 0); err != nil {
+				return "", fmt.Errorf("failed to render: %w", err)
+			}
+			continue
+		default:
 			action = p.keyMap.GetAction(r)
 		}
 
@@ -767,12 +810,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 				suggestions = nil
 				// Clear suggestions and continue editing without submitting
 			} else {
-				// Preserve newlines while bracketed paste is active so pasted multi-line
-				// content is inserted into the buffer instead of being submitted early.
-				if inPaste {
-					p.insertRune('\n')
-					suggestions = nil
-				} else if p.isShiftEnter() {
+				if p.isShiftEnter() {
 					p.insertRune('\n')
 					suggestions = nil
 				} else if p.config.Multiline && p.config.IsComplete != nil && !p.config.IsComplete(string(p.buffer)) {
@@ -793,9 +831,14 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			}
 
 		case ActionCancel:
-			// Ensure terminal state is properly restored before returning. The
-			// interrupt ends the session, so restore even in persistent mode.
-			p.restoreOnExit()
+			// The interrupt discards the line, not the session: a REPL reports
+			// ErrInterrupted and calls Run again. The terminal is therefore
+			// released only when this call owns it. A persistent session keeps raw
+			// mode, so the mode-switch window that loses input does not reopen on
+			// every Ctrl+C; Close and EOF restore it.
+			if !p.config.PersistentRawMode {
+				p.restoreOnExit()
+			}
 			fmt.Fprint(p.output, "^C\r\n")
 			return "", ErrInterrupted
 
@@ -984,6 +1027,9 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 
 		case ActionPasteStart:
 			inPaste = true
+			// Each paste starts its own CRLF state: a paste ending in CR must not
+			// swallow the newline a later paste begins with.
+			lastPasted = 0
 			suggestions = nil
 
 		case ActionPasteEnd:
@@ -1072,6 +1118,28 @@ func (p *Prompt) Close() error {
 func (p *Prompt) insertRune(r rune) {
 	p.buffer = append(p.buffer[:p.cursor], append([]rune{r}, p.buffer[p.cursor:]...)...)
 	p.cursor++
+}
+
+// insertPastedRune inserts one rune of bracketed-paste content and returns it,
+// so the caller can pass it back as prev on the next call.
+//
+// A line break becomes exactly one "\n" however the terminal spells it: pasting
+// Windows text delivers CR LF, and inserting a newline for each of them turned
+// every line break into a blank line. Control bytes other than TAB are dropped
+// rather than inserted, because they are neither text the user pasted nor
+// commands they pressed.
+func (p *Prompt) insertPastedRune(r, prev rune) rune {
+	switch {
+	case r == '\r':
+		p.insertRune('\n')
+	case r == '\n':
+		if prev != '\r' {
+			p.insertRune('\n')
+		}
+	case r == '\t' || (r >= 32 && r != 0x7f):
+		p.insertRune(r)
+	}
+	return r
 }
 
 func (p *Prompt) insertText(text string) {
@@ -1754,30 +1822,66 @@ func (p *Prompt) renderWithSuggestionsOffset(suggestions []Suggestion, selected 
 }
 
 func (p *Prompt) readRune() (rune, error) {
+	if n := len(p.pending); n > 0 {
+		r := p.pending[n-1]
+		p.pending = p.pending[:n-1]
+		return r, nil
+	}
 	r, _, err := p.terminal.ReadRune()
 	return r, err
 }
 
+// unreadRune pushes a rune back so the next readRune returns it. It is used when
+// a rune read ahead turns out to be input rather than part of a key sequence.
+func (p *Prompt) unreadRune(r rune) {
+	p.pending = append(p.pending, r)
+}
+
+// readEscapeSequence reads what follows ESC and returns the key sequence it
+// forms, without the ESC. It returns "" when ESC introduced no sequence at all:
+// a bare Escape key, or Alt+key, which every terminal sends as ESC followed by
+// the plain character.
+//
+// Only CSI ("[") and SS3 ("O") introduce a sequence, so any other rune is input
+// in its own right and is pushed back for the read loop. Consuming it swallowed
+// whatever the user typed right after pressing Escape.
 func (p *Prompt) readEscapeSequence() (string, error) {
-	seq := make([]rune, 0, 10) // Pre-allocate with capacity
-	for range 10 {             // Limit to prevent infinite loop
+	r, err := p.readRune()
+	if err != nil {
+		return "", err
+	}
+	if r != '[' && r != 'O' {
+		p.unreadRune(r)
+		return "", nil
+	}
+
+	// SS3 is ESC O plus exactly one final character (F1-F4, keypad keys).
+	if r == 'O' {
+		final, err := p.readRune()
+		if err != nil {
+			return "", err
+		}
+		return string([]rune{r, final}), nil
+	}
+
+	// CSI is ESC [ parameters intermediates final, and ends at the first byte in
+	// the final range. Reading to that byte keeps a long sequence (bracketed
+	// paste markers, Ctrl+arrow, a mouse or paste report with many parameters)
+	// whole instead of cutting it after three runes.
+	seq := make([]rune, 0, 8)
+	seq = append(seq, r)
+	for range maxCSILength { // Bound the read so a malformed sequence cannot hang the prompt
 		r, err := p.readRune()
 		if err != nil {
 			return "", err
 		}
 		seq = append(seq, r)
-
-		// Check for complete sequences
-		s := string(seq)
-		if s == "[A" || s == "[B" || s == "[C" || s == "[D" || s == "[H" || s == "[F" {
-			return s, nil
-		}
-		if strings.HasSuffix(s, "~") && len(s) >= 3 {
-			return s, nil
-		}
-		if len(seq) >= 3 && (seq[len(seq)-1] < '0' || seq[len(seq)-1] > '9') {
-			return s, nil
+		if r >= '@' && r <= '~' {
+			return string(seq), nil
 		}
 	}
-	return string(seq), nil
+	// No final byte within the bound: the terminal is sending something this
+	// prompt cannot name. Report no sequence rather than a truncated one, whose
+	// unread tail would otherwise be inserted into the buffer as typed text.
+	return "", nil
 }

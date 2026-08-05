@@ -183,7 +183,7 @@ func main() {
 | 键 | 动作 |
 |----|------|
 | Enter | 提交输入 |
-| Ctrl+C | 取消并返回 ErrInterrupted |
+| Ctrl+C | 丢弃当前行并返回 ErrInterrupted |
 | Ctrl+D | 缓冲区为空时的 EOF |
 | ↑/↓ | 导航历史（多行模式下的行） |
 | ←/→ | 移动光标 |
@@ -197,6 +197,7 @@ func main() {
 | Backspace | 向后删除字符 |
 | Delete | 向前删除字符 |
 | Ctrl+←/→ | 按单词边界移动 |
+| Esc | 关闭补全候选列表 |
 
 ## 🎨 颜色主题
 

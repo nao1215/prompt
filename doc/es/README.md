@@ -183,7 +183,7 @@ La biblioteca soporta combinaciones de teclas completas desde el inicio:
 | Tecla | Acción |
 |-------|--------|
 | Enter | Enviar entrada |
-| Ctrl+C | Cancelar y devolver ErrInterrupted |
+| Ctrl+C | Descartar la línea actual y devolver ErrInterrupted |
 | Ctrl+D | EOF cuando buffer está vacío |
 | ↑/↓ | Navegar historial (o líneas en modo multilínea) |
 | ←/→ | Mover cursor |
@@ -197,6 +197,7 @@ La biblioteca soporta combinaciones de teclas completas desde el inicio:
 | Backspace | Eliminar carácter hacia atrás |
 | Delete | Eliminar carácter hacia adelante |
 | Ctrl+←/→ | Mover por límites de palabra |
+| Esc | Cerrar la lista de sugerencias |
 
 ## 🎨 Temas de Color
 
