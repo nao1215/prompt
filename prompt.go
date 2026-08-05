@@ -52,9 +52,14 @@ type Prompt struct {
 	// used from then on so a watcher and the line editor cannot each take half of
 	// what was typed. It is nil until then, leaving the classic path a direct
 	// terminal read.
-	readerOnce sync.Once
-	reads      chan readResult
-	readErr    error // the error that ended the reader; read after reads is closed
+	readerOnce     sync.Once
+	reads          chan readResult
+	readErr        error // the error that ended the reader; read after reads is closed
+	readerStop     chan struct{}
+	readerStopOnce sync.Once
+	// readerDone is closed when the reader goroutine returns, so its release can
+	// be observed rather than assumed.
+	readerDone chan struct{}
 }
 
 // readResult is one rune from the shared input reader.
@@ -1106,6 +1111,11 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 //	// Use the prompt...
 //	result, err := p.Run()
 func (p *Prompt) Close() error {
+	// Release the shared reader before the terminal: closing the terminal ends a
+	// read in progress, and this ends a goroutine waiting to hand over a rune
+	// nobody is collecting.
+	p.stopInputReader()
+
 	// Restore raw mode if a persistent session (WithPersistentRawMode) left the
 	// terminal in raw mode. Idempotent, so it is a no-op in the default mode.
 	if err := p.exitRawMode(); err != nil {
@@ -1889,21 +1899,35 @@ func (p *Prompt) stashTypeAhead(r rune) {
 	p.pending = append(p.pending, r)
 }
 
+// errReaderClosed is what a read reports once Close has ended the session.
+var errReaderClosed = errors.New("prompt: input closed")
+
 // startInputReader starts the goroutine that reads the terminal into a channel,
 // and returns that channel. Reading in one place is what lets a watcher and the
 // line editor take turns without either losing a keystroke to the other.
 //
-// The goroutine ends when the terminal reports an error, which Close causes, and
-// the error is delivered to every later read. It cannot be stopped otherwise:
-// a terminal read in progress cannot be canceled on every platform, and a
-// goroutine abandoned mid-read would eat the next key.
+// The goroutine has two ways out, because it has two ways to wait. Blocked on the
+// terminal it ends when the read fails, which closing the terminal causes.
+// Blocked on the channel — nothing is consuming keystrokes between a stopped
+// watch and the next Run, and someone can hold a key down — it ends on the signal
+// Close sends, which no amount of closing the terminal would deliver. Either way
+// the channel is closed and every later read reports why.
+//
+// It cannot be stopped while a read is in progress, which is why there is no
+// pause: a terminal read cannot be canceled on every platform, and a goroutine
+// abandoned mid-read would eat the next key.
 func (p *Prompt) startInputReader() <-chan readResult {
 	p.readerOnce.Do(func() {
 		// Buffered so a burst typed during long work does not block the reader,
 		// which would leave the terminal unread and lose the keys after it.
 		reads := make(chan readResult, 1024)
+		stop := make(chan struct{})
+		done := make(chan struct{})
 		p.reads = reads
+		p.readerStop = stop
+		p.readerDone = done
 		go func() {
+			defer close(done)
 			for {
 				r, _, err := p.terminal.ReadRune()
 				if err != nil {
@@ -1911,11 +1935,27 @@ func (p *Prompt) startInputReader() <-chan readResult {
 					close(reads)
 					return
 				}
-				reads <- readResult{r: r}
+				select {
+				case reads <- readResult{r: r}:
+				case <-stop:
+					p.readErr = errReaderClosed
+					close(reads)
+					return
+				}
 			}
 		}()
 	})
 	return p.reads
+}
+
+// stopInputReader releases the shared reader, if one was started. A goroutine
+// waiting to hand over a rune has no other way out: closing the terminal ends a
+// read in progress, but says nothing to one blocked on the channel.
+func (p *Prompt) stopInputReader() {
+	if p.readerStop == nil {
+		return
+	}
+	p.readerStopOnce.Do(func() { close(p.readerStop) })
 }
 
 // readEscapeSequence reads what follows ESC and returns the key sequence it

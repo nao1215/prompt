@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -130,4 +131,32 @@ func TestWatchInterruptCancelsAfterStop(t *testing.T) {
 	ctx, stop := p.WatchInterrupt(context.Background())
 	stop()
 	waitForDone(ctx, t, "stop()")
+}
+
+// TestCloseReleasesAReaderBlockedOnHandover covers the reader's other way of
+// waiting. Between a stopped watch and the next Run nobody collects keystrokes,
+// so a reader with a full buffer sits on the channel — where closing the
+// terminal, which only ends a read in progress, would never reach it. Close must
+// still let it go.
+func TestCloseReleasesAReaderBlockedOnHandover(t *testing.T) {
+	t.Parallel()
+
+	// More runes than the channel holds, so the reader is left mid-handover.
+	mock := newMockTerminal(strings.Repeat("x", 4096))
+	p := newTestPrompt(mock, WithPersistentRawMode())
+
+	_, stop := p.WatchInterrupt(context.Background())
+	stop()
+
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	// Nothing here drains the channel: draining would let the reader go on its
+	// own and prove nothing. The goroutine must end because Close said so.
+	select {
+	case <-p.readerDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the reader is still waiting to hand over a rune nobody will take")
+	}
 }

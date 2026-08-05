@@ -356,8 +356,14 @@ when the key arrives:
 ```go
 for {
     line, err := p.Run()
+    if errors.Is(err, prompt.ErrEOF) {
+        break // Ctrl+D at an empty prompt ends the session
+    }
+    if errors.Is(err, prompt.ErrInterrupted) {
+        continue // Ctrl+C discards the line being typed
+    }
     if err != nil {
-        break
+        return err
     }
 
     ctx, stop := p.WatchInterrupt(context.Background())
@@ -367,6 +373,9 @@ for {
     if errors.Is(err, context.Canceled) {
         fmt.Print("canceled\r\n")
         continue
+    }
+    if err != nil {
+        fmt.Printf("%v\r\n", err)
     }
 }
 ```
