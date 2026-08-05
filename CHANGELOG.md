@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.0.16] - 2026-08-05
 
 ### Added
 - **`WatchInterrupt` for work that runs between prompts (PR [#26](https://github.com/nao1215/prompt/pull/26), [3c3d896](https://github.com/nao1215/prompt/commit/3c3d896))**: `Run` returns as soon as a line is submitted, so while the application executes that line nothing is reading the terminal. In raw mode Ctrl+C is a byte rather than a signal, so it could not reach the running work at all: it waited in the input buffer and was read as part of the next line once the work was over. `WatchInterrupt` watches for it during that gap and returns a context canceled when the key arrives, which is what lets an embedding shell stop a long query. Everything else typed meanwhile is held and delivered to the next `Run` in the order it was typed, so typing ahead keeps working, and the terminal is read in one place so a watcher and the line editor cannot take half of a keystroke each.
