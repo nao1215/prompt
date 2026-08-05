@@ -321,7 +321,21 @@ func (r *renderer) renderSuggestionsWithOffset(_, _ string, _ int, suggestions [
 // prompt at the top. It implements the Ctrl+L clear-screen behavior.
 func (r *renderer) clearScreen() {
 	fmt.Fprint(r.output, "\x1b[H\x1b[2J\x1b[3J")
+	r.forgetBlock()
+}
+
+// forgetBlock drops what the renderer remembers about the block on screen, so
+// the next render erases only the line it is on.
+//
+// It is called when a line ends and when the screen is cleared. What was drawn
+// belongs to the finished line then, and the application prints its own output
+// underneath it before the next prompt appears. A render that still moved up to
+// erase "its" block would erase that output instead: after an entry that
+// occupied two rows, the first row erased was the last row the application had
+// printed, so a result table lost its bottom border.
+func (r *renderer) forgetBlock() {
 	r.lastLines = 1
+	r.lastCursorRow = 0
 	r.suggestionsActive = false
 }
 

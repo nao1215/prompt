@@ -748,9 +748,12 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 		}
 	}()
 
-	// Initialize buffer and display
+	// Initialize buffer and display. The renderer starts each line knowing
+	// nothing about what is on screen: the previous line is finished, and
+	// whatever the application printed after it is not this prompt's to erase.
 	p.buffer = []rune{}
 	p.cursor = 0
+	p.renderer.forgetBlock()
 	if err := p.render(); err != nil {
 		return "", fmt.Errorf("failed to render prompt: %w", err)
 	}

@@ -2,7 +2,9 @@ package prompt
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -1267,5 +1269,104 @@ func TestRendererPositionsTheCursorOnTheWrappedRowItBelongsTo(t *testing.T) {
 	}
 	if !strings.Contains(got, "\r\x1b[12C") {
 		t.Errorf("render() wrote %q, want it to place the cursor at column 12 of that row", got)
+	}
+}
+
+// cursorUpSequence matches the ANSI "move up" the renderer emits when it erases
+// a block it drew across several rows.
+var cursorUpSequence = regexp.MustCompile(`\x1b\[\d*A`)
+
+// TestRendererForgetBlockStopsErasingFinishedOutput covers what happens between
+// two prompts. Once a line is submitted, whatever the renderer drew belongs to
+// the finished line, and the application prints its own output below it. A
+// render that still moved up to erase "its" block reached into that output
+// instead: after a two-line entry, the first row it erased was the last row the
+// application had printed, so a result table lost its bottom border.
+func TestRendererForgetBlockStopsErasingFinishedOutput(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	r := newRenderer(&output, ThemeDefault, nil)
+
+	// A two-line entry, as a statement typed across a continuation line.
+	if err := r.render("$ ", "SELECT 1\n;", 10); err != nil {
+		t.Fatalf("first render failed: %v", err)
+	}
+
+	// The line is submitted and the application prints its result. The renderer
+	// is told the block is no longer its to erase.
+	r.forgetBlock()
+
+	output.Reset()
+	if err := r.render("$ ", "", 0); err != nil {
+		t.Fatalf("render after the submission failed: %v", err)
+	}
+
+	if got := output.String(); cursorUpSequence.MatchString(got) {
+		t.Errorf("the prompt after a submission moved up into finished output: %q", got)
+	}
+}
+
+// TestRendererStillErasesItsOwnBlockWhileEditing is the other half: within one
+// line, a multi-row block must still be erased on every keystroke, or the
+// previous draw stays on screen underneath the new one.
+func TestRendererStillErasesItsOwnBlockWhileEditing(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	r := newRenderer(&output, ThemeDefault, nil)
+
+	if err := r.render("$ ", "SELECT 1\n;", 10); err != nil {
+		t.Fatalf("first render failed: %v", err)
+	}
+
+	output.Reset()
+	if err := r.render("$ ", "SELECT 1\n;;", 11); err != nil {
+		t.Fatalf("second render failed: %v", err)
+	}
+
+	if got := output.String(); !cursorUpSequence.MatchString(got) {
+		t.Errorf("editing a two-row entry did not erase the row above: %q", got)
+	}
+}
+
+// TestPromptDoesNotEraseOutputPrintedBetweenRuns drives the whole read loop the
+// way a REPL does: a statement typed across two lines, then the application's
+// output, then the next prompt. The second Run must not move the cursor up —
+// everything above it belongs to the finished line and to the output.
+func TestPromptDoesNotEraseOutputPrintedBetweenRuns(t *testing.T) {
+	t.Parallel()
+
+	// "SELECT 1" is incomplete, so Enter opens a continuation line; ";" completes
+	// it. The second line is then submitted on its own.
+	mock := newMockTerminal("SELECT 1\r;\rnext;\r")
+	var output bytes.Buffer
+	config := Config{
+		Prefix:     "$ ",
+		Multiline:  true,
+		IsComplete: func(input string) bool { return strings.HasSuffix(strings.TrimSpace(input), ";") },
+	}
+	p := &Prompt{
+		config:   config,
+		terminal: mock,
+		keyMap:   NewDefaultKeyMap(),
+		output:   &output,
+		renderer: newRenderer(&output, ThemeDefault, mock),
+	}
+
+	if got, err := p.RunWithContext(context.Background()); err != nil || got != "SELECT 1\n;" {
+		t.Fatalf("first Run = %q, %v; want the two-line statement", got, err)
+	}
+
+	// What the application prints between prompts.
+	fmt.Fprint(&output, "+---+\r\n| 1 |\r\n+---+\r\n")
+
+	output.Reset()
+	if _, err := p.RunWithContext(context.Background()); err != nil {
+		t.Fatalf("second Run returned error: %v", err)
+	}
+
+	if got := output.String(); cursorUpSequence.MatchString(got) {
+		t.Errorf("the prompt after a two-line statement moved up into the printed result: %q", got)
 	}
 }
