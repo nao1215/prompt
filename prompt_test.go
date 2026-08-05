@@ -1198,7 +1198,7 @@ func TestRendererWithSuggestionEdgeCases(t *testing.T) {
 		renderer := newRenderer(failing, ThemeDefault, nil)
 
 		// Test renderMainLine error
-		err := renderer.renderMainLine("$ ", "test", 2)
+		_, err := renderer.renderMainLine("$ ", "test", 2)
 		if err == nil {
 			t.Error("Expected error from failing writer in renderMainLine")
 		}
@@ -1452,31 +1452,31 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 		renderer := newRenderer(&output, ThemeDefault, nil)
 
 		// Test cursor at beginning
-		err := renderer.renderMainLine("$ ", "hello", 0)
+		_, err := renderer.renderMainLine("$ ", "hello", 0)
 		if err != nil {
 			t.Errorf("renderMainLine() error = %v", err)
 		}
 
 		// Test cursor at end
-		err = renderer.renderMainLine("$ ", "hello", 5)
+		_, err = renderer.renderMainLine("$ ", "hello", 5)
 		if err != nil {
 			t.Errorf("renderMainLine() error = %v", err)
 		}
 
 		// Test cursor beyond end (should be safe)
-		err = renderer.renderMainLine("$ ", "hello", 10)
+		_, err = renderer.renderMainLine("$ ", "hello", 10)
 		if err != nil {
 			t.Errorf("renderMainLine() error = %v", err)
 		}
 
 		// Test with empty input
-		err = renderer.renderMainLine("$ ", "", 0)
+		_, err = renderer.renderMainLine("$ ", "", 0)
 		if err != nil {
 			t.Errorf("renderMainLine() error = %v", err)
 		}
 
 		// Test with unicode characters
-		err = renderer.renderMainLine("🚀 ", "こんにちは", 2)
+		_, err = renderer.renderMainLine("🚀 ", "こんにちは", 2)
 		if err != nil {
 			t.Errorf("renderMainLine() error = %v", err)
 		}
@@ -1722,7 +1722,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			err := renderer.renderMainLine("$ ", tc.input, tc.cursor)
+			_, err := renderer.renderMainLine("$ ", tc.input, tc.cursor)
 			if err != nil {
 				t.Errorf("renderMainLine(%q, %d) error = %v", tc.input, tc.cursor, err)
 			}

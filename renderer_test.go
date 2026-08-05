@@ -3,6 +3,7 @@ package prompt
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -1049,13 +1050,16 @@ func TestRendererDisplayWidth(t *testing.T) {
 			why:    "2 columns of prefix plus 4 of text, not 2 plus 2",
 		},
 		{
-			name:   "single line moves back by cells",
+			// The move is absolute — to column 0, then right — because a backward
+			// move cannot leave the row it is on, and a line long enough to wrap
+			// puts the cursor's column on an earlier row.
+			name:   "single line measures the column in cells",
 			lines:  []string{"あいう"},
 			line:   0,
 			col:    1,
 			prefix: "$ ",
-			want:   "\x1b[4D",
-			why:    "the two remaining wide runes are 4 columns, not 2",
+			want:   "\r\x1b[4C",
+			why:    "2 columns of prefix plus the first wide rune's 2, not 1",
 		},
 		{
 			// "e" followed by U+0301 is 2 runes and 1 column.
@@ -1111,4 +1115,157 @@ func TestRendererDisplayWidth(t *testing.T) {
 			t.Errorf("positionCursor() wrote %q, want it to contain %q (6 columns of prefix plus 2 of text)", got, "\x1b[8C")
 		}
 	})
+}
+
+// leadingCursorUp returns how many rows a render moves the cursor up before it
+// erases anything, which decides what the redraw is about to overwrite. Zero
+// when the render does not begin by moving up.
+func leadingCursorUp(t *testing.T, out string) int {
+	t.Helper()
+
+	const up = "\x1b["
+	if !strings.HasPrefix(out, up) {
+		return 0
+	}
+	rest := out[len(up):]
+	end := strings.IndexByte(rest, 'A')
+	if end <= 0 {
+		return 0
+	}
+	rows, err := strconv.Atoi(rest[:end])
+	if err != nil {
+		return 0
+	}
+	return rows
+}
+
+// TestRendererClearsFromTheRowTheCursorWasLeftOn is the redraw invariant: a
+// render erases the block it drew last time, and nothing above it.
+//
+// The erase moved up by the height of the block, which is where the cursor is
+// only while it sits on the block's last row. Move it onto an earlier row — a
+// left arrow crossing a line break does exactly that — and every keystroke after
+// it moved up one row too many, so the prompt climbed the screen and took a line
+// of scrollback with it each time.
+func TestRendererClearsFromTheRowTheCursorWasLeftOn(t *testing.T) {
+	t.Parallel()
+
+	const input = "SELECT name\nFROM people" // two lines, the break at rune 11
+
+	tests := []struct {
+		name   string
+		cursor int
+		wantUp int
+	}{
+		{"cursor on the first line", 4, 0},
+		{"cursor at the line break", 11, 0},
+		{"cursor on the second line", 15, 1},
+		{"cursor at the end", len([]rune(input)), 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			r := newRenderer(&out, ThemeDefault, newMockTerminal(""))
+			if err := r.render("$ ", input, tt.cursor); err != nil {
+				t.Fatalf("first render: %v", err)
+			}
+
+			out.Reset()
+			if err := r.render("$ ", input, tt.cursor); err != nil {
+				t.Fatalf("second render: %v", err)
+			}
+			if got := leadingCursorUp(t, out.String()); got != tt.wantUp {
+				t.Errorf("the redraw moved up %d row(s), want %d: the cursor was on row %d of the block",
+					got, tt.wantUp, tt.wantUp)
+			}
+		})
+	}
+}
+
+// TestRendererClearsFromTheRowTheCursorWasLeftOnWhenWrapped is the same
+// invariant for a line that wraps rather than one holding a newline: the block
+// is two rows on an 80-column terminal and the cursor is on the first of them.
+func TestRendererClearsFromTheRowTheCursorWasLeftOnWhenWrapped(t *testing.T) {
+	t.Parallel()
+
+	input := strings.Repeat("a", 100) // 102 cells with the prefix: two rows at 80
+
+	var out bytes.Buffer
+	r := newRenderer(&out, ThemeDefault, newMockTerminal(""))
+	if err := r.render("$ ", input, 10); err != nil {
+		t.Fatalf("first render: %v", err)
+	}
+
+	out.Reset()
+	if err := r.render("$ ", input, 9); err != nil {
+		t.Fatalf("second render: %v", err)
+	}
+	if got := leadingCursorUp(t, out.String()); got != 0 {
+		t.Errorf("the redraw moved up %d row(s), want 0: the cursor was on the first row of the wrapped line", got)
+	}
+}
+
+// countingTerminal is a terminal that records how often it was measured.
+type countingTerminal struct {
+	*mockTerminal
+	sizeCalls int
+}
+
+func (c *countingTerminal) Size() (width, height int, err error) {
+	c.sizeCalls++
+	return c.mockTerminal.Size()
+}
+
+// TestRendererMeasuresTheTerminalOncePerRender pins the cost and the
+// consistency of measuring. Every part of the wrap arithmetic needs the width,
+// and asking once per question invited two answers inside one redraw — and, on a
+// real terminal, one round trip per question: go-tty measures by asking the
+// terminal for its pixel size and reading the reply out of the input stream,
+// which swallows whatever was typed while it waited.
+func TestRendererMeasuresTheTerminalOncePerRender(t *testing.T) {
+	t.Parallel()
+
+	term := &countingTerminal{mockTerminal: newMockTerminal("")}
+	var out bytes.Buffer
+	r := newRenderer(&out, ThemeDefault, term)
+
+	if err := r.render("$ ", "SELECT name\nFROM people", 4); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if term.sizeCalls != 1 {
+		t.Errorf("one render measured the terminal %d times, want 1", term.sizeCalls)
+	}
+
+	if err := r.render("$ ", "SELECT name\nFROM people", 5); err != nil {
+		t.Fatalf("second render: %v", err)
+	}
+	if term.sizeCalls != 2 {
+		t.Errorf("two renders measured the terminal %d times, want 2", term.sizeCalls)
+	}
+}
+
+// TestRendererPositionsTheCursorOnTheWrappedRowItBelongsTo pins the other half
+// of the same arithmetic. A cursor 10 cells into a line that wraps is on the
+// block's first row, and moving back to it by columns alone cannot get there:
+// a backward move stops at the left margin of the row it is already on.
+func TestRendererPositionsTheCursorOnTheWrappedRowItBelongsTo(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	r := newRenderer(&out, ThemeDefault, newMockTerminal(""))
+	// 100 runes plus a 2-cell prefix is 102 cells: row 0 holds 80, row 1 the
+	// rest. Rune 10 is at column 12 of row 0, one row above where rendering
+	// left the cursor.
+	if err := r.render("$ ", strings.Repeat("a", 100), 10); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "\x1b[1A") {
+		t.Errorf("render() wrote %q, want it to move the cursor up onto row 0", got)
+	}
+	if !strings.Contains(got, "\r\x1b[12C") {
+		t.Errorf("render() wrote %q, want it to place the cursor at column 12 of that row", got)
+	}
 }

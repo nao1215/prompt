@@ -7,6 +7,7 @@ import (
 
 	"github.com/mattn/go-colorable"
 	"github.com/mattn/go-tty"
+	"golang.org/x/term"
 )
 
 // rawEnter is defined per platform (terminal_unix.go, terminal_windows.go). It
@@ -107,14 +108,35 @@ func (t *realTerminal) Restore() error {
 	return restore()
 }
 
+// Size reports the terminal's size in character cells.
+//
+// It asks the operating system, through the terminal's own descriptor, rather
+// than go-tty's Size. go-tty's falls back to asking the terminal for its size in
+// pixels — it writes "\x1b[14t" and then reads the reply back from the input
+// handle — whenever the kernel reports no pixel dimensions, which is the normal
+// case under tmux and most terminals. Anything the user typed while that read was
+// waiting was consumed with the reply and never reached the prompt, so a
+// keystroke during a redraw disappeared. Nothing here writes to the terminal or
+// reads from it.
 func (t *realTerminal) Size() (width, height int, err error) {
-	w, h, err := t.tty.Size()
-	if err != nil || w <= 0 || h <= 0 {
-		// Safe fallback to prevent divide by zero (addresses go-prompt issue #277)
-		return 80, 24, err
+	if t.tty != nil {
+		if out := t.tty.Output(); out != nil {
+			w, h, err := term.GetSize(int(out.Fd()))
+			if err == nil && w > 0 && h > 0 {
+				return w, h, nil
+			}
+			// Safe fallback to prevent divide by zero (addresses go-prompt issue #277)
+			return fallbackWidth, fallbackHeight, err
+		}
 	}
-	return w, h, nil
+	return fallbackWidth, fallbackHeight, nil
 }
+
+// The size assumed when the terminal cannot report one.
+const (
+	fallbackWidth  = 80
+	fallbackHeight = 24
+)
 
 func (t *realTerminal) ReadRune() (rune, int, error) {
 	r, err := t.tty.ReadRune()

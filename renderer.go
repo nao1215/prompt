@@ -41,6 +41,19 @@ type renderer struct {
 	lastLines         int               // Track number of lines rendered for efficient cleanup
 	suggestionsActive bool              // Track if suggestions are currently displayed
 	terminal          terminalInterface // Terminal interface for getting size information
+	// lastCursorRow is the row, counted from the first row of the last rendered
+	// block, where that render left the terminal cursor. The next render erases
+	// from there, so it has to be remembered rather than assumed: a cursor moved
+	// onto an earlier row (a left arrow crossing a line break) is not on the
+	// block's last row, and erasing as if it were walked the prompt up the screen
+	// one row per keystroke, taking a line of scrollback with it each time.
+	lastCursorRow int
+	// width is the terminal's width in cells, read once at the start of each
+	// render. Every piece of the wrap arithmetic needs it, and asking the
+	// terminal per question is both wasted work and a chance for the answer to
+	// change halfway through a redraw. Zero until the first render, which is why
+	// the readers fall back rather than trusting it.
+	width int
 	// continuationPrefix is drawn in front of every line after the first, so a
 	// multiline entry shows that the prompt is still collecting input. Empty
 	// (the default) keeps continuation lines flush against the left margin.
@@ -71,6 +84,11 @@ func (r *renderer) render(prefix, input string, cursor int) error {
 
 // renderWithSuggestionsOffset displays the prompt with completion suggestions and scrolling support.
 func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int, suggestions []Suggestion, selected int, offset int) error {
+	// One measurement for the whole render: what is cleared, what is drawn, and
+	// where the cursor lands are three answers to the same question and have to
+	// agree.
+	r.measureTerminal()
+
 	// Clear previous output using the CURRENT lastLines value
 	r.clearPreviousLines()
 
@@ -101,9 +119,13 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 		visibleCount := min(len(suggestions), 10)
 		r.lastLines = inputLines + visibleCount
 		r.suggestionsActive = true
+		// The cursor is left wherever the last suggestion ended, on the block's
+		// last row.
+		r.lastCursorRow = r.lastLines - 1
 	} else {
 		// No suggestions - render normally with cursor
-		if err := r.renderMainLine(prefix, input, cursor); err != nil {
+		cursorRow, err := r.renderMainLine(prefix, input, cursor)
+		if err != nil {
 			return err
 		}
 
@@ -114,25 +136,25 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 
 		// Update lastLines to match the actual number of lines rendered
 		r.lastLines = inputLines
+		r.lastCursorRow = cursorRow
 		r.suggestionsActive = false
 	}
 
 	return nil
 }
 
-// renderMainLine renders the main prompt line with prefix and input.
-func (r *renderer) renderMainLine(prefix, input string, cursor int) error {
+// renderMainLine renders the main prompt line with prefix and input. It returns
+// the row, counted from the block's first row, where it left the cursor.
+func (r *renderer) renderMainLine(prefix, input string, cursor int) (int, error) {
 	if err := r.renderLines(prefix, input); err != nil {
-		return err
+		return 0, err
 	}
 
 	// Position cursor correctly
 	lines := r.splitIntoLines(input)
 	inputRunes := []rune(input)
 	cursorLine, cursorCol := r.findCursorPosition(inputRunes, cursor)
-	r.positionCursor(lines, cursorLine, cursorCol, prefix)
-
-	return nil
+	return r.positionCursor(lines, cursorLine, cursorCol, prefix), nil
 }
 
 // renderMainLineWithoutCursor renders the main prompt line without cursor positioning (for suggestions)
@@ -315,8 +337,12 @@ func (r *renderer) clearPreviousLines() {
 	// 2. Clear from cursor position to end of screen
 	// This ensures all previously rendered lines are cleared properly
 
-	// Move cursor up to the first line of the previously rendered content
-	fmt.Fprintf(r.output, "\x1b[%dA", r.lastLines-1)
+	// Move up by the rows between the cursor and the top of the block — not by
+	// the block's height, which is the same number only while the cursor is on
+	// the last row. See lastCursorRow.
+	if r.lastCursorRow > 0 {
+		fmt.Fprintf(r.output, "\x1b[%dA", r.lastCursorRow)
+	}
 
 	// Move to beginning of line and clear from cursor to end of screen
 	// \x1b[0J clears from cursor position to end of screen
@@ -396,61 +422,98 @@ func (r *renderer) findCursorPosition(inputRunes []rune, cursor int) (line, col 
 // cursorCol is a rune index within its line; every distance written here is the
 // display width of the text it spans, so a wide or zero-width character lands the
 // cursor on the cell the user sees.
-func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol int, prefix string) {
-	totalLines := len(lines)
-	if totalLines <= 1 {
-		// Single line - move cursor back from end of line
-		lineRunes := []rune(lines[0])
-		if cursorCol < len(lineRunes) {
-			if back := displayWidth(string(lineRunes[cursorCol:])); back > 0 {
-				fmt.Fprintf(r.output, "\x1b[%dD", back)
-			}
-		}
-		return
+func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol int, prefix string) int {
+	row, col := r.cursorRowCol(lines, cursorLine, cursorCol, prefix)
+
+	// Rendering ends at the foot of the block, so the move is from there up to
+	// the cursor's row and then across to its column. It is done in absolute
+	// terms — up, to column 0, then right — rather than by moving back the width
+	// of the text after the cursor: a backward move stops at the left margin of
+	// the row it is on, so on a line long enough to wrap it could never reach the
+	// row above.
+	if up := r.blockRows(lines, prefix) - 1 - row; up > 0 {
+		fmt.Fprintf(r.output, "\x1b[%dA", up)
 	}
-
-	// Multi-line positioning: simple approach
-	// 1. Move up to the target line (if needed)
-	// 2. Move to beginning of that line
-	// 3. Move right by the width of that line's prefix plus the text before the cursor
-
-	// Calculate how many lines to move up from the last line (where cursor currently is)
-	// to the target line (cursorLine)
-	currentLine := totalLines - 1 // We're currently at the last line (0-indexed)
-	linesToMoveUp := currentLine - cursorLine
-	if linesToMoveUp > 0 {
-		fmt.Fprintf(r.output, "\x1b[%dA", linesToMoveUp)
-	}
-
-	// Move to beginning of current line
 	fmt.Fprint(r.output, "\r")
-
-	// The first line carries the prompt prefix; the rest carry the continuation
-	// prefix, which is empty unless the caller set one.
-	linePrefix := r.continuationPrefix
-	if cursorLine == 0 {
-		linePrefix = prefix
+	if col > 0 {
+		fmt.Fprintf(r.output, "\x1b[%dC", col)
 	}
+	return row
+}
+
+// cursorRowCol returns where the cursor sits inside the rendered block: the row
+// counted from the block's first row, and the column on that row. Both are in
+// terminal cells and both account for wrapping, so a logical line wide enough to
+// occupy three rows contributes three.
+func (r *renderer) cursorRowCol(lines []string, cursorLine, cursorCol int, prefix string) (row, col int) {
+	width := r.terminalWidth()
+	if cursorLine >= len(lines) {
+		cursorLine = len(lines) - 1
+	}
+	for i := range cursorLine {
+		row += rowsFor(displayWidth(r.linePrefix(i, prefix))+displayWidth(lines[i]), width)
+	}
+
 	lineRunes := []rune(lines[cursorLine])
 	if cursorCol > len(lineRunes) {
 		cursorCol = len(lineRunes)
 	}
-	totalCol := displayWidth(linePrefix) + displayWidth(string(lineRunes[:cursorCol]))
-	if totalCol > 0 {
-		fmt.Fprintf(r.output, "\x1b[%dC", totalCol)
+	cells := displayWidth(r.linePrefix(cursorLine, prefix)) + displayWidth(string(lineRunes[:cursorCol]))
+	return row + cells/width, cells % width
+}
+
+// blockRows returns how many terminal rows the rendered block occupies.
+func (r *renderer) blockRows(lines []string, prefix string) int {
+	return r.calculateRenderedLines(prefix, strings.Join(lines, "\n"))
+}
+
+// linePrefix returns what is drawn in front of a line: the prompt prefix on the
+// first, the continuation prefix on the rest.
+func (r *renderer) linePrefix(lineIndex int, prefix string) string {
+	if lineIndex == 0 {
+		return prefix
+	}
+	return r.continuationPrefix
+}
+
+// rowsFor returns how many terminal rows a line of the given cell width takes.
+// A line that ends exactly at the right margin takes one row, not two: the
+// terminal holds the cursor there until the next character arrives.
+func rowsFor(cells, width int) int {
+	if cells <= 0 {
+		return 1
+	}
+	return (cells + width - 1) / width
+}
+
+// terminalWidth returns the width this render is measuring against, falling back
+// to 80 when the terminal has not been asked yet or could not say. The fallback
+// keeps the wrap arithmetic away from a division by zero.
+func (r *renderer) terminalWidth() int {
+	if r.width > 0 {
+		return r.width
+	}
+	return defaultTerminalWidth
+}
+
+// measureTerminal reads the terminal's width for the render about to happen.
+func (r *renderer) measureTerminal() {
+	r.width = 0
+	if r.terminal == nil {
+		return
+	}
+	if width, _, err := r.terminal.Size(); err == nil && width > 0 {
+		r.width = width
 	}
 }
+
+// defaultTerminalWidth is the width assumed when the terminal cannot report one.
+const defaultTerminalWidth = 80
 
 // calculateRenderedLines calculates the actual number of lines that will be rendered,
 // accounting for both explicit newlines and terminal wrapping.
 func (r *renderer) calculateRenderedLines(prefix, input string) int {
-	// Get terminal width
-	termWidth := 80 // Default fallback
-	if r.terminal != nil {
-		if width, _, err := r.terminal.Size(); err == nil && width > 0 {
-			termWidth = width
-		}
-	}
+	termWidth := r.terminalWidth()
 
 	// If input is empty, we still have one line with just the prefix
 	if input == "" {
