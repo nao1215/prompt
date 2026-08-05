@@ -3437,8 +3437,11 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 		defer cancel()
 
-		// Wait for timeout
-		time.Sleep(5 * time.Millisecond)
+		// Wait for the deadline to actually pass rather than for a sleep that is
+		// assumed to outlast it. On a loaded runner the timer can fire later than
+		// the sleep ends, and Run then read the terminal instead of the expired
+		// context and reported EOF.
+		<-ctx.Done()
 
 		_, err := p.RunWithContext(ctx)
 		if !errors.Is(err, context.DeadlineExceeded) {
