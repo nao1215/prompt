@@ -407,11 +407,12 @@ func WithContinuationPrefix(prefix string) Option {
 // Close or when input reaches EOF. An interrupt (Ctrl+C) does not release it: it
 // ends the line rather than the session, and a REPL that calls Run again would
 // otherwise pay the mode switch on every Ctrl+C. An application that treats
-// ErrInterrupted as fatal must therefore call Close, as it should anyway. Because the terminal
-// stays in raw mode between calls, an embedding application that prints its own
-// output between prompts must terminate lines with "\r\n" rather than "\n". It is
-// off by default so the classic single-shot usage keeps cooked-mode output after
-// each Run.
+// ErrInterrupted as fatal must therefore call Close, as it should anyway.
+//
+// Because the terminal stays in raw mode between calls, an embedding application
+// that prints its own output between prompts must terminate lines with "\r\n"
+// rather than "\n". It is off by default so the classic single-shot usage keeps
+// cooked-mode output after each Run.
 func WithPersistentRawMode() Option {
 	return func(c *Config) {
 		c.PersistentRawMode = true
