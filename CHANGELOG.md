@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- A history entry came back changed after being saved and reloaded (PR [#40](https://github.com/nao1215/prompt/pull/40), [#38](https://github.com/nao1215/prompt/issues/38), [#39](https://github.com/nao1215/prompt/issues/39)): entries were written raw and read back one physical line at a time, so an entry containing a newline came back as several. Every entry was also trimmed on load, so a command submitted with leading or trailing spaces was recalled without them. Entries are now escaped on write (`\`, `\n`, `\r`) and unescaped on read, which keeps a multi-line command one entry and leaves an entry's own whitespace alone. Only the line terminator (including the `\r` of a CRLF file) and empty lines are dropped. An escape the format does not define is read back as it was written, so a line written before this encoding is unchanged unless it contains `\`.
+
 ## [0.0.18] - 2026-08-08
 
 ### Fixed
