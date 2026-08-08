@@ -1119,6 +1119,128 @@ func TestRendererDisplayWidth(t *testing.T) {
 	})
 }
 
+// TestRendererKeepsTheCursorOnTheRowTheTextFilled covers the row boundary. A
+// terminal that has just filled its last column holds the cursor there until
+// another character arrives; the next row does not exist yet. Counting the
+// cursor onto it left the redraw erasing one row too high, which is the line
+// above the block — the application's own output.
+func TestRendererKeepsTheCursorOnTheRowTheTextFilled(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a full row does not push the cursor onto the next one", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		r := newRenderer(&out, ThemeDefault, newMockTerminal(""))
+		// "$ " plus 78 cells fills an 80-column row exactly.
+		input := strings.Repeat("a", 78)
+		if err := r.render("$ ", input, len([]rune(input))); err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		if r.lastCursorRow != 0 {
+			t.Errorf("lastCursorRow = %d, want 0: the cursor is still on the row it filled", r.lastCursorRow)
+		}
+		if got := out.String(); !strings.Contains(got, "\r\x1b[79C") {
+			t.Errorf("render() wrote %q, want the cursor placed at the row's last column", got)
+		}
+	})
+
+	t.Run("a redraw after two full rows erases only the block", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		r := newRenderer(&out, ThemeDefault, newMockTerminal(""))
+		// "$ " plus 158 cells is 160: two rows of 80, both full.
+		input := strings.Repeat("a", 158)
+		if err := r.render("$ ", input, len([]rune(input))); err != nil {
+			t.Fatalf("first render: %v", err)
+		}
+
+		out.Reset()
+		if err := r.render("$ ", input, len([]rune(input))); err != nil {
+			t.Fatalf("second render: %v", err)
+		}
+		if got := leadingCursorUp(t, out.String()); got != 1 {
+			t.Errorf("the redraw moved up %d row(s), want 1: moving up 2 erases the line above the prompt", got)
+		}
+	})
+}
+
+// TestRendererCountsAPrefixThatWrapsOnItsOwn covers an empty prompt whose
+// prefix is wider than the terminal. The block is however many rows the prefix
+// takes, and recording it as one left the first keystroke redrawing the whole
+// prefix below the rows already on screen.
+func TestRendererCountsAPrefixThatWrapsOnItsOwn(t *testing.T) {
+	t.Parallel()
+
+	t.Run("an empty input counts the prefix's own rows", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		r := newRenderer(&out, ThemeDefault, newMockTerminal(""))
+		if got := r.calculateRenderedLines(strings.Repeat("p", 100)+"> ", ""); got != 2 {
+			t.Errorf("calculateRenderedLines() = %d, want 2 (102 columns of prefix wraps at 80)", got)
+		}
+	})
+
+	t.Run("the next render erases every row the prefix drew", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		r := newRenderer(&out, ThemeDefault, newMockTerminal(""))
+		prefix := strings.Repeat("p", 100) + "> "
+		if err := r.render(prefix, "", 0); err != nil {
+			t.Fatalf("first render: %v", err)
+		}
+
+		out.Reset()
+		if err := r.render(prefix, "a", 1); err != nil {
+			t.Fatalf("second render: %v", err)
+		}
+		if got := leadingCursorUp(t, out.String()); got != 1 {
+			t.Errorf("the redraw moved up %d row(s), want 1: the prefix's first row stays on screen otherwise", got)
+		}
+	})
+}
+
+// TestRendererAccountsForAWideRuneWrappedWhole covers the cell a terminal
+// leaves blank rather than split a glyph across the margin. Dividing total
+// cells by the width does not know about that cell, so both the cursor's column
+// and the block's height drift by one per straddle.
+func TestRendererAccountsForAWideRuneWrappedWhole(t *testing.T) {
+	t.Parallel()
+
+	// "$ " plus 77 narrow cells leaves one free cell before the margin, so the
+	// wide rune that follows moves whole to the next row.
+	straddle := strings.Repeat("x", 77) + "あ"
+
+	t.Run("the cursor follows the glyph to the next row", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		r := newRenderer(&out, ThemeDefault, newMockTerminal(""))
+		if err := r.render("$ ", straddle, len([]rune(straddle))); err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		if got := out.String(); !strings.Contains(got, "\r\x1b[2C") {
+			t.Errorf("render() wrote %q, want the cursor at column 2, after the wide rune", got)
+		}
+	})
+
+	t.Run("the skipped cell counts toward the block's height", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		r := newRenderer(&out, ThemeDefault, newMockTerminal(""))
+		// The straddle leaves 2 cells used on the second row; 79 more fill it and
+		// start a third. Counting 160 cells as two rows loses that row.
+		input := straddle + strings.Repeat("y", 79)
+		if got := r.calculateRenderedLines("$ ", input); got != 3 {
+			t.Errorf("calculateRenderedLines() = %d, want 3: the cell the wide rune could not use is still a cell", got)
+		}
+	})
+}
+
 // leadingCursorUp returns how many rows a render moves the cursor up before it
 // erases anything, which decides what the redraw is about to overwrite. Zero
 // when the render does not begin by moving up.

@@ -8,13 +8,35 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// displayWidth returns how many terminal cells s occupies. Cursor positioning
-// and line-wrap arithmetic are in cells, not runes: "データ> " is 5 runes and 8
-// columns, an emoji is 1 rune and 2 columns, and a combining mark is a rune that
-// occupies none. Counting runes moved the cursor to the wrong column and
-// miscounted how many rows the input took, which left stale rows on redraw.
-func displayWidth(s string) int {
-	return runewidth.StringWidth(s)
+// layout walks s a cell at a time and reports how many rows it advances from
+// the start of a row, and the column it ends on. That column can equal width,
+// which is the state a terminal is in once it has filled its last cell: the
+// cursor stays there until another character arrives, rather than moving to a
+// row that does not exist yet.
+//
+// Everything here is measured in cells rather than runes, because a rune is not
+// a cell: "データ> " is 5 runes and 8 columns, an emoji is 1 rune and 2 columns,
+// and a combining mark is a rune that occupies none.
+//
+// Walking is not the same calculation as dividing the total width by the
+// terminal's, in two ways that each cost a cell. A terminal never splits a
+// glyph across the right margin, so a double-width rune that does not fit moves
+// whole to the next row and leaves the last cell blank; and a filled row is
+// still one row. The division misses both, and the drift shows up twice: in the
+// column the cursor is drawn at, and in the height the redraw erases.
+func layout(s string, width int) (rows, col int) {
+	for _, r := range s {
+		w := runewidth.RuneWidth(r)
+		if w == 0 {
+			continue
+		}
+		if col+w > width {
+			rows++
+			col = 0
+		}
+		col += w
+	}
+	return rows, col
 }
 
 // renderer handles the display of the prompt and suggestions with advanced terminal control.
@@ -465,20 +487,34 @@ func (r *renderer) cursorRowCol(lines []string, cursorLine, cursorCol int, prefi
 		cursorLine = len(lines) - 1
 	}
 	for i := range cursorLine {
-		row += rowsFor(displayWidth(r.linePrefix(i, prefix))+displayWidth(lines[i]), width)
+		row += r.lineRows(i, lines[i], prefix)
 	}
 
 	lineRunes := []rune(lines[cursorLine])
 	if cursorCol > len(lineRunes) {
 		cursorCol = len(lineRunes)
 	}
-	cells := displayWidth(r.linePrefix(cursorLine, prefix)) + displayWidth(string(lineRunes[:cursorCol]))
-	return row + cells/width, cells % width
+	rows, col := layout(r.linePrefix(cursorLine, prefix)+string(lineRunes[:cursorCol]), width)
+	if col >= width {
+		// The row is full, and the terminal is holding the cursor on its last
+		// cell. Reporting the row below it — which the text has not reached —
+		// left the next redraw erasing one row too high, taking the line above
+		// the prompt with it.
+		col = width - 1
+	}
+	return row + rows, col
 }
 
 // blockRows returns how many terminal rows the rendered block occupies.
 func (r *renderer) blockRows(lines []string, prefix string) int {
 	return r.calculateRenderedLines(prefix, strings.Join(lines, "\n"))
+}
+
+// lineRows returns how many terminal rows one logical line occupies, including
+// whatever prefix is drawn in front of it.
+func (r *renderer) lineRows(lineIndex int, line, prefix string) int {
+	rows, _ := layout(r.linePrefix(lineIndex, prefix)+line, r.terminalWidth())
+	return rows + 1
 }
 
 // linePrefix returns what is drawn in front of a line: the prompt prefix on the
@@ -488,16 +524,6 @@ func (r *renderer) linePrefix(lineIndex int, prefix string) string {
 		return prefix
 	}
 	return r.continuationPrefix
-}
-
-// rowsFor returns how many terminal rows a line of the given cell width takes.
-// A line that ends exactly at the right margin takes one row, not two: the
-// terminal holds the cursor there until the next character arrives.
-func rowsFor(cells, width int) int {
-	if cells <= 0 {
-		return 1
-	}
-	return (cells + width - 1) / width
 }
 
 // terminalWidth returns the width this render is measuring against, falling back
@@ -526,51 +552,16 @@ const defaultTerminalWidth = 80
 
 // calculateRenderedLines calculates the actual number of lines that will be rendered,
 // accounting for both explicit newlines and terminal wrapping.
+//
+// Every line is measured the same way, including one holding nothing. A prompt
+// waiting for its first keystroke still draws its prefix, and a prefix wider
+// than the terminal occupies as many rows as it needs — recording that block as
+// one row left the first keystroke redrawing the prefix underneath the rows
+// already on screen, once per line the user entered.
 func (r *renderer) calculateRenderedLines(prefix, input string) int {
-	termWidth := r.terminalWidth()
-
-	// If input is empty, we still have one line with just the prefix
-	if input == "" {
-		return 1
-	}
-
-	// Split by explicit newlines
-	lines := strings.Split(input, "\n")
-
 	totalLines := 0
-	// Widths are in terminal cells: a wide rune fills two of them, so counting
-	// runes reported a line as fitting when it actually wrapped.
-	prefixLen := displayWidth(prefix)
-	continuationLen := displayWidth(r.continuationPrefix)
-
-	for i, line := range lines {
-		// Calculate the actual length including prefix/indentation
-		var actualLength int
-		if i == 0 {
-			// First line includes the actual prefix
-			actualLength = prefixLen + displayWidth(line)
-		} else {
-			// Continuation lines carry the continuation prefix, which is empty
-			// unless the caller set one
-			actualLength = continuationLen + displayWidth(line)
-		}
-
-		// Calculate how many terminal lines this will take
-		if actualLength == 0 || (i == 0 && actualLength == prefixLen) {
-			// Empty line or just prefix
-			totalLines++
-		} else if termWidth > 0 {
-			// Calculate wrapped lines based on terminal width
-			// Use ceiling division: (actualLength + termWidth - 1) / termWidth
-			wrappedLines := (actualLength + termWidth - 1) / termWidth
-			if wrappedLines == 0 {
-				wrappedLines = 1
-			}
-			totalLines += wrappedLines
-		} else {
-			totalLines++
-		}
+	for i, line := range strings.Split(input, "\n") {
+		totalLines += r.lineRows(i, line, prefix)
 	}
-
 	return totalLines
 }
