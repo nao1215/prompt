@@ -1252,7 +1252,7 @@ func TestRendererWithSuggestionEdgeCases(t *testing.T) {
 			}
 		}
 
-		err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 5, 0)
+		_, err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 5, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}
@@ -1295,7 +1295,7 @@ func TestRendererWithSuggestionEdgeCases(t *testing.T) {
 
 		// Test renderSuggestions error
 		suggestions := []Suggestion{{Text: "test", Description: "desc"}}
-		err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 0, 0)
+		_, err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 0, 0)
 		if err == nil {
 			t.Error("Expected error from failing writer in renderSuggestions")
 		}
@@ -1316,7 +1316,7 @@ func TestRendererWithSuggestionEdgeCases(t *testing.T) {
 			{Text: "cmd2"},
 		}
 
-		err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 0, 0)
+		_, err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 0, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}
@@ -1578,7 +1578,7 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 
 		// Test single suggestion
 		suggestions := []Suggestion{{Text: "hello", Description: "greeting"}}
-		err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 0, 0)
+		_, err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 0, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}
@@ -1589,7 +1589,7 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 			{Text: "help", Description: "assistance"},
 			{Text: "history", Description: "past commands"},
 		}
-		err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 1, 0)
+		_, err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 1, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}
@@ -1602,7 +1602,7 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 				Description: fmt.Sprintf("description %d", i),
 			}
 		}
-		err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 5, 0)
+		_, err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 5, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}
@@ -1615,13 +1615,13 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 				Description: fmt.Sprintf("description %d", i),
 			}
 		}
-		err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 0, 0)
+		_, err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, 0, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}
 
 		// Test with no suggestions
-		err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, []Suggestion{}, 0, 0)
+		_, err = renderer.renderSuggestionsWithOffset("$ ", "test", 2, []Suggestion{}, 0, 0)
 		if err != nil {
 			t.Errorf("renderSuggestions() error = %v", err)
 		}

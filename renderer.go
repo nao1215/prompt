@@ -149,13 +149,15 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 		}
 
 		// Render suggestions
-		if err := r.renderSuggestionsWithOffset(prefix, input, cursor, suggestions, selected, offset); err != nil {
+		suggestionRows, err := r.renderSuggestionsWithOffset(prefix, input, cursor, suggestions, selected, offset)
+		if err != nil {
 			return err
 		}
 
-		// Update state AFTER rendering
-		visibleCount := min(len(suggestions), 10)
-		r.lastLines = inputLines + visibleCount
+		// Update state AFTER rendering. The menu's height is the rows it drew, not
+		// the suggestions it holds: a suggestion wider than the terminal wraps onto
+		// more than one, and counting entries left those rows out of the erase.
+		r.lastLines = inputLines + suggestionRows
 		r.suggestionsActive = true
 		// The cursor is left wherever the last suggestion ended, on the block's
 		// last row.
@@ -259,11 +261,13 @@ func (r *renderer) renderLines(prefix, input string) error {
 	return nil
 }
 
-// renderSuggestionsWithOffset renders the completion suggestions with scrolling support.
-func (r *renderer) renderSuggestionsWithOffset(_, _ string, _ int, suggestions []Suggestion, selected int, offset int) error {
+// renderSuggestionsWithOffset renders the completion suggestions with scrolling
+// support. It returns how many terminal rows the menu occupies, which the next
+// erase moves up by: the visible range is decided here, so the count is too.
+func (r *renderer) renderSuggestionsWithOffset(_, _ string, _ int, suggestions []Suggestion, selected int, offset int) (int, error) {
 	// Start rendering suggestions
 	if _, err := fmt.Fprint(r.output, "\r\n"); err != nil {
-		return err
+		return 0, err
 	}
 
 	maxSuggestions := 10 // Limit number of displayed suggestions
@@ -284,73 +288,57 @@ func (r *renderer) renderSuggestionsWithOffset(_, _ string, _ int, suggestions [
 		visibleSelected = -1 // Selected item is not visible
 	}
 
+	rows := 0
 	for i, suggestion := range visibleSuggestions {
 		// Clear line and move to beginning
 		if _, err := fmt.Fprint(r.output, "\r\x1b[K"); err != nil {
-			return err
+			return 0, err
 		}
 
-		// Render selection indicator and suggestion
+		indicator := "  "
+		textColor := r.colorScheme.Suggestion.Text.ToANSI()
 		if i == visibleSelected {
-			// Selected suggestion
-			if _, err := fmt.Fprint(r.output, r.colorScheme.Selected.ToANSI()); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(r.output, "▶ "); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(r.output, suggestion.Text); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(r.output, Reset()); err != nil {
-				return err
-			}
-		} else {
-			// Normal suggestion
-			if _, err := fmt.Fprint(r.output, r.colorScheme.Suggestion.Text.ToANSI()); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(r.output, "  "); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(r.output, suggestion.Text); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(r.output, Reset()); err != nil {
-				return err
+			indicator = "\u25b6 "
+			textColor = r.colorScheme.Selected.ToANSI()
+		}
+		if _, err := fmt.Fprint(r.output, textColor, indicator, suggestion.Text, Reset()); err != nil {
+			return 0, err
+		}
+
+		if suggestion.Description != "" {
+			if _, err := fmt.Fprint(r.output, " ", r.colorScheme.Suggestion.Description.ToANSI(), "- ", suggestion.Description, Reset()); err != nil {
+				return 0, err
 			}
 		}
 
-		// Render description if available
-		if suggestion.Description != "" {
-			if _, err := fmt.Fprint(r.output, " "); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(r.output, r.colorScheme.Suggestion.Description.ToANSI()); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(r.output, "- "); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(r.output, suggestion.Description); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(r.output, Reset()); err != nil {
-				return err
-			}
-		}
+		// The erase is counted in rows, so a suggestion too wide for the
+		// terminal contributes the rows it wraps onto, not one.
+		wrapped, _ := layout(suggestionCells(indicator, suggestion), r.terminalWidth())
+		rows += wrapped + 1
 
 		// Move to next line (except for last suggestion) with proper line ending
 		if i < len(visibleSuggestions)-1 {
 			if _, err := fmt.Fprint(r.output, "\r\n"); err != nil {
-				return err
+				return 0, err
 			}
 		}
 	}
 
 	// Leave cursor at the end of suggestions
 	// Parent function will handle final cursor positioning
-	return nil
+	return rows, nil
+}
+
+// suggestionCells returns the printable text of one menu row: what the loop in
+// renderSuggestionsWithOffset prints, minus the color escapes, which occupy no
+// cells. The two have to stay in step, or the height is measured against text
+// that was never drawn.
+func suggestionCells(indicator string, s Suggestion) string {
+	line := indicator + s.Text
+	if s.Description != "" {
+		line += " - " + s.Description
+	}
+	return line
 }
 
 // clearPreviousLines clears the previously rendered lines.
