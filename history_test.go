@@ -1540,6 +1540,10 @@ func TestHistoryFileRoundTrip(t *testing.T) {
 			entries: []string{"\t"},
 		},
 		{
+			name:    "an invalid UTF-8 byte is not replaced",
+			entries: []string{"caf\xe9 latte"},
+		},
+		{
 			name:    "several entries keep their order",
 			entries: []string{"first", "  second  ", "third\nfourth"},
 		},
