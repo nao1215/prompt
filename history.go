@@ -87,10 +87,13 @@ func (hm *HistoryManager) LoadHistory() error {
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line != "" {
-			hm.history = append(hm.history, line)
+		// Only the line terminator is dropped: an entry's own leading and
+		// trailing whitespace is part of the command the user submitted.
+		entry, ok := decodeHistoryLine(strings.TrimSuffix(scanner.Text(), "\r"))
+		if !ok {
+			continue
 		}
+		hm.history = append(hm.history, entry)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -126,12 +129,80 @@ func (hm *HistoryManager) SaveHistory() error {
 	defer file.Close()
 
 	for _, entry := range hm.history {
-		if _, err := fmt.Fprintln(file, entry); err != nil {
+		if _, err := fmt.Fprintln(file, encodeHistoryLine(entry)); err != nil {
 			return fmt.Errorf("failed to write history entry: %w", err)
 		}
 	}
 
 	return nil
+}
+
+// encodeHistoryLine renders one entry as a single physical line.
+//
+// The file is read back one entry per line, so a command typed across several
+// lines has to survive as one. Backslash escaping is the whole rule: all other
+// bytes are written as they are, so an ordinary command stays readable in a
+// text editor, which a quoted or length-prefixed format would have cost.
+func encodeHistoryLine(entry string) string {
+	var b strings.Builder
+	b.Grow(len(entry))
+	for _, r := range entry {
+		switch r {
+		case '\\':
+			b.WriteString(`\\`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// decodeHistoryLine reads back what encodeHistoryLine wrote and reports whether
+// the line held an entry. Only an empty line holds none: a line of spaces is how
+// an indented command is spelled on disk.
+func decodeHistoryLine(line string) (string, bool) {
+	if line == "" {
+		return "", false
+	}
+
+	var b strings.Builder
+	b.Grow(len(line))
+	escaped := false
+	for _, r := range line {
+		if escaped {
+			switch r {
+			case 'n':
+				b.WriteByte('\n')
+			case 'r':
+				b.WriteByte('\r')
+			case '\\':
+				b.WriteByte('\\')
+			default:
+				// An undefined escape is written back as it was read, so a file
+				// written before this encoding, or edited by hand, loses no
+				// characters to a rule it never followed.
+				b.WriteByte('\\')
+				b.WriteRune(r)
+			}
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		b.WriteRune(r)
+	}
+	// A trailing backslash has nothing left to escape; keeping it means the
+	// entry loses no character.
+	if escaped {
+		b.WriteByte('\\')
+	}
+	return b.String(), true
 }
 
 // AddEntry adds a new entry to the history
@@ -255,7 +326,7 @@ func (hm *HistoryManager) createRotatedFile() error {
 	defer file.Close()
 
 	for i := startIndex; i < len(hm.history); i++ {
-		if _, err := fmt.Fprintln(file, hm.history[i]); err != nil {
+		if _, err := fmt.Fprintln(file, encodeHistoryLine(hm.history[i])); err != nil {
 			return err
 		}
 	}

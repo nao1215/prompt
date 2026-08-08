@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"testing/quick"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -1507,5 +1509,125 @@ func TestRotationWithZeroMaxBackups(t *testing.T) {
 	// Original file should still exist
 	if _, err := os.Stat(historyFile); os.IsNotExist(err) {
 		t.Error("Original file should still exist")
+	}
+}
+
+func TestHistoryFileRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		entries []string
+	}{
+		{
+			name:    "an entry keeps the spaces it was submitted with",
+			entries: []string{"   indented cmd   "},
+		},
+		{
+			name:    "a multi-line entry reloads as one entry",
+			entries: []string{"line1\nline2"},
+		},
+		{
+			name:    "a carriage return inside an entry survives",
+			entries: []string{"before\rafter"},
+		},
+		{
+			name:    "a backslash is not eaten by the escaping",
+			entries: []string{`SELECT 'a\nb'`, `C:\path\to\file`},
+		},
+		{
+			name:    "a tab-only entry is kept",
+			entries: []string{"\t"},
+		},
+		{
+			name:    "several entries keep their order",
+			entries: []string{"first", "  second  ", "third\nfourth"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			config := &HistoryConfig{
+				Enabled:     true,
+				File:        filepath.Join(t.TempDir(), "history"),
+				MaxFileSize: 1024 * 1024,
+				MaxBackups:  3,
+			}
+
+			saver := NewHistoryManager(config)
+			saver.SetHistory(tt.entries)
+			if err := saver.SaveHistory(); err != nil {
+				t.Fatalf("SaveHistory failed: %v", err)
+			}
+
+			loader := NewHistoryManager(config)
+			if err := loader.LoadHistory(); err != nil {
+				t.Fatalf("LoadHistory failed: %v", err)
+			}
+
+			got := loader.GetHistory()
+			if len(got) != len(tt.entries) {
+				t.Fatalf("got %d entries %q, want %d entries %q", len(got), got, len(tt.entries), tt.entries)
+			}
+			for i, want := range tt.entries {
+				if got[i] != want {
+					t.Errorf("entry %d: got %q, want %q", i, got[i], want)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadHistorySkipsEmptyLinesAndCRLF(t *testing.T) {
+	t.Parallel()
+
+	historyFile := filepath.Join(t.TempDir(), "history")
+	// A file written on Windows, with a blank line between entries.
+	content := "first\r\n\r\nsecond\r\n"
+	if err := os.WriteFile(historyFile, []byte(content), 0600); err != nil {
+		t.Fatalf("failed to write history file: %v", err)
+	}
+
+	hm := NewHistoryManager(&HistoryConfig{
+		Enabled:     true,
+		File:        historyFile,
+		MaxFileSize: 1024 * 1024,
+		MaxBackups:  3,
+	})
+	if err := hm.LoadHistory(); err != nil {
+		t.Fatalf("LoadHistory failed: %v", err)
+	}
+
+	want := []string{"first", "second"}
+	got := hm.GetHistory()
+	if len(got) != len(want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("entry %d: got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestHistoryLineEncodingRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	roundTrip := func(entry string) bool {
+		decoded, ok := decodeHistoryLine(encodeHistoryLine(entry))
+		if entry == "" {
+			return !ok
+		}
+		return ok && decoded == entry
+	}
+
+	config := &quick.Config{
+		MaxCount: 500,
+		Rand:     rand.New(rand.NewSource(20260809)), //nolint:gosec // reproducible test input, not security
+	}
+	if err := quick.Check(roundTrip, config); err != nil {
+		t.Errorf("encode/decode round trip failed: %v", err)
 	}
 }
