@@ -737,7 +737,7 @@ func TestHistorySearch(t *testing.T) {
 		}
 	})
 
-	t.Run("a cancelled search leaves nothing on screen", func(t *testing.T) {
+	t.Run("a canceled search leaves nothing on screen", func(t *testing.T) {
 		var out bytes.Buffer
 		p := createPromptWithHistory(history, "git\x1b")
 		p.output = &out
@@ -746,7 +746,7 @@ func TestHistorySearch(t *testing.T) {
 			t.Fatalf("searchHistory failed: %v", err)
 		}
 		if got := out.String(); !strings.HasSuffix(got, "\x1b[0J") {
-			t.Errorf("a cancelled search wrote %q, want the interface erased before it returns", got)
+			t.Errorf("a canceled search wrote %q, want the interface erased before it returns", got)
 		}
 	})
 

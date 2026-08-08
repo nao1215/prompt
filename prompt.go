@@ -1528,7 +1528,7 @@ func (f *fuzzyMatcher) searchFunc(query string) []string {
 }
 
 // searchHistory implements reverse history search (like Ctrl+R in bash)
-func (p *Prompt) searchHistory() (string, error) {
+func (p *Prompt) searchHistory() (_ string, err error) {
 	search := NewHistorySearcher(p.history)
 	searchBuffer := []rune{}
 	searchResults := search("")
@@ -1539,11 +1539,23 @@ func (p *Prompt) searchHistory() (string, error) {
 	// is redrawn on the line the search started on. Appending instead stacked a
 	// block per keystroke and left every one of them in the scrollback.
 	drawn := 0
-	defer func() { p.clearHistorySearch(drawn) }()
+	defer func() {
+		// A cleanup that fails is worth reporting, but not at the cost of the
+		// error that ended the search: that one says why it ended.
+		if cerr := p.clearHistorySearch(drawn); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	for {
-		p.clearHistorySearch(drawn)
-		drawn = p.renderHistorySearch(string(searchBuffer), searchResults, selectedIndex)
+		if err := p.clearHistorySearch(drawn); err != nil {
+			return "", err
+		}
+		rows, err := p.renderHistorySearch(string(searchBuffer), searchResults, selectedIndex)
+		drawn = rows
+		if err != nil {
+			return "", err
+		}
 
 		// Read key input
 		r, err := p.readRune()
@@ -1585,7 +1597,7 @@ func (p *Prompt) searchHistory() (string, error) {
 
 // renderHistorySearch renders the history search interface and returns how many
 // terminal rows it occupies, which is what the next render has to erase.
-func (p *Prompt) renderHistorySearch(query string, results []string, selected int) int {
+func (p *Prompt) renderHistorySearch(query string, results []string, selected int) (int, error) {
 	header := "reverse-i-search: " + query
 	if selected < len(results) && len(results) > 0 {
 		header += " -> " + results[selected]
@@ -1608,22 +1620,30 @@ func (p *Prompt) renderHistorySearch(query string, results []string, selected in
 		lines = append(lines, "    "+result)
 	}
 
-	fmt.Fprint(p.output, "\r\x1b[K")
-	for _, line := range lines {
-		fmt.Fprintf(p.output, "%s\r\n", line)
+	if _, err := fmt.Fprint(p.output, "\r\x1b[K"); err != nil {
+		return 0, err
 	}
-	return p.searchBlockRows(lines)
+	for _, line := range lines {
+		if _, err := fmt.Fprintf(p.output, "%s\r\n", line); err != nil {
+			// Some of the block reached the terminal, so report the rows it was
+			// meant to occupy: the caller erases what it asked for rather than
+			// leaving a half-drawn block behind.
+			return p.searchBlockRows(lines), err
+		}
+	}
+	return p.searchBlockRows(lines), nil
 }
 
 // clearHistorySearch erases the rows a previous search render left on screen and
 // returns the cursor to the row that render started on. Rendering ends one row
 // below the block, because every line it writes ends with a line break, so the
 // move up covers the whole block.
-func (p *Prompt) clearHistorySearch(rows int) {
+func (p *Prompt) clearHistorySearch(rows int) error {
 	if rows <= 0 {
-		return
+		return nil
 	}
-	fmt.Fprintf(p.output, "\x1b[%dA\r\x1b[0J", rows)
+	_, err := fmt.Fprintf(p.output, "\x1b[%dA\r\x1b[0J", rows)
+	return err
 }
 
 // searchBlockRows returns how many terminal rows the given lines occupy. A
