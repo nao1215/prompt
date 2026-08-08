@@ -1492,3 +1492,115 @@ func TestPromptDoesNotEraseOutputPrintedBetweenRuns(t *testing.T) {
 		t.Errorf("the prompt after a two-line statement moved up into the printed result: %q", got)
 	}
 }
+
+// TestLayoutAdvancesATabToItsTabStop pins how a tab is measured. runewidth
+// reports 0 for it while a terminal moves the cursor to the next tab stop, so
+// the cursor was drawn left of the text and a wrapping line was undercounted.
+func TestLayoutAdvancesATabToItsTabStop(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		s        string
+		width    int
+		wantRows int
+		wantCol  int
+	}{
+		{
+			name:     "a tab at column 0 reaches the first stop",
+			s:        "\t",
+			width:    80,
+			wantRows: 0,
+			wantCol:  8,
+		},
+		{
+			name:     "a tab advances to the next stop, not by its rune width",
+			s:        "a\tb",
+			width:    80,
+			wantRows: 0,
+			wantCol:  9,
+		},
+		{
+			name:     "a tab already on a stop advances to the next one",
+			s:        "12345678\t",
+			width:    80,
+			wantRows: 0,
+			wantCol:  16,
+		},
+		{
+			name:     "a wide rune before the tab is counted in cells",
+			s:        "あ\t",
+			width:    80,
+			wantRows: 0,
+			wantCol:  8,
+		},
+		{
+			name:     "a tab short of the margin reaches its stop",
+			s:        strings.Repeat("x", 7) + "\t",
+			width:    10,
+			wantRows: 0,
+			wantCol:  8,
+		},
+		{
+			name:     "a tab past the margin stops at the margin instead of wrapping",
+			s:        strings.Repeat("x", 9) + "\t",
+			width:    10,
+			wantRows: 0,
+			wantCol:  10,
+		},
+		{
+			name:     "text after a tab wraps from the tab stop",
+			s:        "a\t" + strings.Repeat("y", 3),
+			width:    10,
+			wantRows: 1,
+			wantCol:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rows, col := layout(tt.s, tt.width)
+			if rows != tt.wantRows || col != tt.wantCol {
+				t.Errorf("layout(%q, %d) = (%d, %d), want (%d, %d)", tt.s, tt.width, rows, col, tt.wantRows, tt.wantCol)
+			}
+		})
+	}
+}
+
+// TestRendererPositionsTheCursorAfterATab is the same measurement seen through a
+// render: every render after a tab used to place the cursor several columns
+// left of the text.
+func TestRendererPositionsTheCursorAfterATab(t *testing.T) {
+	t.Parallel()
+
+	const input = "a\tb"
+
+	var out bytes.Buffer
+	r := newRenderer(&out, ThemeDefault, newMockTerminal(""))
+	if err := r.render("> ", input, len([]rune(input))); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	// "> " is 2 cells, "a" reaches 3, the tab reaches the stop at 8, "b" ends at 9.
+	if got := out.String(); !strings.Contains(got, "\r\x1b[9C") {
+		t.Errorf("render() wrote %q, want the cursor at column 9, after the tab stop", got)
+	}
+}
+
+// TestRendererCountsTheRowsATabPushesALineOnto covers the other half: the height
+// erased has to include the cells a tab occupies, or a row of the old block
+// stays on screen.
+func TestRendererCountsTheRowsATabPushesALineOnto(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	r := newRenderer(&out, ThemeDefault, newMockTerminal(""))
+	// "$ " plus 70 cells reaches column 72; the tab reaches 80 and fills the row,
+	// so the text after it belongs to a second row.
+	input := strings.Repeat("x", 70) + "\tyz"
+	if got := r.calculateRenderedLines("$ ", input); got != 2 {
+		t.Errorf("calculateRenderedLines() = %d, want 2: the tab fills the row, so the text after it is on a second row", got)
+	}
+}
