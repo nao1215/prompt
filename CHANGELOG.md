@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.0.18] - 2026-08-08
 
 ### Fixed
 - Input that filled a terminal row exactly misplaced the cursor and erased the line above the prompt (PR [#34](https://github.com/nao1215/prompt/pull/34), [#30](https://github.com/nao1215/prompt/issues/30)): a terminal that has just written its last column holds the cursor there until another character arrives, so the row below it does not exist yet. The renderer counted the cursor onto that row anyway, which put it at column 0 on top of the text, and left the next redraw moving up one row too many — erasing whatever the application had printed above the prompt. In a shell whose prefix is a path, some statement length always lands on that boundary, so the row eaten was the bottom of the result the user was reading.
