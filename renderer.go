@@ -24,8 +24,24 @@ import (
 // whole to the next row and leaves the last cell blank; and a filled row is
 // still one row. The division misses both, and the drift shows up twice: in the
 // column the cursor is drawn at, and in the height the redraw erases.
+//
+// A tab is measured against tab stops rather than by rune width: runewidth has
+// no notion of stops and reports zero, while a terminal advances a tab up to
+// eight columns, so a tab measured as nothing drew the cursor that far left of
+// the text. A tab reaches the buffer through a bracketed paste — pasted SQL, a
+// TSV row — since a typed Tab runs completion instead.
 func layout(s string, width int) (rows, col int) {
 	for _, r := range s {
+		if r == '\t' {
+			if col >= width {
+				rows++
+				col = 0
+			}
+			// A terminal stops a tab at the right margin instead of carrying it
+			// onto the next row.
+			col = min(col+tabWidth-col%tabWidth, width)
+			continue
+		}
 		w := runewidth.RuneWidth(r)
 		if w == 0 {
 			continue
@@ -549,6 +565,10 @@ func (r *renderer) measureTerminal() {
 
 // defaultTerminalWidth is the width assumed when the terminal cannot report one.
 const defaultTerminalWidth = 80
+
+// tabWidth is the spacing between tab stops. Eight is the terminal default, and
+// nothing here can read the stops a session has actually set.
+const tabWidth = 8
 
 // calculateRenderedLines calculates the actual number of lines that will be rendered,
 // accounting for both explicit newlines and terminal wrapping.
