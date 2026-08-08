@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.0.19] - 2026-08-09
 
 ### Fixed
 - A completion suggestion wider than the terminal left rows of the menu behind ([#36](https://github.com/nao1215/prompt/issues/36)): the height remembered for the menu was the number of suggestions shown, and a suggestion that wraps occupies more rows than that. The erase moved up too few rows, so closing or accepting the completion left the wrapped rows sitting above the new prompt. The menu now reports the rows it drew, measured the same way the input line is.
