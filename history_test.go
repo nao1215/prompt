@@ -710,6 +710,46 @@ func TestHistorySearch(t *testing.T) {
 		}
 	})
 
+	t.Run("every block the search draws is erased again", func(t *testing.T) {
+		// The interface is redrawn on every keystroke. Drawing the next one
+		// under the last stacked a block per character typed, and none of them
+		// was removed when the search ended, so the accepted line appeared at
+		// the foot of a column of dead search results.
+		var out bytes.Buffer
+		p := createPromptWithHistory(history, "git\r")
+		p.output = &out
+
+		if _, err := p.searchHistory(); err != nil {
+			t.Fatalf("searchHistory failed: %v", err)
+		}
+
+		got := out.String()
+		drawn := strings.Count(got, "reverse-i-search:")
+		erased := strings.Count(got, "\x1b[0J")
+		if drawn == 0 {
+			t.Fatal("searchHistory() drew no search interface at all")
+		}
+		if erased != drawn {
+			t.Errorf("the search drew %d block(s) and erased %d: what is left on screen is what the prompt is redrawn under", drawn, erased)
+		}
+		if !strings.HasSuffix(got, "\x1b[0J") {
+			t.Errorf("searchHistory() wrote %q, want the interface erased before it returns", got)
+		}
+	})
+
+	t.Run("a canceled search leaves nothing on screen", func(t *testing.T) {
+		var out bytes.Buffer
+		p := createPromptWithHistory(history, "git\x1b")
+		p.output = &out
+
+		if _, err := p.searchHistory(); err != nil {
+			t.Fatalf("searchHistory failed: %v", err)
+		}
+		if got := out.String(); !strings.HasSuffix(got, "\x1b[0J") {
+			t.Errorf("a canceled search wrote %q, want the interface erased before it returns", got)
+		}
+	})
+
 	t.Run("SearchWithBackspace", func(t *testing.T) {
 		// Simulate typing "gitx", backspace, then Enter
 		mockInput := "gitx\x7f\r"

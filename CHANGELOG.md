@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Input that filled a terminal row exactly misplaced the cursor and erased the line above the prompt (PR [#34](https://github.com/nao1215/prompt/pull/34), [#30](https://github.com/nao1215/prompt/issues/30)): a terminal that has just written its last column holds the cursor there until another character arrives, so the row below it does not exist yet. The renderer counted the cursor onto that row anyway, which put it at column 0 on top of the text, and left the next redraw moving up one row too many — erasing whatever the application had printed above the prompt. In a shell whose prefix is a path, some statement length always lands on that boundary, so the row eaten was the bottom of the result the user was reading.
+- A prompt prefix wider than the terminal left a stale copy of its first row behind (PR [#34](https://github.com/nao1215/prompt/pull/34), [#31](https://github.com/nao1215/prompt/issues/31)): the row count short-circuited to one whenever the input was empty, or when the first line held nothing but the prefix, and a wrapping prefix occupies more rows than that. The first keystroke of every line therefore cleared only the prefix's last row and redrew the whole prefix from there, orphaning the rows above it — one torn fragment per line entered.
+- A wide character wrapped whole at the right margin shifted the cursor one cell left of the text (PR [#34](https://github.com/nao1215/prompt/pull/34), [#32](https://github.com/nao1215/prompt/issues/32)): a terminal never splits a glyph across the margin, so a double-width rune that does not fit moves to the next row and leaves the last cell blank. Row and column came from dividing total cells by the terminal width, which does not know about that blank cell, so the cursor drifted one cell per straddle and the block's height was undercounted. Both now come from walking the line a cell at a time.
+- Ctrl+R drew a new search block per keystroke and left all of them on screen (PR [#34](https://github.com/nao1215/prompt/pull/34), [#33](https://github.com/nao1215/prompt/issues/33)): the search interface cleared one line and printed its header and results below the previous block, so typing a three-letter query stacked three copies, and nothing removed them when the search ended — the accepted line appeared at the foot of a column of dead results. The search now remembers the rows it drew, erases them before the next render, and erases the last of them however it returns.
+
 ## [0.0.17] - 2026-08-05
 
 ### Fixed
