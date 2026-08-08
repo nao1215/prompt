@@ -338,7 +338,7 @@ func TestRendererSuggestionScrolling(t *testing.T) {
 			var output bytes.Buffer
 			renderer := newRenderer(&output, ThemeDefault, nil)
 
-			err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, tt.suggestions, tt.selected, tt.offset)
+			_, err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, tt.suggestions, tt.selected, tt.offset)
 			if err != nil {
 				t.Errorf("renderSuggestionsWithOffset failed: %v", err)
 				return
@@ -411,7 +411,7 @@ func TestRendererOffsetBoundaryHandling(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run("", func(t *testing.T) {
 			output.Reset()
-			err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, tc.selected, tc.offset)
+			_, err := renderer.renderSuggestionsWithOffset("$ ", "test", 2, suggestions, tc.selected, tc.offset)
 			if err != nil {
 				t.Errorf("renderSuggestionsWithOffset failed with offset=%d, selected=%d: %v", tc.offset, tc.selected, err)
 			}
@@ -1603,4 +1603,71 @@ func TestRendererCountsTheRowsATabPushesALineOnto(t *testing.T) {
 	if got := r.calculateRenderedLines("$ ", input); got != 2 {
 		t.Errorf("calculateRenderedLines() = %d, want 2: the tab fills the row, so the text after it is on a second row", got)
 	}
+}
+
+// TestRendererCountsTheRowsAWrappedSuggestionOccupies is the completion menu's
+// version of the redraw invariant: the block's height is terminal rows, not
+// suggestions. Counting entries instead left those rows out of the erase, so
+// they stayed on screen above the next prompt.
+func TestRendererCountsTheRowsAWrappedSuggestionOccupies(t *testing.T) {
+	t.Parallel()
+
+	// 30 columns, so "  " plus a 46-cell suggestion occupies two rows.
+	const narrowWidth = 30
+	suggestions := []Suggestion{
+		{Text: "SELECT_a_very_long_completion_candidate_indeed"},
+		{Text: "SET", Description: "assign"},
+	}
+
+	newNarrowRenderer := func(out *bytes.Buffer) *renderer {
+		term := newMockTerminal("")
+		term.terminalSize = [2]int{narrowWidth, 24}
+		return newRenderer(out, ThemeDefault, term)
+	}
+
+	t.Run("the menu's height counts the wrapped rows", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		r := newNarrowRenderer(&out)
+		if err := r.renderWithSuggestionsOffset("> ", "SE", 2, suggestions, 0, 0); err != nil {
+			t.Fatalf("renderWithSuggestionsOffset: %v", err)
+		}
+		// One input row, two rows for the wrapping suggestion, one for "SET".
+		if r.lastLines != 4 {
+			t.Errorf("lastLines = %d, want 4: a suggestion wider than the terminal occupies two rows", r.lastLines)
+		}
+	})
+
+	t.Run("a description counts toward the row's width", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		r := newNarrowRenderer(&out)
+		// "  SET - " is 8 cells; a 30-cell description pushes the row past the margin.
+		wide := []Suggestion{{Text: "SET", Description: strings.Repeat("d", 30)}}
+		if err := r.renderWithSuggestionsOffset("> ", "SE", 2, wide, -1, 0); err != nil {
+			t.Fatalf("renderWithSuggestionsOffset: %v", err)
+		}
+		if r.lastLines != 3 {
+			t.Errorf("lastLines = %d, want 3: the description pushes its row past the margin", r.lastLines)
+		}
+	})
+
+	t.Run("closing the menu erases every row it drew", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		r := newNarrowRenderer(&out)
+		if err := r.renderWithSuggestionsOffset("> ", "SE", 2, suggestions, 0, 0); err != nil {
+			t.Fatalf("renderWithSuggestionsOffset: %v", err)
+		}
+		out.Reset()
+		if err := r.render("> ", "SE", 2); err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		if up := leadingCursorUp(t, out.String()); up != 3 {
+			t.Errorf("render() moved up %d rows, want 3: the menu's wrapped rows are above the prompt", up)
+		}
+	})
 }
