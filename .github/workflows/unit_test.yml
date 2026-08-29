@@ -17,17 +17,22 @@ jobs:
           - "ubuntu-latest"
           - "windows-latest"
           - "macos-latest"
+        # The floor go.mod declares and the newest release. prompt is a library
+        # (sqly builds on it), so the floor is a promise to its callers and this
+        # matrix is the only place it is checked. "stable" tracks each Go
+        # release without an edit, and is used rather than "1" because setup-go
+        # resolves "1" from its own manifest, which lags a fresh release.
         go:
           - "1.24"
-          - "1.25"
+          - "stable"
       fail-fast: false
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go }}
 

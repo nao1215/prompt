@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Dependencies updated (`golang.org/x/term`, `golang.org/x/sys`, `github.com/mattn/go-tty`, `github.com/mattn/go-colorable`, `github.com/mattn/go-runewidth`, `github.com/stretchr/testify`), holding `x/term` at 0.40.0 and `x/sys` at 0.41.0 so the supported Go floor stays at 1.24.0. The GitHub Actions pins move from v5 to v7, and the unit-test matrix runs the floor and the newest Go release.
+
 ## [0.0.19] - 2026-08-09
 
 ### Fixed
