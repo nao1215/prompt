@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `RunWithContext` returns when its context is canceled, rather than on the keystroke after it (PR [#67](https://github.com/nao1215/prompt/pull/67), [33c010c](https://github.com/nao1215/prompt/commit/33c010c), [#66](https://github.com/nao1215/prompt/issues/66)). The context was checked at the top of the read loop and then the prompt blocked in a terminal read, which nothing but a key ends, so a deadline fired one keystroke late and a prompt nobody was typing at never returned at all -- which is the case the documented 30-second timeout example is written for. Where the context can be canceled the read now goes through the shared reader goroutine, whose channel is waited on alongside the context; a rune that goroutine had already taken reaches the next `Run`, as a watcher's type-ahead does. A context that can never be canceled, which is what `Run` passes, still reads the terminal directly and starts no goroutine, because on Windows `Close` does not wait for a reader and a session that never asked for cancellation should not grow one.
+
 ## [0.0.23] - 2026-09-01
 
 ### Fixed
