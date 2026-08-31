@@ -1174,7 +1174,9 @@ func (p *Prompt) Close() error {
 
 	// Close terminal resources to prevent file descriptor leaks
 	if p.terminal != nil {
-		return p.terminal.Close()
+		err := p.terminal.Close()
+		p.awaitReaderExit()
+		return err
 	}
 	return nil
 }
@@ -2074,6 +2076,36 @@ func (p *Prompt) startInputReader() <-chan readResult {
 		}()
 	})
 	return p.reads
+}
+
+// readInterrupter is implemented by a terminal whose Close ends a read in
+// progress. Only such a terminal can be waited on: where a read cannot be
+// interrupted, waiting for the reader to notice would hang Close forever.
+type readInterrupter interface {
+	interruptsReads() bool
+}
+
+// awaitReaderExit waits for the shared reader goroutine to finish, but only
+// where closing the terminal is known to have ended the read it was in.
+//
+// Waiting matters because a reader that outlives Close is not idle. It is
+// blocked on a descriptor the process has closed, and once that descriptor
+// number is reused — running a child process is enough to cause that — the
+// goroutine is reading whatever now holds it, taking input meant for something
+// else. A prompt opened after one was closed received nothing at all, because
+// the previous session's reader had the new session's terminal.
+//
+// Where the terminal cannot be interrupted the goroutine is left to end when
+// its read returns, which is what happened before this and is still better than
+// a Close that never returns.
+func (p *Prompt) awaitReaderExit() {
+	if p.readerDone == nil {
+		return
+	}
+	if ri, ok := p.terminal.(readInterrupter); !ok || !ri.interruptsReads() {
+		return
+	}
+	<-p.readerDone
 }
 
 // stopInputReader releases the shared reader, if one was started. A goroutine

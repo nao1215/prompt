@@ -13,6 +13,13 @@ import (
 // output, ready to drive RunWithContext in tests. The options configure the
 // embedded Config (for example WithPersistentRawMode).
 func newTestPrompt(mock *mockTerminal, options ...Option) *Prompt {
+	return newTestPromptOn(mock, options...)
+}
+
+// newTestPromptOn is newTestPrompt over any terminal, for a test that needs one
+// the stock mock cannot model — a read that blocks until the terminal is
+// closed, for instance.
+func newTestPromptOn(terminal terminalInterface, options ...Option) *Prompt {
 	config := Config{Prefix: "$ "}
 	for _, option := range options {
 		option(&config)
@@ -20,13 +27,13 @@ func newTestPrompt(mock *mockTerminal, options ...Option) *Prompt {
 	var output bytes.Buffer
 	return &Prompt{
 		config:   config,
-		terminal: mock,
+		terminal: terminal,
 		keyMap:   NewDefaultKeyMap(),
 		output:   &output,
 		buffer:   []rune{},
 		cursor:   0,
 		history:  []string{},
-		renderer: newRenderer(&output, ThemeDefault, mock),
+		renderer: newRenderer(&output, ThemeDefault, terminal),
 	}
 }
 

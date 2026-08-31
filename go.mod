@@ -3,6 +3,7 @@ module github.com/nao1215/prompt
 go 1.24.0
 
 require (
+	github.com/creack/pty v1.1.24
 	github.com/mattn/go-colorable v0.1.15
 	github.com/mattn/go-runewidth v0.0.28
 	github.com/mattn/go-tty v0.0.8

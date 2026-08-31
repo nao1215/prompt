@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `Close` now ends the goroutine that reads the terminal on Unix, so a prompt opened after one was closed reads its input ([#47](https://github.com/nao1215/prompt/issues/47)). `WatchInterrupt` starts a shared reader whose goroutine blocks in a terminal read, and closing the terminal did not end it: go-tty calls `Fd()` on the file it reads, which takes it out of the runtime's poller and back into blocking mode, and a blocking read is what nothing can interrupt. The goroutine was left in `read(2)` on a descriptor number the kernel had taken back, and running a child process is enough to get that number reused — by the next prompt's own `/dev/tty`. The abandoned reader then held the new prompt's terminal, which drew its prefix and swallowed every keystroke, `Ctrl-D` included, so the session could not be ended. On Unix the prompt now reads the terminal itself, through a non-blocking descriptor and a `poll(2)` that also watches a pipe `Close` writes to, so a read waiting for a key ends the moment the terminal is given up; `Close` then waits for the reader to finish. Handing the descriptor to the runtime's poller instead would have been smaller but is not portable: neither `os.OpenFile` with `O_NONBLOCK` nor `os.NewFile` over an already non-blocking descriptor polls a terminal on the BSDs, where both return `EAGAIN` from every read rather than waiting for a key. Windows still reads through go-tty, where raw mode is routed through the same handle, and `Close` does not wait there.
+
 ## [0.0.20] - 2026-08-31
 
 ### Added

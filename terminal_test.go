@@ -488,23 +488,22 @@ func TestRealTerminalRestoreIdempotentWithoutRaw(t *testing.T) {
 	}
 }
 
+// TestRealTerminalCloseWithoutTTY covers closing a terminal that holds nothing
+// to close. It succeeds, and it counts as closed: the flag is double-close
+// protection, and whether a second Close is safe cannot depend on what the
+// first one happened to find. It used to be set only when there was a tty,
+// which left a terminal that could be "closed" any number of times.
 func TestRealTerminalCloseWithoutTTY(t *testing.T) {
-	// Create terminal with nil tty
-	terminal := &realTerminal{
-		tty:    nil,
-		closed: false,
-	}
+	terminal := &realTerminal{}
 
-	// Close should handle nil tty gracefully and return nil
-	err := terminal.Close()
-	if err != nil {
-		t.Errorf("Close() with nil tty should not error, got: %v", err)
+	if err := terminal.Close(); err != nil {
+		t.Errorf("Close() with nothing to close should not error, got: %v", err)
 	}
-
-	// Based on the implementation, closed flag is only set when tty exists
-	// For nil tty, it should still be false
-	if terminal.closed {
-		t.Error("Expected closed flag to remain false with nil tty")
+	if !terminal.closed {
+		t.Error("Close() left the terminal marked open, so a second Close would run again")
+	}
+	if err := terminal.Close(); err != nil {
+		t.Errorf("second Close() should be a no-op, got: %v", err)
 	}
 }
 

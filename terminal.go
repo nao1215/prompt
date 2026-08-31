@@ -1,6 +1,8 @@
 package prompt
 
 import (
+	"bufio"
+	"errors"
 	"io"
 	"os"
 	"runtime"
@@ -58,6 +60,19 @@ type realTerminal struct {
 	output     io.Writer    // Color-capable output writer (colorable on Windows, stdout elsewhere)
 	closed     bool         // Track if terminal is already closed to prevent double-close panic on Windows
 	restoreRaw func() error // Restores the pre-raw terminal state; nil when not in raw mode
+	// in is the terminal keystrokes are read from, and bin decodes runes from
+	// it. Both are nil where reading is left to go-tty (Windows, or a Unix host
+	// that would not open /dev/tty a second time); see openReadHandle.
+	in  terminalReader
+	bin *bufio.Reader
+}
+
+// terminalReader is a source of keystrokes whose Close ends a read in progress.
+// It is what lets a closed session stop reading the terminal it has given up;
+// see openReadHandle for why go-tty's own descriptor cannot do that.
+type terminalReader interface {
+	io.Reader
+	io.Closer
 }
 
 // newRealTerminal creates a new terminal instance following simplified design
@@ -75,10 +90,17 @@ func newRealTerminal() (*realTerminal, error) {
 		output = colorable.NewColorableStdout()
 	}
 
-	return &realTerminal{
+	in := openReadHandle()
+	term := &realTerminal{
 		tty:    t,
 		output: output,
-	}, nil
+		in:     in,
+	}
+	if in != nil {
+		// bufio decodes UTF-8, which is what ReadRune has to return.
+		term.bin = bufio.NewReader(in)
+	}
+	return term, nil
 }
 
 // SetRaw enters raw mode via the platform-specific rawEnter, which applies raw
@@ -139,6 +161,13 @@ const (
 )
 
 func (t *realTerminal) ReadRune() (rune, int, error) {
+	if t.bin != nil {
+		r, _, err := t.bin.ReadRune()
+		if err != nil {
+			return 0, 0, err
+		}
+		return r, 1, nil
+	}
 	r, err := t.tty.ReadRune()
 	if err != nil {
 		return 0, 0, err
@@ -147,15 +176,33 @@ func (t *realTerminal) ReadRune() (rune, int, error) {
 	return r, 1, nil
 }
 
+// interruptsReads reports whether closing this terminal ends a read in
+// progress. It holds where the prompt reads a descriptor of its own, which it
+// keeps in the runtime's poller for exactly this reason; it does not where
+// reading is left to go-tty. Prompt.Close consults it before waiting for the
+// reader goroutine.
+func (t *realTerminal) interruptsReads() bool { return t.in != nil }
+
 func (t *realTerminal) Close() error {
 	// Prevent double-close which causes panic on Windows
 	if t.closed {
 		return nil
 	}
-	if t.tty != nil {
-		err := t.tty.Close()
-		t.closed = true
-		return err
+	t.closed = true
+
+	var errs []error
+	// The read handle goes first, and it is what ends a read in progress: a
+	// goroutine waiting on it is released with ErrFileClosing before anything
+	// else is torn down.
+	if t.in != nil {
+		if err := t.in.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	return nil
+	if t.tty != nil {
+		if err := t.tty.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
