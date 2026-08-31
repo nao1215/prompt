@@ -190,7 +190,10 @@ func (hm *historyManager) writable() []string {
 	var size int64
 	for i := len(hm.history) - 1; i >= 0; i-- {
 		size += int64(len(encodeHistoryLine(hm.history[i]))) + 1 // the newline
-		if size > limit {
+		// The newest entry is written whatever it costs. A limit small enough to
+		// exclude it is a limit that would have the prompt save nothing at all,
+		// which is worse than a file slightly over it.
+		if size > limit && i < len(hm.history)-1 {
 			return hm.history[i+1:]
 		}
 	}
