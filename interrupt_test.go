@@ -170,6 +170,11 @@ func TestCloseReleasesAReaderBlockedOnHandover(t *testing.T) {
 // driver and never reaches the reader at all. Watching for the signal too is
 // what makes the documented pattern work in both modes -- and registering for it
 // is also what stops the default action from killing the application mid-work.
+//
+// It does not call t.Parallel, on purpose: the signal goes to the whole test
+// process, and a parallel test with a watch of its own would see it too. Go
+// pauses parallel tests until the sequential ones have finished, so a
+// sequential test is the one place a signal can be sent without reaching them.
 func TestWatchInterruptCancelsOnSIGINT(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("a process cannot send itself SIGINT on Windows")
