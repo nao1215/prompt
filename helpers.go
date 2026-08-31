@@ -6,10 +6,12 @@ import (
 	"strings"
 )
 
-// calculateFuzzyScore calculates a fuzzy matching score between input and candidate.
-// Returns 0 if no match, higher scores for better matches.
-// Supports case-insensitive matching when ignoreCase is true.
-func calculateFuzzyScore(input, candidate string, ignoreCase bool) int {
+// calculateFuzzyScore calculates a fuzzy matching score between input and
+// candidate. Returns 0 if no match, higher scores for better matches.
+//
+// It compares what it is given. Case is the caller's to decide, and the one
+// caller that wants it ignored lowers both strings before asking.
+func calculateFuzzyScore(input, candidate string) int {
 	if input == "" {
 		return 1
 	}
@@ -17,13 +19,8 @@ func calculateFuzzyScore(input, candidate string, ignoreCase bool) int {
 		return 0
 	}
 
-	// Normalize case if requested
 	searchInput := input
 	searchCandidate := candidate
-	if ignoreCase {
-		searchInput = strings.ToLower(input)
-		searchCandidate = strings.ToLower(candidate)
-	}
 
 	// Exact match gets highest score
 	if searchInput == searchCandidate {
@@ -40,20 +37,25 @@ func calculateFuzzyScore(input, candidate string, ignoreCase bool) int {
 		return 500 + len(searchInput)*5
 	}
 
-	// Character-by-character fuzzy matching
+	// Character-by-character fuzzy matching. The candidate is walked as runes
+	// because the input is: ranging over a string yields characters and indexing
+	// one yields bytes, so comparing the two tested a byte of a UTF-8 sequence
+	// against the character it belongs to. Nothing outside ASCII could match,
+	// and every candidate written in another alphabet scored zero here.
 	score := 0
+	candidateRunes := []rune(searchCandidate)
 	candidateIdx := 0
 
 	for _, inputChar := range searchInput {
-		for candidateIdx < len(searchCandidate) {
-			if rune(searchCandidate[candidateIdx]) == inputChar {
+		for candidateIdx < len(candidateRunes) {
+			if candidateRunes[candidateIdx] == inputChar {
 				score += 10
 				candidateIdx++
 				break
 			}
 			candidateIdx++
 		}
-		if candidateIdx >= len(searchCandidate) {
+		if candidateIdx >= len(candidateRunes) {
 			break
 		}
 	}
