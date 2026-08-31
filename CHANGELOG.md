@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A history entry longer than 64KB no longer makes the history file unreadable (PR [#82](https://github.com/nao1215/prompt/pull/82), [c533f95](https://github.com/nao1215/prompt/commit/c533f95), [#80](https://github.com/nao1215/prompt/issues/80)). The read used a `bufio.Scanner`, which refuses a line over that, while nothing bounds an entry -- a paste is content, and what the user submits is whatever they typed -- so the writer could produce a file the reader rejected. The load failed, took the whole history with it, and `New` returns that error: one long pasted statement left the application unable to start until the file was deleted by hand. Reading with a `bufio.Reader` has no line-length limit, and a last line that ends without a newline is kept.
+- `New` closes the terminal when it cannot finish (PR [#82](https://github.com/nao1215/prompt/pull/82), [c533f95](https://github.com/nao1215/prompt/commit/c533f95), [#81](https://github.com/nao1215/prompt/issues/81)). It opens the terminal before loading the history, and a load that failed returned the error with nothing left to close it, so the go-tty handle, the descriptor the reader polls, and the pipe that wakes it leaked -- three per attempt for a caller that retries.
+
 ## [0.0.24] - 2026-09-01
 
 ### Fixed
