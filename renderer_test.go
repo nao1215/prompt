@@ -604,7 +604,7 @@ func countSuggestionLines(output string) int {
 
 func removeANSICodes(s string) string {
 	// Simple ANSI code removal for testing
-	result := ""
+	var result strings.Builder
 	inEscape := false
 
 	for _, r := range s {
@@ -622,9 +622,9 @@ func removeANSICodes(s string) string {
 		if r == '\r' {
 			continue
 		}
-		result += string(r)
+		result.WriteRune(r)
 	}
-	return result
+	return result.String()
 }
 
 func isControlSequence(s string) bool {

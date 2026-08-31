@@ -1,9 +1,18 @@
 package prompt
 
-// Document represents the current input state for completers
+// Document represents the current input state for completers.
+//
+// A completer is handed one of these on every Tab and answers from it. It is a
+// snapshot: changing it changes nothing, and the prompt does not read it back.
 type Document struct {
-	Text           string // The entire input text
-	CursorPosition int    // Current cursor position in the text
+	// Text is the entire input, both sides of the cursor.
+	Text string
+	// CursorPosition is where the cursor is, counted in runes rather than
+	// bytes. It indexes the same []rune the prompt edits, so on a line holding
+	// any multi-byte character it is smaller than the byte offset -- a
+	// completer building a Document of its own has to count runes, or it will
+	// hand back a position past the end of its own text.
+	CursorPosition int
 }
 
 // TextBeforeCursor returns the text before the cursor.
