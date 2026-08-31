@@ -739,11 +739,11 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			if p.cursor > 0 {
 				p.cursor--
 			}
-			// A suggestion means "what the word before the cursor becomes", and
-			// the cursor is no longer where that word was measured. Keeping the
-			// menu open let acceptSuggestion work the word out again from the new
-			// position and insert part of the suggestion into the middle of the
-			// one already there.
+			// A suggestion stands for what the word before the cursor becomes.
+			// The cursor has just moved, so it is no longer where that word was
+			// measured: keeping the menu open let acceptSuggestion work the word
+			// out again from the new position and insert part of the suggestion
+			// into the middle of the one already there.
 			suggestions = nil
 
 		case ActionMoveRight:

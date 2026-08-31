@@ -436,8 +436,9 @@ func expandHistoryPath(path string) (string, error) {
 }
 
 // Reverse search (Ctrl+R) and the glue between the prompt and the history it
-// holds. It lives here rather than with the read loop because it is the history
-// seen from the screen, and because the tests that cover it are history tests.
+// holds. It lives here rather than with the read loop because it belongs to what
+// the screen shows while a search is open, not to the reading of keys, and
+// because the tests that cover it are history tests.
 
 // newHistorySearcher returns the search function Ctrl+R calls for matches. It
 // ranks the history by fuzzy match against the query, closest first.
