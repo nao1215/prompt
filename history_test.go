@@ -1863,3 +1863,65 @@ func FuzzHistoryLineRoundTrip(f *testing.F) {
 		}
 	})
 }
+
+// TestDisabledHistoryStaysEmpty pins what Enabled: false means. SetHistory fell
+// into the branch meant for a prompt with no manager at all, so the entries
+// landed in the list the arrow keys walk while GetHistory -- which asks the
+// manager -- reported nothing. The two answers cannot both be right.
+func TestDisabledHistoryStaysEmpty(t *testing.T) {
+	t.Parallel()
+
+	newDisabled := func(t *testing.T, script string) *Prompt {
+		t.Helper()
+		p, err := newFromConfigOn(Config{
+			Prefix:        "$ ",
+			HistoryConfig: &HistoryConfig{Enabled: false, MaxEntries: 10},
+			ColorScheme:   ThemeDefault,
+			KeyMap:        NewDefaultKeyMap(),
+		}, newMockTerminal(script), io.Discard)
+		if err != nil {
+			t.Fatalf("newFromConfigOn() error = %v", err)
+		}
+		return p
+	}
+
+	t.Run("SetHistory sets nothing", func(t *testing.T) {
+		t.Parallel()
+
+		p := newDisabled(t, "")
+		p.SetHistory([]string{"set while disabled"})
+		if got := p.GetHistory(); len(got) != 0 {
+			t.Errorf("GetHistory() = %q, want nothing", got)
+		}
+		if len(p.history) != 0 {
+			t.Errorf("the history the arrow keys walk holds %q, want nothing", p.history)
+		}
+	})
+
+	t.Run("Up brings nothing back", func(t *testing.T) {
+		t.Parallel()
+
+		p := newDisabled(t, "\x1b[A\x1b[A\r")
+		p.SetHistory([]string{"set while disabled"})
+		got, err := p.Run()
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if got != "" {
+			t.Errorf("Run() = %q, want an empty line: there is no history to walk", got)
+		}
+	})
+
+	t.Run("AddHistory adds nothing", func(t *testing.T) {
+		t.Parallel()
+
+		p := newDisabled(t, "")
+		p.AddHistory("added while disabled")
+		if got := p.GetHistory(); len(got) != 0 {
+			t.Errorf("GetHistory() = %q, want nothing", got)
+		}
+		if len(p.history) != 0 {
+			t.Errorf("the history the arrow keys walk holds %q, want nothing", p.history)
+		}
+	})
+}
