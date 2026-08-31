@@ -464,9 +464,13 @@ func helperScenario(name string) {
 		line, err = p.Run()
 		fmt.Printf("session2=%q err=%v errEOF=%v\r\n", line, err, errors.Is(err, ErrEOF))
 		fmt.Printf("restored=%v\r\n", sttySettings() == closed)
-		// Diagnostic, not an assertion: whether a whole session gives the
-		// terminal back exactly as it found it is a separate question from what
-		// a Run on a closed prompt does, and the answer differs by platform.
+		// Printed, not asserted. Whether a whole session gives every setting
+		// back is a different question from what a Run on a closed prompt does,
+		// and macOS answers it with one bit set that Linux does not: lflag gains
+		// PENDIN (0x20000000) across a session there. The kernel sets that bit
+		// itself to say input is waiting to be reprinted -- it is not a setting
+		// an application chose or can restore -- so it is reported rather than
+		// required, and it is here so the next reader does not chase it again.
 		fmt.Printf("sessionrestored=%v\r\nstty0=%s\r\nstty1=%s\r\n", start == closed, start, closed)
 	case "childinput":
 		p := open(1)
@@ -563,7 +567,7 @@ func TestPromptLifecycleOrdersUnderAPTY(t *testing.T) {
 			name:     "a Run on a closed prompt leaves the terminal as it found it",
 			scenario: "runafterclose",
 			steps:    []ptyStep{{await: "p1> ", send: "one\r"}},
-			want:     []string{`session1="one"`, "errEOF=true", "restored=true", "sessionrestored=true"},
+			want:     []string{`session1="one"`, "errEOF=true", "restored=true"},
 			absent:   []string{"p2> "},
 		},
 		{
