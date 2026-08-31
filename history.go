@@ -42,6 +42,10 @@ const defaultMaxHistoryEntries = 1000
 type historyManager struct {
 	config  *HistoryConfig
 	history []string
+	// overflowed records whether the last save had to leave entries out of the
+	// file, so that the rotation which keeps them happens once rather than on
+	// every save afterwards.
+	overflowed bool
 }
 
 // newHistoryManager creates a new history manager with the given configuration
@@ -120,10 +124,13 @@ func (hm *historyManager) saveHistory() (err error) {
 		return nil
 	}
 
-	// Check if rotation is needed
-	if err := hm.rotateIfNeeded(); err != nil {
+	// What fits, and whether anything had to be left out.
+	writable := hm.writable()
+	overflow := len(writable) < len(hm.history)
+	if err := hm.rotateIfNeeded(overflow); err != nil {
 		return fmt.Errorf("failed to rotate history file: %w", err)
 	}
+	hm.overflowed = overflow
 
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(hm.config.File)
@@ -133,7 +140,12 @@ func (hm *historyManager) saveHistory() (err error) {
 		}
 	}
 
-	file, err := os.Create(hm.config.File)
+	// The file holds what the user typed, which is where a password given on a
+	// command line ends up. It is created readable by its owner alone, the way a
+	// shell creates its own. os.Create would ask for 0666 and let the umask
+	// decide, which on a common default leaves the file world-readable. A file
+	// that already exists keeps whatever mode it was given.
+	file, err := os.OpenFile(hm.config.File, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, historyFileMode)
 	if err != nil {
 		return fmt.Errorf("failed to create history file: %w", err)
 	}
@@ -145,13 +157,47 @@ func (hm *historyManager) saveHistory() (err error) {
 		}
 	}()
 
-	for _, entry := range hm.history {
+	for _, entry := range writable {
 		if _, err := fmt.Fprintln(file, encodeHistoryLine(entry)); err != nil {
 			return fmt.Errorf("failed to write history entry: %w", err)
 		}
 	}
 
 	return nil
+}
+
+// historyFileMode is what a history file is created with: readable and writable
+// by its owner and nobody else.
+const historyFileMode = 0o600
+
+// writable returns the newest entries whose encoded lines fit in MaxFileSize.
+//
+// The limit has to be applied to what is written, not only to when the file is
+// rotated. Rotation used to write a file the size of the one it had just moved
+// aside, so the file was over the limit the moment it appeared and the next save
+// rotated again: within MaxBackups saves every backup held a near-identical copy
+// of the newest history and the oldest entries, which rotation exists to keep,
+// had been deleted.
+//
+// What does not fit stays in the backup. The history held in memory is not
+// touched, because how much is remembered for the session is MaxEntries'
+// business and saving should not change it.
+func (hm *historyManager) writable() []string {
+	limit := hm.config.MaxFileSize
+	if limit <= 0 {
+		return hm.history
+	}
+	var size int64
+	for i := len(hm.history) - 1; i >= 0; i-- {
+		size += int64(len(encodeHistoryLine(hm.history[i]))) + 1 // the newline
+		// The newest entry is written whatever it costs. A limit small enough to
+		// exclude it is a limit that would have the prompt save nothing at all,
+		// which is worse than a file slightly over it.
+		if size > limit && i < len(hm.history)-1 {
+			return hm.history[i+1:]
+		}
+	}
+	return hm.history
 }
 
 // encodeHistoryLine renders one entry as a single physical line.
@@ -282,24 +328,26 @@ func (hm *historyManager) clearHistory() {
 }
 
 // rotateIfNeeded checks if the history file needs rotation and performs it
-func (hm *historyManager) rotateIfNeeded() error {
+func (hm *historyManager) rotateIfNeeded(overflow bool) error {
 	if hm.config.File == "" {
 		return nil
 	}
+	// Rotation happens the first time the history outgrows the file, and keeps
+	// the last file that held all of it. Rotating on every save after that would
+	// write a near-identical copy each time and delete the oldest backup --
+	// which is the only place the entries being left out still exist -- within
+	// MaxBackups saves.
+	if !overflow || hm.overflowed {
+		return nil
+	}
 
-	info, err := os.Stat(hm.config.File)
-	if err != nil {
+	if _, err := os.Stat(hm.config.File); err != nil {
 		if os.IsNotExist(err) {
-			return nil // File doesn't exist, no rotation needed
+			return nil // Nothing on disk to keep
 		}
 		return err
 	}
 
-	if info.Size() < hm.config.MaxFileSize {
-		return nil // File is small enough, no rotation needed
-	}
-
-	// Perform rotation
 	return hm.rotateHistoryFile()
 }
 
@@ -330,51 +378,12 @@ func (hm *historyManager) rotateHistoryFile() error {
 		}
 	}
 
-	// Move current file to .1
+	// Move current file to .1. What replaces it is written by saveHistory, which
+	// is the only place that decides what the file holds.
 	backup := hm.config.File + ".1"
 	if err := os.Rename(hm.config.File, backup); err != nil {
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
-
-	// Keep only the most recent entries in the new file
-	if err := hm.createRotatedFile(); err != nil {
-		return fmt.Errorf("failed to create rotated file: %w", err)
-	}
-
-	return nil
-}
-
-// createRotatedFile creates a new history file with the most recent entries
-func (hm *historyManager) createRotatedFile() (err error) {
-	// Keep only half of the history entries to avoid immediate rotation
-	keepEntries := len(hm.history) / 2
-	if keepEntries < 100 {
-		keepEntries = len(hm.history) // Keep all if less than 100 entries
-	}
-
-	startIndex := len(hm.history) - keepEntries
-	if startIndex < 0 {
-		startIndex = 0
-	}
-
-	file, err := os.Create(hm.config.File)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if cerr := file.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("failed to close history file: %w", cerr)
-		}
-	}()
-
-	for i := startIndex; i < len(hm.history); i++ {
-		if _, err := fmt.Fprintln(file, encodeHistoryLine(hm.history[i])); err != nil {
-			return err
-		}
-	}
-
-	// Update in-memory history to match the rotated file
-	hm.history = hm.history[startIndex:]
 
 	return nil
 }

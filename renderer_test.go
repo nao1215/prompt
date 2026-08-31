@@ -1687,15 +1687,24 @@ type screenModel struct {
 }
 
 func newScreenModel(width int) *screenModel {
-	const height = 64
-	s := &screenModel{width: width, height: height, cells: make([][]rune, height)}
-	for row := range s.cells {
-		s.cells[row] = make([]rune, width)
-		for col := range s.cells[row] {
-			s.cells[row][col] = ' '
-		}
-	}
+	s := &screenModel{width: width}
+	s.growTo(1)
 	return s
+}
+
+// growTo makes sure the screen has at least rows rows. It grows rather than
+// clamping, because a block taller than the screen is a real answer the caller
+// wants: silently stopping at a fixed height reports a height that is short by
+// however far the block ran past it, and reads as a bug in the renderer.
+func (s *screenModel) growTo(rows int) {
+	for len(s.cells) < rows {
+		row := make([]rune, s.width)
+		for col := range row {
+			row[col] = ' '
+		}
+		s.cells = append(s.cells, row)
+	}
+	s.height = len(s.cells)
 }
 
 // put writes one rune where the cursor is, the way a terminal does: a glyph is
@@ -1739,7 +1748,8 @@ func (s *screenModel) resolvePending() {
 
 func (s *screenModel) newRow() {
 	s.col = 0
-	s.row = min(s.row+1, s.height-1)
+	s.row++
+	s.growTo(s.row + 1)
 	s.pending = false
 }
 
@@ -1752,9 +1762,7 @@ func (s *screenModel) writeString(text string) {
 // startRow moves to the start of the next row, the way a line break in the input
 // does.
 func (s *screenModel) startRow() {
-	s.pending = false
-	s.col = 0
-	s.row = min(s.row+1, s.height-1)
+	s.newRow()
 }
 
 func (s *screenModel) eraseToEndOfRow() {
@@ -1788,7 +1796,8 @@ func (s *screenModel) feed(output string) {
 		case r == '\r':
 			s.col, s.pending = 0, false
 		case r == '\n':
-			s.row, s.pending = min(s.row+1, s.height-1), false
+			s.row, s.pending = s.row+1, false
+			s.growTo(s.row + 1)
 		case r == '\x1b' && i+1 < len(runes) && runes[i+1] == '[':
 			i = s.control(runes, i)
 		default:
@@ -1818,7 +1827,8 @@ func (s *screenModel) control(runes []rune, start int) int {
 	case 'A':
 		s.row, s.pending = max(s.row-count, 0), false
 	case 'B':
-		s.row, s.pending = min(s.row+count, s.height-1), false
+		s.row, s.pending = s.row+count, false
+		s.growTo(s.row + 1)
 	case 'C':
 		s.col, s.pending = min(s.col+count, s.width-1), false
 	case 'D':
@@ -1839,7 +1849,7 @@ func (s *screenModel) control(runes []rune, start int) int {
 
 // rows returns what is on screen, without the blank rows below it.
 func (s *screenModel) rows() []string {
-	out := make([]string, s.height)
+	out := make([]string, len(s.cells))
 	for row := range s.cells {
 		var line strings.Builder
 		for _, cell := range s.cells[row] {
