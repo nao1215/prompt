@@ -60,11 +60,19 @@ type realTerminal struct {
 	output     io.Writer    // Color-capable output writer (colorable on Windows, stdout elsewhere)
 	closed     bool         // Track if terminal is already closed to prevent double-close panic on Windows
 	restoreRaw func() error // Restores the pre-raw terminal state; nil when not in raw mode
-	// in is the descriptor keystrokes are read from, and bin decodes runes from
+	// in is the terminal keystrokes are read from, and bin decodes runes from
 	// it. Both are nil where reading is left to go-tty (Windows, or a Unix host
 	// that would not open /dev/tty a second time); see openReadHandle.
-	in  *os.File
+	in  terminalReader
 	bin *bufio.Reader
+}
+
+// terminalReader is a source of keystrokes whose Close ends a read in progress.
+// It is what lets a closed session stop reading the terminal it has given up;
+// see openReadHandle for why go-tty's own descriptor cannot do that.
+type terminalReader interface {
+	io.Reader
+	io.Closer
 }
 
 // newRealTerminal creates a new terminal instance following simplified design
@@ -83,12 +91,16 @@ func newRealTerminal() (*realTerminal, error) {
 	}
 
 	in := openReadHandle()
-	return &realTerminal{
+	term := &realTerminal{
 		tty:    t,
 		output: output,
 		in:     in,
-		bin:    newReadBuffer(in),
-	}, nil
+	}
+	if in != nil {
+		// bufio decodes UTF-8, which is what ReadRune has to return.
+		term.bin = bufio.NewReader(in)
+	}
+	return term, nil
 }
 
 // SetRaw enters raw mode via the platform-specific rawEnter, which applies raw

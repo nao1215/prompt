@@ -149,8 +149,12 @@ func TestRealTerminalInterruptsReads(t *testing.T) {
 // waitFor polls cond until it holds or a second passes, so a test can wait for
 // a goroutine to reach a blocking call without sleeping for a fixed time it
 // would have to over-estimate.
-func waitFor(cond func() bool) bool {
-	deadline := time.Now().Add(time.Second)
+func waitFor(cond func() bool) bool { return waitUpTo(time.Second, cond) }
+
+// waitUpTo is waitFor with the budget named, for a wait whose subject is a
+// process rather than a goroutine.
+func waitUpTo(budget time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(budget)
 	for time.Now().Before(deadline) {
 		if cond() {
 			return true

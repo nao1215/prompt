@@ -162,7 +162,10 @@ func runHelperUnderPTY(t *testing.T, watch, child bool) string {
 		{await: "p1> ", send: "first\r"},
 		{await: "p2> ", send: "second\r"},
 	} {
-		if !waitFor(func() bool { return strings.Contains(transcript(), step.await) }) {
+		// The helper is a freshly started process on a runner that may be busy,
+		// so this waits far longer than the prompt takes to appear on an idle
+		// machine. It is a bound on a hang, not a measurement.
+		if !waitUpTo(15*time.Second, func() bool { return strings.Contains(transcript(), step.await) }) {
 			kill(t, cmd)
 			t.Fatalf("the %q prompt never appeared\n--- transcript ---\n%s", step.await, transcript())
 		}

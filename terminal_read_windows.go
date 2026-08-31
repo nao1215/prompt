@@ -2,11 +2,6 @@
 
 package prompt
 
-import (
-	"bufio"
-	"os"
-)
-
 // openReadHandle returns nil on Windows, leaving reading to go-tty.
 //
 // go-tty reads Windows input from a CONIN$ handle it opens itself, which under
@@ -17,7 +12,4 @@ import (
 //
 // The consequence is that Close cannot end a read in progress on Windows, so it
 // does not wait for one: see Prompt.Close.
-func openReadHandle() *os.File { return nil }
-
-// newReadBuffer is nil on Windows, where there is no handle of our own to read.
-func newReadBuffer(*os.File) *bufio.Reader { return nil }
+func openReadHandle() terminalReader { return nil }
