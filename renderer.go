@@ -51,7 +51,11 @@ func layout(s string, width int) (rows, col int) {
 		if w == 0 {
 			continue
 		}
-		if col+w > width {
+		// A glyph that does not fit the rest of the row moves to the next one
+		// whole. One at the start of a row that is still too wide for it does
+		// not fit anywhere, so it stays rather than costing a row a terminal
+		// would not have used.
+		if col+w > width && col > 0 {
 			rows++
 			col = 0
 		}

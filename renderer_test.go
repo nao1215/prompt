@@ -1723,7 +1723,10 @@ func (s *screenModel) put(r rune) {
 		return
 	}
 	s.resolvePending()
-	if s.col+width > s.width {
+	// A glyph that does not fit the rest of the row moves to the next one whole.
+	// One wider than the whole row does not fit anywhere, so it stays where it
+	// is rather than wrapping forever.
+	if s.col+width > s.width && s.col > 0 {
 		s.newRow()
 	}
 	s.cells[s.row][s.col] = r
@@ -2107,4 +2110,90 @@ func TestPromptShowsTheCursorWhenItGivesTheTerminalBack(t *testing.T) {
 			}
 		})
 	}
+}
+
+// FuzzLayoutStaysOnTheScreen measures arbitrary text against the terminal model
+// the renderer tests use. The two have to answer the same, because every render
+// is laid out by one and drawn on the other.
+func FuzzLayoutStaysOnTheScreen(f *testing.F) {
+	for _, s := range []string{"", "a", "\t", "あ", "a\tb", "😀", "́"} {
+		for _, w := range []int{1, 2, 8, 80} {
+			f.Add(s, w)
+		}
+	}
+	f.Fuzz(func(t *testing.T, s string, width int) {
+		if width < 1 || width > 500 {
+			t.Skip()
+		}
+		rows, col := layout(s, width)
+		if rows < 0 {
+			t.Fatalf("layout(%q, %d) reported %d rows", s, width, rows)
+		}
+		// A glyph wider than the terminal cannot be measured smaller than
+		// itself, so on a terminal of one column a double-width rune ends on
+		// column 2. Nothing can draw it there either; the readers clamp.
+		if col < 0 || (col > width && width > 1) {
+			t.Fatalf("layout(%q, %d) ended on column %d, outside [0, %d]", s, width, col, width)
+		}
+		// The model a render is measured against has to agree.
+		m := newScreenModel(width)
+		m.writeString(s)
+		if m.row != rows {
+			t.Fatalf("layout(%q, %d) says %d wraps, the terminal made %d", s, width, rows, m.row)
+		}
+	})
+}
+
+// FuzzSingleLineStaysOnItsRow pins what a menu row and a search result are
+// flattened to: the same number of characters, none of which takes the cursor
+// off the row it is drawn on.
+func FuzzSingleLineStaysOnItsRow(f *testing.F) {
+	for _, s := range []string{"", "a", "a\nb", "\x1b[2J", "\t", "日本語", "\x7f"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		got := singleLine(s)
+		if len([]rune(got)) != len([]rune(s)) {
+			t.Fatalf("singleLine(%q) = %q, a different number of characters", s, got)
+		}
+		for _, r := range got {
+			if leavesRow(r) {
+				t.Fatalf("singleLine(%q) = %q, which still holds %q", s, got, r)
+			}
+		}
+		rows, _ := layout(got, 80)
+		m := newScreenModel(80)
+		m.writeString(got)
+		if m.row != rows {
+			t.Fatalf("singleLine(%q) = %q: layout says %d wraps, the terminal made %d", s, got, rows, m.row)
+		}
+	})
+}
+
+// FuzzSpansForNormalizes pins what a highlighter's answer is turned into. It is
+// application code deciding a decoration, so it is normalized rather than
+// trusted: what comes back is ordered, non-overlapping, inside the input, and
+// never empty.
+func FuzzSpansForNormalizes(f *testing.F) {
+	f.Add("hello", 0, 3, 2, 4)
+	f.Add("", -1, 5, 0, 0)
+	f.Add("日本語", 2, 1, 0, 9)
+	f.Fuzz(func(t *testing.T, input string, a, b, c, d int) {
+		r := newRenderer(nil, ThemeDefault, nil)
+		r.setHighlighter(func(string) []StyleSpan {
+			return []StyleSpan{{Start: a, End: b}, {Start: c, End: d}}
+		})
+		limit := len([]rune(input))
+		spans := r.spansFor(input)
+		prev := 0
+		for _, s := range spans {
+			if s.Start < 0 || s.End > limit || s.Start >= s.End {
+				t.Fatalf("spansFor(%q) kept %v, outside [0, %d] or empty", input, s, limit)
+			}
+			if s.Start < prev {
+				t.Fatalf("spansFor(%q) returned %v out of order or overlapping", input, spans)
+			}
+			prev = s.End
+		}
+	})
 }
