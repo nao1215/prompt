@@ -500,7 +500,7 @@ watcher cannot both own one terminal.
 | Ctrl+K | Delete from cursor to end of line |
 | Ctrl+U | Delete entire line |
 | Ctrl+W | Delete word backwards |
-| Ctrl+R | Reverse history search |
+| Ctrl+R | Reverse history search; Tab and ↑/↓ move through the matches, Enter accepts, Esc cancels |
 | Tab | Auto-completion |
 | Backspace | Delete character backwards |
 | Delete | Delete character forwards |

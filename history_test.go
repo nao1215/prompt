@@ -1797,3 +1797,41 @@ func TestRenderHistorySearchDrawsOneRowPerResult(t *testing.T) {
 		})
 	}
 }
+
+// TestSearchHistoryConsumesEscapeSequences covers keys the terminal sends as an
+// escape sequence while reverse search is open. The search read raw runes, so
+// the ESC that introduced an arrow key cancelled the search and the rest of the
+// sequence arrived at the read loop as typing: pressing Up left `[A` in the line.
+func TestSearchHistoryConsumesEscapeSequences(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "escape cancels and leaves the line empty", input: "\x12sel\x1b\r", want: ""},
+		{name: "up moves to the previous match", input: "\x12sel\x1b[A\r\r", want: "select 2"},
+		{name: "down moves to the next match", input: "\x12sel\x1b[B\r\r", want: "select 2"},
+		{name: "home is consumed and changes nothing", input: "\x12sel\x1b[H\r\r", want: "select 1"},
+		{name: "delete is consumed and changes nothing", input: "\x12sel\x1b[3~\r\r", want: "select 1"},
+		{name: "a function key is consumed", input: "\x12sel\x1bOP\r\r", want: "select 1"},
+		{name: "tab still moves to the next match", input: "\x12sel\t\r\r", want: "select 2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newTestPrompt(newMockTerminal(tt.input), WithMemoryHistory(10))
+			p.SetHistory([]string{"select 1", "select 2"})
+			got, err := p.Run()
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("Run() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

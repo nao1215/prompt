@@ -1614,8 +1614,33 @@ func (p *Prompt) searchHistory() (_ string, err error) {
 			}
 			return string(searchBuffer), nil
 
-		case '\x03', '\x1b': // Ctrl+C or Escape - cancel search
+		case '\x03': // Ctrl+C - cancel search
 			return "", nil
+
+		case '\x1b': // Escape, or a key the terminal spells as a sequence
+			// The sequence has to be read here for the same reason the main loop
+			// reads it: what is not interpreted is still in the input. Ending the
+			// search on the ESC alone left the rest of an arrow key to be typed
+			// into the line, so pressing Up put "[A" in front of the user.
+			seq, serr := p.readEscapeSequence()
+			if errors.Is(serr, io.EOF) {
+				// Nothing followed the Escape and nothing ever will, so it was
+				// the key on its own. The main loop reports the end of input.
+				return "", nil
+			}
+			if serr != nil {
+				return "", serr
+			}
+			switch {
+			case seq == "":
+				return "", nil // a bare Escape, or Alt+key, cancels
+			case p.keyMap.GetSequenceAction(seq) == ActionMoveUp:
+				selectedIndex = moveSearchSelection(selectedIndex, -1, len(searchResults))
+			case p.keyMap.GetSequenceAction(seq) == ActionMoveDown:
+				selectedIndex = moveSearchSelection(selectedIndex, 1, len(searchResults))
+			}
+			// Any other sequence is consumed and ignored: the search has no use
+			// for it, and leaving it unread is how it became text.
 
 		case '\x7f', '\b': // Backspace
 			if len(searchBuffer) > 0 {
@@ -1625,9 +1650,7 @@ func (p *Prompt) searchHistory() (_ string, err error) {
 			}
 
 		case '\t': // Tab - next result
-			if len(searchResults) > 0 {
-				selectedIndex = (selectedIndex + 1) % len(searchResults)
-			}
+			selectedIndex = moveSearchSelection(selectedIndex, 1, len(searchResults))
 
 		default:
 			if r >= 32 && r < 127 || r > 127 { // Printable characters
@@ -1637,6 +1660,16 @@ func (p *Prompt) searchHistory() (_ string, err error) {
 			}
 		}
 	}
+}
+
+// moveSearchSelection moves the reverse-search selection by step through count
+// matches, wrapping at either end. With no matches there is nothing to select
+// and the index stays where it is.
+func moveSearchSelection(selected, step, count int) int {
+	if count == 0 {
+		return selected
+	}
+	return ((selected+step)%count + count) % count
 }
 
 // renderHistorySearch renders the history search interface and returns how many
