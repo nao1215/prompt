@@ -1801,7 +1801,7 @@ func (s *screenModel) feed(output string) {
 // its final byte.
 func (s *screenModel) control(runes []rune, start int) int {
 	end := start + 2
-	for end < len(runes) && !(runes[end] >= '@' && runes[end] <= '~') {
+	for end < len(runes) && (runes[end] < csiFinalFirst || runes[end] > csiFinalLast) {
 		end++
 	}
 	if end >= len(runes) {

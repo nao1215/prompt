@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// DefaultHistoryConfig returns a default history configuration following XDG Base Directory Specification
-func DefaultHistoryConfig() *HistoryConfig {
+// defaultHistoryConfig returns a default history configuration following XDG Base Directory Specification
+func defaultHistoryConfig() *HistoryConfig {
 	return &HistoryConfig{
 		Enabled:     true,
 		MaxEntries:  defaultMaxHistoryEntries,
@@ -38,16 +38,16 @@ func GetDefaultHistoryFile() string {
 // names no limit.
 const defaultMaxHistoryEntries = 1000
 
-// HistoryManager manages command history persistence and rotation
-type HistoryManager struct {
+// historyManager manages command history persistence and rotation
+type historyManager struct {
 	config  *HistoryConfig
 	history []string
 }
 
-// NewHistoryManager creates a new history manager with the given configuration
-func NewHistoryManager(config *HistoryConfig) *HistoryManager {
+// newHistoryManager creates a new history manager with the given configuration
+func newHistoryManager(config *HistoryConfig) *historyManager {
 	if config == nil {
-		config = DefaultHistoryConfig()
+		config = defaultHistoryConfig()
 	}
 	if config.MaxFileSize <= 0 {
 		config.MaxFileSize = 1024 * 1024 // 1MB default
@@ -63,19 +63,19 @@ func NewHistoryManager(config *HistoryConfig) *HistoryManager {
 		}
 	}
 
-	return &HistoryManager{
+	return &historyManager{
 		config:  config,
 		history: make([]string, 0),
 	}
 }
 
 // IsEnabled returns whether history functionality is enabled
-func (hm *HistoryManager) IsEnabled() bool {
+func (hm *historyManager) isEnabled() bool {
 	return hm.config.Enabled
 }
 
 // LoadHistory loads history from the configured file
-func (hm *HistoryManager) LoadHistory() error {
+func (hm *historyManager) loadHistory() error {
 	if !hm.config.Enabled || hm.config.File == "" {
 		return nil
 	}
@@ -115,7 +115,7 @@ func (hm *HistoryManager) LoadHistory() error {
 }
 
 // SaveHistory saves the current history to the configured file
-func (hm *HistoryManager) SaveHistory() (err error) {
+func (hm *historyManager) saveHistory() (err error) {
 	if !hm.config.Enabled || hm.config.File == "" {
 		return nil
 	}
@@ -227,7 +227,7 @@ func decodeHistoryLine(line string) (string, bool) {
 }
 
 // AddEntry adds a new entry to the history
-func (hm *HistoryManager) AddEntry(entry string) {
+func (hm *historyManager) addEntry(entry string) {
 	if !hm.config.Enabled || entry == "" {
 		return
 	}
@@ -246,7 +246,7 @@ func (hm *HistoryManager) AddEntry(entry string) {
 // by the prompt, which read this history back, cut it, and pushed the shortened
 // copy down again, so a manager used on its own grew for as long as the process
 // ran however small a limit it was given.
-func (hm *HistoryManager) trim(history []string) []string {
+func (hm *historyManager) trim(history []string) []string {
 	limit := hm.config.MaxEntries
 	if limit <= 0 {
 		limit = defaultMaxHistoryEntries
@@ -258,7 +258,7 @@ func (hm *HistoryManager) trim(history []string) []string {
 }
 
 // GetHistory returns a copy of the current history
-func (hm *HistoryManager) GetHistory() []string {
+func (hm *historyManager) getHistory() []string {
 	if !hm.config.Enabled {
 		return []string{}
 	}
@@ -266,7 +266,7 @@ func (hm *HistoryManager) GetHistory() []string {
 }
 
 // SetHistory replaces the current history
-func (hm *HistoryManager) SetHistory(history []string) {
+func (hm *historyManager) setHistory(history []string) {
 	if !hm.config.Enabled {
 		return
 	}
@@ -274,7 +274,7 @@ func (hm *HistoryManager) SetHistory(history []string) {
 }
 
 // ClearHistory clears the current history
-func (hm *HistoryManager) ClearHistory() {
+func (hm *historyManager) clearHistory() {
 	if !hm.config.Enabled {
 		return
 	}
@@ -282,7 +282,7 @@ func (hm *HistoryManager) ClearHistory() {
 }
 
 // rotateIfNeeded checks if the history file needs rotation and performs it
-func (hm *HistoryManager) rotateIfNeeded() error {
+func (hm *historyManager) rotateIfNeeded() error {
 	if hm.config.File == "" {
 		return nil
 	}
@@ -304,7 +304,7 @@ func (hm *HistoryManager) rotateIfNeeded() error {
 }
 
 // rotateHistoryFile performs the actual file rotation
-func (hm *HistoryManager) rotateHistoryFile() error {
+func (hm *historyManager) rotateHistoryFile() error {
 	if hm.config.MaxBackups <= 0 {
 		// If no backups allowed, just truncate the file
 		return os.Truncate(hm.config.File, 0)
@@ -345,7 +345,7 @@ func (hm *HistoryManager) rotateHistoryFile() error {
 }
 
 // createRotatedFile creates a new history file with the most recent entries
-func (hm *HistoryManager) createRotatedFile() (err error) {
+func (hm *historyManager) createRotatedFile() (err error) {
 	// Keep only half of the history entries to avoid immediate rotation
 	keepEntries := len(hm.history) / 2
 	if keepEntries < 100 {

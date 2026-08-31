@@ -251,7 +251,7 @@ func (r *renderer) renderLines(prefix, input string) error {
 			if _, err := fmt.Fprint(r.output, linePrefix); err != nil {
 				return err
 			}
-			if _, err := fmt.Fprint(r.output, Reset()); err != nil {
+			if _, err := fmt.Fprint(r.output, ansiReset()); err != nil {
 				return err
 			}
 		}
@@ -286,7 +286,7 @@ func (r *renderer) renderLineContent(line string, lineStart int, spans []StyleSp
 	base := r.colorScheme.Input.ToANSI()
 
 	write := func(color, text string) error {
-		if _, err := fmt.Fprint(r.output, color, text, Reset()); err != nil {
+		if _, err := fmt.Fprint(r.output, color, text, ansiReset()); err != nil {
 			return err
 		}
 		return nil
@@ -400,12 +400,12 @@ func (r *renderer) renderSuggestionsWithOffset(_, _ string, _ int, suggestions [
 			indicator = "\u25b6 "
 			textColor = r.colorScheme.Selected.ToANSI()
 		}
-		if _, err := fmt.Fprint(r.output, textColor, indicator, suggestion.Text, Reset()); err != nil {
+		if _, err := fmt.Fprint(r.output, textColor, indicator, suggestion.Text, ansiReset()); err != nil {
 			return 0, err
 		}
 
 		if suggestion.Description != "" {
-			if _, err := fmt.Fprint(r.output, " ", r.colorScheme.Suggestion.Description.ToANSI(), "- ", suggestion.Description, Reset()); err != nil {
+			if _, err := fmt.Fprint(r.output, " ", r.colorScheme.Suggestion.Description.ToANSI(), "- ", suggestion.Description, ansiReset()); err != nil {
 				return 0, err
 			}
 		}

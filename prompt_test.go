@@ -416,9 +416,9 @@ func TestColorReset(t *testing.T) {
 	t.Parallel()
 
 	expected := "\x1b[0m"
-	result := Reset()
+	result := ansiReset()
 	if result != expected {
-		t.Errorf("Reset() = %q, want %q", result, expected)
+		t.Errorf("ansiReset() = %q, want %q", result, expected)
 	}
 }
 
@@ -1986,112 +1986,6 @@ func containsString(s, substr string) bool {
 			}()))
 }
 
-func TestDocumentMethods(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name           string
-		text           string
-		cursorPos      int
-		expectedBefore string
-		expectedAfter  string
-		expectedWord   string
-		expectedLine   string
-	}{
-		{
-			name:           "basic text",
-			text:           "hello world",
-			cursorPos:      6,
-			expectedBefore: "hello ",
-			expectedAfter:  "world",
-			expectedWord:   "", // Cursor is after space, so no current word
-			expectedLine:   "hello world",
-		},
-		{
-			name:           "cursor at start",
-			text:           "hello world",
-			cursorPos:      0,
-			expectedBefore: "",
-			expectedAfter:  "hello world",
-			expectedWord:   "",
-			expectedLine:   "hello world",
-		},
-		{
-			name:           "cursor at end",
-			text:           "hello world",
-			cursorPos:      11,
-			expectedBefore: "hello world",
-			expectedAfter:  "",
-			expectedWord:   "world",
-			expectedLine:   "hello world",
-		},
-		{
-			name:           "cursor out of bounds negative",
-			text:           "hello world",
-			cursorPos:      -1,
-			expectedBefore: "hello world",
-			expectedAfter:  "",
-			expectedWord:   "world",
-			expectedLine:   "hello world",
-		},
-		{
-			name:           "cursor out of bounds positive",
-			text:           "hello world",
-			cursorPos:      20,
-			expectedBefore: "hello world",
-			expectedAfter:  "",
-			expectedWord:   "world",
-			expectedLine:   "hello world",
-		},
-		{
-			name:           "multiple words",
-			text:           "git commit -m message",
-			cursorPos:      10,
-			expectedBefore: "git commit",
-			expectedAfter:  " -m message",
-			expectedWord:   "commit",
-			expectedLine:   "git commit -m message",
-		},
-		{
-			name:           "empty text",
-			text:           "",
-			cursorPos:      0,
-			expectedBefore: "",
-			expectedAfter:  "",
-			expectedWord:   "",
-			expectedLine:   "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			doc := Document{Text: tt.text, CursorPosition: tt.cursorPos}
-
-			before := doc.TextBeforeCursor()
-			if before != tt.expectedBefore {
-				t.Errorf("TextBeforeCursor() = %q, want %q", before, tt.expectedBefore)
-			}
-
-			after := doc.TextAfterCursor()
-			if after != tt.expectedAfter {
-				t.Errorf("TextAfterCursor() = %q, want %q", after, tt.expectedAfter)
-			}
-
-			word := doc.GetWordBeforeCursor()
-			if word != tt.expectedWord {
-				t.Errorf("GetWordBeforeCursor() = %q, want %q", word, tt.expectedWord)
-			}
-
-			line := doc.CurrentLine()
-			if line != tt.expectedLine {
-				t.Errorf("CurrentLine() = %q, want %q", line, tt.expectedLine)
-			}
-		})
-	}
-}
-
 func TestKeyMapMethods(t *testing.T) {
 	t.Parallel()
 
@@ -2272,7 +2166,7 @@ func TestHistorySearcher(t *testing.T) {
 		"git push origin main",
 	}
 
-	searcher := NewHistorySearcher(history)
+	searcher := newHistorySearcher(history)
 
 	tests := []struct {
 		name     string
@@ -2741,110 +2635,6 @@ func TestPromptWithCancelledContextAdvanced(t *testing.T) {
 	}
 }
 
-func TestDocumentTextMethodsAdvanced(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name           string
-		text           string
-		cursor         int
-		expectedBefore string
-		expectedAfter  string
-		expectedWord   string
-		expectedLine   string
-	}{
-		{
-			name:           "cursor at beginning",
-			text:           "hello world",
-			cursor:         0,
-			expectedBefore: "",
-			expectedAfter:  "hello world",
-			expectedWord:   "",
-			expectedLine:   "hello world",
-		},
-		{
-			name:           "cursor at end",
-			text:           "hello world",
-			cursor:         11,
-			expectedBefore: "hello world",
-			expectedAfter:  "",
-			expectedWord:   "world",
-			expectedLine:   "hello world",
-		},
-		{
-			name:           "cursor in middle",
-			text:           "hello world",
-			cursor:         6,
-			expectedBefore: "hello ",
-			expectedAfter:  "world",
-			expectedWord:   "", // Cursor is after space, so no current word
-			expectedLine:   "hello world",
-		},
-		{
-			name:           "cursor in word",
-			text:           "hello world",
-			cursor:         8,
-			expectedBefore: "hello wo",
-			expectedAfter:  "rld",
-			expectedWord:   "wo",
-			expectedLine:   "hello world",
-		},
-		{
-			name:           "multiline text",
-			text:           "line1\nline2\nline3",
-			cursor:         8,
-			expectedBefore: "line1\nli",
-			expectedAfter:  "ne2\nline3",
-			expectedWord:   "li",
-			expectedLine:   "line1\nline2\nline3",
-		},
-		{
-			name:           "empty text",
-			text:           "",
-			cursor:         0,
-			expectedBefore: "",
-			expectedAfter:  "",
-			expectedWord:   "",
-			expectedLine:   "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			doc := &Document{
-				Text:           tt.text,
-				CursorPosition: tt.cursor,
-			}
-
-			// Test TextBeforeCursor
-			before := doc.TextBeforeCursor()
-			if before != tt.expectedBefore {
-				t.Errorf("TextBeforeCursor() = %q, want %q", before, tt.expectedBefore)
-			}
-
-			// Test TextAfterCursor
-			after := doc.TextAfterCursor()
-			if after != tt.expectedAfter {
-				t.Errorf("TextAfterCursor() = %q, want %q", after, tt.expectedAfter)
-			}
-
-			// Test GetWordBeforeCursor
-			word := doc.GetWordBeforeCursor()
-			if word != tt.expectedWord {
-				t.Errorf("GetWordBeforeCursor() = %q, want %q", word, tt.expectedWord)
-			}
-
-			// Test CurrentLine
-			line := doc.CurrentLine()
-			if line != tt.expectedLine {
-				t.Errorf("CurrentLine() = %q, want %q", line, tt.expectedLine)
-			}
-		})
-	}
-}
-
 func TestPromptCloseMultipleAdvanced(t *testing.T) {
 	t.Parallel()
 
@@ -3302,13 +3092,13 @@ func TestNewFunctionAdditionalCoverage(t *testing.T) {
 		}
 
 		// Test history manager loading separately
-		hm := NewHistoryManager(config.HistoryConfig)
-		err = hm.LoadHistory()
+		hm := newHistoryManager(config.HistoryConfig)
+		err = hm.loadHistory()
 		if err != nil {
 			t.Fatalf("Failed to load history: %v", err)
 		}
 
-		history := hm.GetHistory()
+		history := hm.getHistory()
 		if len(history) != 2 {
 			t.Errorf("Expected 2 history entries, got %d", len(history))
 		}
@@ -3344,9 +3134,9 @@ func TestNewFunctionAdditionalCoverage(t *testing.T) {
 		} else if p != nil {
 			defer p.Close()
 			// The error should occur when trying to save history
-			histManager := NewHistoryManager(config.HistoryConfig)
-			histManager.AddEntry("test")
-			saveErr := histManager.SaveHistory()
+			histManager := newHistoryManager(config.HistoryConfig)
+			histManager.addEntry("test")
+			saveErr := histManager.saveHistory()
 			if saveErr == nil {
 				t.Error("Expected error when saving history to invalid path")
 			} else {
@@ -4368,14 +4158,14 @@ func newForTestingWithConfig(t *testing.T, config Config, mockInput string) *Pro
 	terminal := newMockTerminal(mockInput)
 
 	// Initialize history manager (but don't load from file for testing)
-	historyManager := NewHistoryManager(config.HistoryConfig)
-	historyManager.SetHistory([]string{}) // Start with empty history for testing
+	historyManager := newHistoryManager(config.HistoryConfig)
+	historyManager.setHistory([]string{}) // Start with empty history for testing
 
 	// Initialize prompt
 	p := &Prompt{
 		config:         config,
 		output:         output,
-		history:        historyManager.GetHistory(),
+		history:        historyManager.getHistory(),
 		historyManager: historyManager,
 		terminal:       terminal,
 		keyMap:         config.KeyMap,

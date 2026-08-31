@@ -162,7 +162,7 @@ func TestWithoutAHighlighterTheInputIsOneColor(t *testing.T) {
 	t.Parallel()
 
 	rendered := renderedInput(t, "SELECT 1", nil)
-	want := ThemeDefault.Input.ToANSI() + "SELECT 1" + Reset()
+	want := ThemeDefault.Input.ToANSI() + "SELECT 1" + ansiReset()
 	if !strings.Contains(rendered, want) {
 		t.Errorf("rendered output does not contain %q:\n%q", want, rendered)
 	}
