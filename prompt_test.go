@@ -4358,3 +4358,55 @@ func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 		}
 	}
 }
+
+// TestOptionsSetWhatTheyName covers the option constructors that nothing else
+// reaches, so that a rename or a wrong field assignment is caught here rather
+// than by the application that finds its history is not persisted.
+func TestOptionsSetWhatTheyName(t *testing.T) {
+	t.Parallel()
+
+	t.Run("WithHistory takes the configuration as given", func(t *testing.T) {
+		t.Parallel()
+
+		want := &HistoryConfig{Enabled: true, MaxEntries: 7, File: "/tmp/history", MaxFileSize: 11, MaxBackups: 2}
+		var config Config
+		WithHistory(want)(&config)
+		if config.HistoryConfig != want {
+			t.Errorf("WithHistory() set %#v, want the configuration it was given", config.HistoryConfig)
+		}
+	})
+
+	t.Run("WithFileHistory names the file and the limit", func(t *testing.T) {
+		t.Parallel()
+
+		var config Config
+		WithFileHistory("/tmp/history", 42)(&config)
+		if config.HistoryConfig == nil {
+			t.Fatal("WithFileHistory() set no history configuration")
+		}
+		if !config.HistoryConfig.Enabled {
+			t.Error("WithFileHistory() left history disabled")
+		}
+		if config.HistoryConfig.File != "/tmp/history" {
+			t.Errorf("WithFileHistory() set File = %q, want /tmp/history", config.HistoryConfig.File)
+		}
+		if config.HistoryConfig.MaxEntries != 42 {
+			t.Errorf("WithFileHistory() set MaxEntries = %d, want 42", config.HistoryConfig.MaxEntries)
+		}
+	})
+
+	t.Run("WithHighlighter takes the function as given", func(t *testing.T) {
+		t.Parallel()
+
+		var config Config
+		WithHighlighter(func(string) []StyleSpan {
+			return []StyleSpan{{Start: 0, End: 1}}
+		})(&config)
+		if config.Highlighter == nil {
+			t.Fatal("WithHighlighter() set no highlighter")
+		}
+		if got := config.Highlighter("x"); len(got) != 1 || got[0].End != 1 {
+			t.Errorf("the highlighter answered %v, want the one that was set", got)
+		}
+	})
+}
