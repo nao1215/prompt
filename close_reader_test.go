@@ -182,3 +182,89 @@ func waitUpTo(budget time.Duration, cond func() bool) bool {
 	}
 	return cond()
 }
+
+// TestRunWithContextReturnsWhileWaitingForAKey pins what the context is for. A
+// terminal read cannot be canceled, so the context used to be noticed only
+// between one key and the next: a deadline fired on the keystroke after it, and
+// an idle prompt never returned at all -- which is exactly the case the
+// documented timeout example is written for.
+//
+// The terminal here never delivers a key, so nothing but the context can end the
+// read.
+func TestRunWithContextReturnsWhileWaitingForAKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		context func(t *testing.T) (context.Context, context.CancelFunc)
+		want    error
+	}{
+		{
+			name: "a deadline that passes while the prompt waits",
+			context: func(t *testing.T) (context.Context, context.CancelFunc) {
+				t.Helper()
+				return context.WithTimeout(t.Context(), 50*time.Millisecond)
+			},
+			want: context.DeadlineExceeded,
+		},
+		{
+			name: "a cancel from another goroutine",
+			context: func(t *testing.T) (context.Context, context.CancelFunc) {
+				t.Helper()
+				ctx, cancel := context.WithCancel(t.Context())
+				go func() {
+					time.Sleep(50 * time.Millisecond)
+					cancel()
+				}()
+				return ctx, cancel
+			},
+			want: context.Canceled,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			terminal := newBlockingTerminal(true)
+			p := newTestPromptOn(terminal)
+			ctx, cancel := tt.context(t)
+			defer cancel()
+
+			returned := make(chan error, 1)
+			go func() {
+				_, err := p.RunWithContext(ctx)
+				returned <- err
+			}()
+
+			select {
+			case err := <-returned:
+				if !errors.Is(err, tt.want) {
+					t.Errorf("RunWithContext() error = %v, want %v", err, tt.want)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("RunWithContext did not return: the context was never noticed while the read was waiting")
+			}
+			if err := p.Close(); err != nil {
+				t.Errorf("Close() error = %v", err)
+			}
+		})
+	}
+}
+
+// TestRunWithContextTakesTheContextOverInputAlreadyHeld pins the order between
+// the two: a context already done ends the call rather than the prompt reading
+// on, which is what checking the context at the top of the read loop did.
+func TestRunWithContextTakesTheContextOverInputAlreadyHeld(t *testing.T) {
+	t.Parallel()
+
+	p := newTestPrompt(newMockTerminal("hello\r"))
+	p.stashTypeAhead('x')
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if _, err := p.RunWithContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("RunWithContext() error = %v, want context.Canceled", err)
+	}
+}
