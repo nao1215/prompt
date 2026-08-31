@@ -489,3 +489,102 @@ func TestCompletionBehavior(t *testing.T) {
 		assert.NotContains(t, string(p.buffer), "file", "Buffer should not contain other suggestions")
 	})
 }
+
+// TestAcceptSuggestionGuessesWhatToReplace covers the guess the prompt makes
+// when a suggestion does not name the span it stands for.
+//
+// The guess is only reached by a suggestion the built-in filter would have
+// dropped, and the filter is skipped for a set where any member carries
+// Replace -- so a completer that names the span for some of its answers and not
+// others is what gets here. Nothing covered these branches before.
+func TestAcceptSuggestionGuessesWhatToReplace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		script string
+		want   string
+	}{
+		{
+			name:   "inside a word, the word is replaced",
+			script: "createx\x1b[D\x1b[D\x1b[D\x1b[D\t\r\r",
+			want:   "insert",
+		},
+		{
+			name:   "inside a word written in japanese, the word is replaced",
+			script: "テーブル\x1b[D\x1b[D\t\r\r",
+			want:   "insert",
+		},
+		{
+			name:   "at the end of a word, the suggestion is added after it",
+			script: "createx\t\r\r",
+			want:   "createx insert",
+		},
+		{
+			name:   "at a space, the suggestion is added where the cursor is",
+			script: "abc def\x1b[D\x1b[D\x1b[D\x1b[D\t\r\r",
+			want:   "abc insert def",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newTestPrompt(newMockTerminal(tt.script), WithCompleter(func(Document) []Suggestion {
+				return []Suggestion{
+					{Text: "insert"},
+					{Text: "other", Replace: &Range{Start: 0, End: 0}},
+				}
+			}))
+			got, err := p.Run()
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("Run() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCurrentWordBoundsHoldTheCursor pins the span the guess replaces: it always
+// contains the cursor, and it stops at a character that is not part of a word in
+// any alphabet.
+func TestCurrentWordBoundsHoldTheCursor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		buffer string
+		cursor int
+		want   string
+	}{
+		{name: "inside an ascii word", buffer: "createx", cursor: 3, want: "createx"},
+		{name: "inside a japanese word", buffer: "テーブル", cursor: 2, want: "テーブル"},
+		{name: "in the second word", buffer: "abc def", cursor: 5, want: "def"},
+		{name: "an underscore joins a word", buffer: "a_b-c", cursor: 3, want: "a_b"},
+		{name: "an accented letter joins a word", buffer: "naïve", cursor: 2, want: "naïve"},
+		{name: "an empty buffer", buffer: "", cursor: 0, want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newTestPrompt(newMockTerminal(""))
+			p.buffer = []rune(tt.buffer)
+			p.cursor = tt.cursor
+
+			start, end := p.getCurrentWordBounds()
+			runes := []rune(tt.buffer)
+			if start < 0 || end > len(runes) || start > tt.cursor || end < tt.cursor {
+				t.Fatalf("getCurrentWordBounds() = [%d, %d), which is not a span of %q holding the cursor at %d",
+					start, end, tt.buffer, tt.cursor)
+			}
+			if got := string(runes[start:end]); got != tt.want {
+				t.Errorf("getCurrentWordBounds() spans %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

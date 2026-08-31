@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -266,5 +267,74 @@ func TestRunWithContextTakesTheContextOverInputAlreadyHeld(t *testing.T) {
 
 	if _, err := p.RunWithContext(ctx); !errors.Is(err, context.Canceled) {
 		t.Errorf("RunWithContext() error = %v, want context.Canceled", err)
+	}
+}
+
+// settle gives goroutines that are on their way out a chance to finish, so a
+// count taken after them is not a race with their exit.
+func settle() {
+	for range 20 {
+		runtime.Gosched()
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// TestCloseLeavesNoGoroutineBehind walks the lifecycles that start a goroutine
+// of the prompt's own and asserts that none of them outlives Close.
+//
+// A reader that outlives its session is not idle: it is blocked on a descriptor
+// the process has closed, and once that number is reused it reads whatever took
+// it, which is how a prompt opened after one was closed received nothing at all.
+// Counting goroutines is coarse, but it is the one check that covers every way
+// one can be started rather than the way a particular test happens to.
+func TestCloseLeavesNoGoroutineBehind(t *testing.T) {
+	settle()
+	base := runtime.NumGoroutine()
+
+	for range 50 {
+		terminal := newBlockingTerminal(true)
+		p := newTestPromptOn(terminal)
+		_, stop := p.WatchInterrupt(context.Background())
+		stop()
+		if err := p.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	}
+	settle()
+	if got := runtime.NumGoroutine(); got > base+2 {
+		t.Errorf("after 50 watch/stop/close cycles there are %d goroutines, started at %d", got, base)
+	}
+
+	// A watch that is never stopped.
+	for range 50 {
+		terminal := newBlockingTerminal(true)
+		p := newTestPromptOn(terminal)
+		// Deliberately dropped: a watch left running is what Close has to cope with.
+		_, _ = p.WatchInterrupt(context.Background())
+		if err := p.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	}
+	settle()
+	if got := runtime.NumGoroutine(); got > base+2 {
+		t.Errorf("after 50 unstopped watches there are %d goroutines, started at %d", got, base)
+	}
+
+	// A cancellable RunWithContext, which now starts the shared reader.
+	for range 50 {
+		terminal := newBlockingTerminal(true)
+		p := newTestPromptOn(terminal)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+		if _, err := p.RunWithContext(ctx); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("RunWithContext() error = %v, want the deadline to have fired", err)
+		}
+		cancel()
+		if err := p.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	}
+	settle()
+	if got := runtime.NumGoroutine(); got > base+2 {
+		t.Errorf("after 50 cancelled runs there are %d goroutines, started at %d", got, base)
 	}
 }
