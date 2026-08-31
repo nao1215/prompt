@@ -512,17 +512,24 @@ watcher cannot both own one terminal.
 ```go
 // Available themes
 prompt.ThemeDefault
-prompt.ThemeDracula
-prompt.ThemeNightOwl
-prompt.ThemeMonokai
+prompt.ThemeDark
+prompt.ThemeLight
+prompt.ThemeAccessible
 prompt.ThemeSolarizedDark
-prompt.ThemeSolarizedLight
+prompt.ThemeVSCode
+prompt.ThemeNightOwl
+prompt.ThemeDracula
+prompt.ThemeMonokai
 
 // Usage
 p, err := prompt.New("$ ",
     prompt.WithColorScheme(prompt.ThemeDracula),
 )
 ```
+
+A scheme decides foreground colors. The prompt writes over the terminal's own
+background and leaves the terminal's own cursor alone, so `Background` and
+`Cursor` on a scheme of your own are not drawn.
 
 ## Examples
 
