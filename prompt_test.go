@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"slices"
@@ -4232,5 +4233,128 @@ func TestNewKeepsTheTerminalWhenItSucceeds(t *testing.T) {
 	}
 	if terminal.closes != 0 {
 		t.Errorf("the terminal was closed %d times, want 0", terminal.closes)
+	}
+}
+
+// sizedMockTerminal is a mock terminal of a chosen width, so a property can be
+// run against a narrow screen where the wrap arithmetic has somewhere to go
+// wrong.
+type sizedMockTerminal struct {
+	mockTerminal
+	width int
+}
+
+func (s *sizedMockTerminal) Size() (width, height int, err error) { return s.width, 24, nil }
+
+// TestRunLeavesTheScreenAgreeingWithTheLineItReturns drives whole sessions of
+// random keystrokes and checks the one property that ties the read loop to the
+// renderer: when Run returns a line, the screen shows the prefix and that line,
+// and nothing else.
+//
+// It is the invariant every measurement bug this package has had would have
+// broken -- the cursor drawn on the wrong row, a menu row left behind, a tab
+// counted as a wrap, an escape sequence typed into the buffer -- because each of
+// them leaves the screen saying something different from the line. Asserting one
+// escape sequence at a time cannot see that; a terminal can.
+//
+// The keys are the ones a session actually receives, including the pastes and
+// the escape sequences that turned out to be where the bugs were.
+func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
+	t.Parallel()
+
+	keys := []string{
+		"a", "b", "z", "0", " ", "あ", "日", "é", "😀", "_", "-",
+		"\x01", "\x05", "\x02", "\x06", "\x7f", "\x0b", "\x15", "\x17", "\x0c",
+		"\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D", "\x1b[H", "\x1b[F", "\x1b[3~",
+		"\x1bb", "\x1bf", "\t",
+		"\x1b[200~pasted text\x1b[201~", "\x1b[200~a\tb\x1b[201~", "\x1b[200~x\r\ny\x1b[201~",
+	}
+	widths := []int{8, 10, 20, 40, 80}
+
+	// A fixed seed, so a failure is a failure anyone can reproduce from the
+	// iteration it names.
+	random := rand.New(rand.NewSource(31415)) //nolint:gosec // test input, not a secret
+
+	for iter := range 2000 {
+		width := widths[random.Intn(len(widths))]
+		var script strings.Builder
+		for range random.Intn(25) {
+			script.WriteString(keys[random.Intn(len(keys))])
+		}
+		script.WriteString("\r")
+
+		var out bytes.Buffer
+		terminal := &sizedMockTerminal{width: width}
+		terminal.mockTerminal = *newMockTerminal(script.String())
+		p := newTestPromptOn(terminal,
+			WithCompleter(func(Document) []Suggestion {
+				return []Suggestion{{Text: "create"}, {Text: "credit"}, {Text: "テーブル"}}
+			}),
+			WithMemoryHistory(10),
+		)
+		p.output = &out
+		p.renderer = newRenderer(&out, ThemeDefault, terminal)
+		p.SetHistory([]string{"older one", "older two"})
+
+		line, err := p.Run()
+		if err != nil {
+			// A script can run out of keys before submitting, which ends the
+			// session rather than the line.
+			if !errors.Is(err, ErrEOF) {
+				t.Fatalf("iter %d: Run() error = %v, script %q", iter, err, script.String())
+			}
+			continue
+		}
+
+		// Everything before the line break the submit wrote is the block.
+		written := out.String()
+		cut := strings.LastIndex(written, "\r\n")
+		if cut < 0 {
+			t.Fatalf("iter %d: submitting wrote no line break", iter)
+		}
+		drawn := newScreenModel(width)
+		drawn.feed(written[:cut])
+
+		expected := newScreenModel(width)
+		for i, text := range strings.Split(line, "\n") {
+			if i == 0 {
+				expected.writeString("$ ")
+			} else {
+				expected.startRow()
+			}
+			expected.writeString(text)
+		}
+
+		// Where the cursor belongs: the same walk, stopped where the cursor was
+		// when the line was submitted.
+		atCursor := newScreenModel(width)
+		cursorLine, cursorCol := p.renderer.findCursorPosition([]rune(line), p.cursor)
+		for i, text := range strings.Split(line, "\n") {
+			if i > cursorLine {
+				break
+			}
+			if i == 0 {
+				atCursor.writeString("$ ")
+			} else {
+				atCursor.startRow()
+			}
+			runes := []rune(text)
+			if i == cursorLine && cursorCol < len(runes) {
+				runes = runes[:cursorCol]
+			}
+			atCursor.writeString(string(runes))
+		}
+
+		if got, want := drawn.rows(), expected.rows(); strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Fatalf("iter %d width=%d script=%q returned %q\n screen %q\n want   %q",
+				iter, width, script.String(), line, got, want)
+		}
+		// And the cursor is on the character it is on. A measurement can put the
+		// right text on screen and still leave the cursor somewhere else, which
+		// is what a tab counted as a wrap did.
+		if drawn.row != atCursor.row || drawn.col != atCursor.col {
+			t.Fatalf("iter %d width=%d script=%q returned %q: the cursor is at (%d, %d), want (%d, %d)\n%q",
+				iter, width, script.String(), line, drawn.row, drawn.col, atCursor.row, atCursor.col, drawn.rows())
+		}
 	}
 }
