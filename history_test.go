@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"testing/quick"
@@ -16,7 +17,7 @@ import (
 )
 
 func TestDefaultHistoryConfig(t *testing.T) {
-	config := DefaultHistoryConfig()
+	config := defaultHistoryConfig()
 
 	assert.True(t, config.Enabled, "Expected history to be enabled by default")
 	assert.Empty(t, config.File, "Expected empty file path by default")
@@ -26,8 +27,8 @@ func TestDefaultHistoryConfig(t *testing.T) {
 
 func TestNewHistoryManager(t *testing.T) {
 	// Test with nil config
-	hm := NewHistoryManager(nil)
-	if !hm.IsEnabled() {
+	hm := newHistoryManager(nil)
+	if !hm.isEnabled() {
 		t.Error("Expected history to be enabled with nil config")
 	}
 
@@ -38,8 +39,8 @@ func TestNewHistoryManager(t *testing.T) {
 		MaxFileSize: 2048,
 		MaxBackups:  5,
 	}
-	hm = NewHistoryManager(config)
-	if hm.IsEnabled() {
+	hm = newHistoryManager(config)
+	if hm.isEnabled() {
 		t.Error("Expected history to be disabled")
 	}
 }
@@ -51,21 +52,21 @@ func TestHistoryManagerBasicOperations(t *testing.T) {
 		MaxFileSize: 1024,
 		MaxBackups:  3,
 	}
-	hm := NewHistoryManager(config)
+	hm := newHistoryManager(config)
 
 	// Test empty history
-	history := hm.GetHistory()
+	history := hm.getHistory()
 	if len(history) != 0 {
 		t.Error("Expected empty history initially")
 	}
 
 	// Test adding entries
-	hm.AddEntry("command1")
-	hm.AddEntry("command2")
-	hm.AddEntry("command2") // Consecutive duplicate should be ignored
-	hm.AddEntry("command3")
+	hm.addEntry("command1")
+	hm.addEntry("command2")
+	hm.addEntry("command2") // Consecutive duplicate should be ignored
+	hm.addEntry("command3")
 
-	history = hm.GetHistory()
+	history = hm.getHistory()
 	expected := []string{"command1", "command2", "command3"}
 	if len(history) != len(expected) {
 		t.Errorf("Expected %d entries, got %d", len(expected), len(history))
@@ -77,16 +78,16 @@ func TestHistoryManagerBasicOperations(t *testing.T) {
 	}
 
 	// Test clear history
-	hm.ClearHistory()
-	history = hm.GetHistory()
+	hm.clearHistory()
+	history = hm.getHistory()
 	if len(history) != 0 {
 		t.Error("Expected empty history after clear")
 	}
 
 	// Test set history
 	newHistory := []string{"cmd1", "cmd2", "cmd3"}
-	hm.SetHistory(newHistory)
-	history = hm.GetHistory()
+	hm.setHistory(newHistory)
+	history = hm.getHistory()
 	if len(history) != len(newHistory) {
 		t.Errorf("Expected %d entries, got %d", len(newHistory), len(history))
 	}
@@ -96,22 +97,22 @@ func TestHistoryManagerDisabled(t *testing.T) {
 	config := &HistoryConfig{
 		Enabled: false,
 	}
-	hm := NewHistoryManager(config)
+	hm := newHistoryManager(config)
 
 	// All operations should be no-op when disabled
-	hm.AddEntry("command1")
-	history := hm.GetHistory()
+	hm.addEntry("command1")
+	history := hm.getHistory()
 	if len(history) != 0 {
 		t.Error("Expected empty history when disabled")
 	}
 
-	hm.SetHistory([]string{"cmd1", "cmd2"})
-	history = hm.GetHistory()
+	hm.setHistory([]string{"cmd1", "cmd2"})
+	history = hm.getHistory()
 	if len(history) != 0 {
 		t.Error("Expected empty history when disabled")
 	}
 
-	hm.ClearHistory()
+	hm.clearHistory()
 	// Should not panic
 }
 
@@ -132,13 +133,13 @@ func TestHistoryFilePersistence(t *testing.T) {
 	}
 
 	// Create first history manager and add some entries
-	hm1 := NewHistoryManager(config)
-	hm1.AddEntry("command1")
-	hm1.AddEntry("command2")
-	hm1.AddEntry("command3")
+	hm1 := newHistoryManager(config)
+	hm1.addEntry("command1")
+	hm1.addEntry("command2")
+	hm1.addEntry("command3")
 
 	// Save history
-	err := hm1.SaveHistory()
+	err := hm1.saveHistory()
 	if err != nil {
 		t.Fatalf("Failed to save history: %v", err)
 	}
@@ -149,15 +150,15 @@ func TestHistoryFilePersistence(t *testing.T) {
 	}
 
 	// Create second history manager and load history
-	hm2 := NewHistoryManager(config)
-	err = hm2.LoadHistory()
+	hm2 := newHistoryManager(config)
+	err = hm2.loadHistory()
 	if err != nil {
 		t.Fatalf("Failed to load history: %v", err)
 	}
 
 	// Verify loaded history matches saved history
-	originalHistory := hm1.GetHistory()
-	loadedHistory := hm2.GetHistory()
+	originalHistory := hm1.getHistory()
+	loadedHistory := hm2.getHistory()
 
 	if len(originalHistory) != len(loadedHistory) {
 		t.Errorf("Expected %d entries, got %d", len(originalHistory), len(loadedHistory))
@@ -185,15 +186,15 @@ func TestHistoryFileRotation(t *testing.T) {
 		MaxBackups:  2,
 	}
 
-	hm := NewHistoryManager(config)
+	hm := newHistoryManager(config)
 
 	// Add many entries to exceed file size
 	for i := range 20 {
-		hm.AddEntry("very long command that will make the file large enough to trigger rotation " + strings.Repeat("x", i))
+		hm.addEntry("very long command that will make the file large enough to trigger rotation " + strings.Repeat("x", i))
 	}
 
 	// Save history (should trigger rotation)
-	err := hm.SaveHistory()
+	err := hm.saveHistory()
 	if err != nil {
 		t.Fatalf("Failed to save history: %v", err)
 	}
@@ -211,13 +212,13 @@ func TestHistoryFileRotation(t *testing.T) {
 	}
 
 	// Load and verify we still have some history
-	hm2 := NewHistoryManager(config)
-	err = hm2.LoadHistory()
+	hm2 := newHistoryManager(config)
+	err = hm2.loadHistory()
 	if err != nil {
 		t.Fatalf("Failed to load history after rotation: %v", err)
 	}
 
-	history := hm2.GetHistory()
+	history := hm2.getHistory()
 	if len(history) == 0 {
 		t.Error("Expected some history to remain after rotation")
 	}
@@ -238,15 +239,15 @@ func TestHistoryFileRotationNoBackups(t *testing.T) {
 		MaxBackups:  0, // No backups
 	}
 
-	hm := NewHistoryManager(config)
+	hm := newHistoryManager(config)
 
 	// Add entries to exceed file size
 	for i := range 10 {
-		hm.AddEntry("command that will make file large " + strings.Repeat("x", i*5))
+		hm.addEntry("command that will make file large " + strings.Repeat("x", i*5))
 	}
 
 	// Save history
-	err := hm.SaveHistory()
+	err := hm.saveHistory()
 	if err != nil {
 		t.Fatalf("Failed to save history: %v", err)
 	}
@@ -336,13 +337,13 @@ func TestHistoryLoadNonExistentFile(t *testing.T) {
 		File:    "/tmp/non_existent_history_file_12345",
 	}
 
-	hm := NewHistoryManager(config)
-	err := hm.LoadHistory()
+	hm := newHistoryManager(config)
+	err := hm.loadHistory()
 	if err != nil {
 		t.Errorf("Loading non-existent file should not error, got: %v", err)
 	}
 
-	history := hm.GetHistory()
+	history := hm.getHistory()
 	if len(history) != 0 {
 		t.Error("Expected empty history when file doesn't exist")
 	}
@@ -363,27 +364,27 @@ func TestHistoryFileRotationDetailed(t *testing.T) {
 		MaxBackups:  2,
 	}
 
-	hm := NewHistoryManager(config)
+	hm := newHistoryManager(config)
 
 	// Add enough content to trigger rotation
 	longCommand := "very long command that will exceed the file size limit " + strings.Repeat("x", 50)
 	for i := range 5 {
-		hm.AddEntry(fmt.Sprintf("%s_%d", longCommand, i))
+		hm.addEntry(fmt.Sprintf("%s_%d", longCommand, i))
 	}
 
 	// Save to create the file
-	err := hm.SaveHistory()
+	err := hm.saveHistory()
 	if err != nil {
 		t.Fatalf("Failed to save history: %v", err)
 	}
 
 	// Add more content to trigger rotation
 	for i := range 10 {
-		hm.AddEntry(fmt.Sprintf("additional_command_%d", i))
+		hm.addEntry(fmt.Sprintf("additional_command_%d", i))
 	}
 
 	// Save again to trigger rotation
-	err = hm.SaveHistory()
+	err = hm.saveHistory()
 	if err != nil {
 		t.Fatalf("Failed to save history during rotation: %v", err)
 	}
@@ -394,13 +395,13 @@ func TestHistoryFileRotationDetailed(t *testing.T) {
 	}
 
 	// Test loading after rotation
-	hm2 := NewHistoryManager(config)
-	err = hm2.LoadHistory()
+	hm2 := newHistoryManager(config)
+	err = hm2.loadHistory()
 	if err != nil {
 		t.Fatalf("Failed to load history after rotation: %v", err)
 	}
 
-	history := hm2.GetHistory()
+	history := hm2.getHistory()
 	if len(history) == 0 {
 		t.Error("Should have some history after rotation")
 	}
@@ -421,13 +422,13 @@ func TestHistoryRotationWithMultipleBackups(t *testing.T) {
 		MaxBackups:  3,  // Multiple backups
 	}
 
-	hm := NewHistoryManager(config)
+	hm := newHistoryManager(config)
 
 	// Create initial content
 	for i := range 5 {
-		hm.AddEntry(fmt.Sprintf("command_%d_%s", i, strings.Repeat("x", 20)))
+		hm.addEntry(fmt.Sprintf("command_%d_%s", i, strings.Repeat("x", 20)))
 	}
-	err := hm.SaveHistory()
+	err := hm.saveHistory()
 	if err != nil {
 		t.Errorf("Failed to save history: %v", err)
 	}
@@ -435,9 +436,9 @@ func TestHistoryRotationWithMultipleBackups(t *testing.T) {
 	// Force multiple rotations
 	for rotation := range 4 {
 		for i := range 5 {
-			hm.AddEntry(fmt.Sprintf("rotation_%d_command_%d_%s", rotation, i, strings.Repeat("y", 20)))
+			hm.addEntry(fmt.Sprintf("rotation_%d_command_%d_%s", rotation, i, strings.Repeat("y", 20)))
 		}
-		err := hm.SaveHistory()
+		err := hm.saveHistory()
 		if err != nil {
 			t.Errorf("Failed to save history: %v", err)
 		}
@@ -467,12 +468,12 @@ func TestHistoryRotationEdgeCases(t *testing.T) {
 			MaxBackups:  0, // No backups
 		}
 
-		hm := NewHistoryManager(config)
+		hm := newHistoryManager(config)
 		for i := range 10 {
-			hm.AddEntry(fmt.Sprintf("long_command_%d_%s", i, strings.Repeat("z", 15)))
+			hm.addEntry(fmt.Sprintf("long_command_%d_%s", i, strings.Repeat("z", 15)))
 		}
 
-		err := hm.SaveHistory()
+		err := hm.saveHistory()
 		if err != nil {
 			t.Fatalf("Failed to save with zero backups: %v", err)
 		}
@@ -504,10 +505,10 @@ func TestHistoryRotationEdgeCases(t *testing.T) {
 			MaxBackups:  3,
 		}
 
-		hm := NewHistoryManager(config)
-		hm.AddEntry("test command")
+		hm := newHistoryManager(config)
+		hm.addEntry("test command")
 
-		err := hm.SaveHistory()
+		err := hm.saveHistory()
 		if err == nil {
 			t.Error("Expected error when saving to invalid path")
 		}
@@ -521,7 +522,7 @@ func TestHistoryRotationEdgeCases(t *testing.T) {
 			MaxBackups:  3,
 		}
 
-		hm := NewHistoryManager(config)
+		hm := newHistoryManager(config)
 		// Should not error when no file is configured
 		// This tests the rotateIfNeeded function directly
 		_ = hm // Test passes if no panic occurs during creation
@@ -543,15 +544,15 @@ func TestCreateRotatedFile(t *testing.T) {
 		MaxBackups:  2,
 	}
 
-	hm := NewHistoryManager(config)
+	hm := newHistoryManager(config)
 
 	// Add more than 100 entries to ensure trimming occurs (createRotatedFile keeps all if < 100)
 	for i := range 150 {
-		hm.AddEntry(fmt.Sprintf("initial_entry_%d_%s", i, strings.Repeat("X", 10)))
+		hm.addEntry(fmt.Sprintf("initial_entry_%d_%s", i, strings.Repeat("X", 10)))
 	}
 
 	// Create the original file
-	err := hm.SaveHistory()
+	err := hm.saveHistory()
 	if err != nil {
 		t.Fatalf("Failed to save history: %v", err)
 	}
@@ -567,9 +568,9 @@ func TestCreateRotatedFile(t *testing.T) {
 	for info.Size() < config.MaxFileSize {
 		// Add more entries to exceed the size limit
 		for i := range 5 {
-			hm.AddEntry(fmt.Sprintf("padding_entry_%d_%s", i, strings.Repeat("P", 50)))
+			hm.addEntry(fmt.Sprintf("padding_entry_%d_%s", i, strings.Repeat("P", 50)))
 		}
-		err = hm.SaveHistory()
+		err = hm.saveHistory()
 		if err != nil {
 			t.Fatalf("Failed to save history while building size: %v", err)
 		}
@@ -580,7 +581,7 @@ func TestCreateRotatedFile(t *testing.T) {
 		t.Logf("File size after adding entries: %d bytes", info.Size())
 	}
 
-	originalCount := len(hm.GetHistory())
+	originalCount := len(hm.getHistory())
 	t.Logf("Original count before rotation: %d (should be >100 for trimming)", originalCount)
 
 	// The file is already large enough, so next save should trigger rotation
@@ -589,21 +590,21 @@ func TestCreateRotatedFile(t *testing.T) {
 
 	// Add several more entries to memory only
 	for i := range 10 {
-		hm.AddEntry(fmt.Sprintf("trigger_%d_%s", i, strings.Repeat("T", 30)))
+		hm.addEntry(fmt.Sprintf("trigger_%d_%s", i, strings.Repeat("T", 30)))
 	}
 
-	finalCount := len(hm.GetHistory())
+	finalCount := len(hm.getHistory())
 	t.Logf("Final count before rotation save: %d", finalCount)
 
 	// Now save - this should trigger rotation since file exceeds MaxFileSize
-	err = hm.SaveHistory()
+	err = hm.saveHistory()
 	if err != nil {
 		t.Fatalf("Failed to save history during rotation: %v", err)
 	}
 
 	// Check if backup file was created (indication of rotation)
 	backupFile := historyFile + ".1"
-	rotatedCount := len(hm.GetHistory())
+	rotatedCount := len(hm.getHistory())
 	t.Logf("Count after rotation save: %d", rotatedCount)
 
 	// Check the actual file size after save
@@ -643,13 +644,13 @@ func TestCreateRotatedFile(t *testing.T) {
 	}
 
 	// Verify we can still load the rotated file
-	hm2 := NewHistoryManager(config)
-	err = hm2.LoadHistory()
+	hm2 := newHistoryManager(config)
+	err = hm2.loadHistory()
 	if err != nil {
 		t.Fatalf("Failed to load rotated history: %v", err)
 	}
 
-	if len(hm2.GetHistory()) == 0 {
+	if len(hm2.getHistory()) == 0 {
 		t.Error("Rotated file should contain some history")
 	}
 }
@@ -1092,7 +1093,7 @@ func TestNewHistoryManagerPathExpansion(t *testing.T) {
 			MaxBackups:  3,
 		}
 
-		hm := NewHistoryManager(config)
+		hm := newHistoryManager(config)
 
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
@@ -1112,7 +1113,7 @@ func TestNewHistoryManagerPathExpansion(t *testing.T) {
 			MaxBackups:  3,
 		}
 
-		hm := NewHistoryManager(config)
+		hm := newHistoryManager(config)
 
 		expected, err := filepath.Abs("./relative_history")
 		if err != nil {
@@ -1137,7 +1138,7 @@ func TestNewHistoryManagerPathExpansion(t *testing.T) {
 			MaxBackups:  3,
 		}
 
-		hm := NewHistoryManager(config)
+		hm := newHistoryManager(config)
 
 		if !filepath.IsAbs(hm.config.File) {
 			t.Errorf("Expected result to be absolute path, got %q", hm.config.File)
@@ -1169,7 +1170,7 @@ func TestHistoryFileOperationsWithExpandedPaths(t *testing.T) {
 	// Change to temp dir for predictable relative path behavior
 	t.Chdir(tmpDir)
 
-	hm := NewHistoryManager(config)
+	hm := newHistoryManager(config)
 
 	// Verify path was expanded
 	expectedPath := filepath.Join(tmpDir, "test_expanded_history")
@@ -1178,10 +1179,10 @@ func TestHistoryFileOperationsWithExpandedPaths(t *testing.T) {
 	}
 
 	// Test save and load operations
-	hm.AddEntry("test command 1")
-	hm.AddEntry("test command 2")
+	hm.addEntry("test command 1")
+	hm.addEntry("test command 2")
 
-	err := hm.SaveHistory()
+	err := hm.saveHistory()
 	if err != nil {
 		t.Fatalf("Failed to save history: %v", err)
 	}
@@ -1192,13 +1193,13 @@ func TestHistoryFileOperationsWithExpandedPaths(t *testing.T) {
 	}
 
 	// Test loading
-	hm2 := NewHistoryManager(config)
-	err = hm2.LoadHistory()
+	hm2 := newHistoryManager(config)
+	err = hm2.loadHistory()
 	if err != nil {
 		t.Fatalf("Failed to load history: %v", err)
 	}
 
-	loadedHistory := hm2.GetHistory()
+	loadedHistory := hm2.getHistory()
 	if len(loadedHistory) != 2 {
 		t.Errorf("Expected 2 history entries, got %d", len(loadedHistory))
 	}
@@ -1240,7 +1241,7 @@ func TestRotateHistoryFile(t *testing.T) {
 		MaxBackups:  2,
 	}
 
-	hm := NewHistoryManager(config)
+	hm := newHistoryManager(config)
 
 	// Test rotation
 	err = hm.rotateHistoryFile()
@@ -1316,13 +1317,13 @@ func TestLoadHistoryCorruptedFile(t *testing.T) {
 		MaxBackups:  3,
 	}
 
-	hm := NewHistoryManager(config)
-	err = hm.LoadHistory()
+	hm := newHistoryManager(config)
+	err = hm.loadHistory()
 	if err != nil {
 		t.Fatalf("LoadHistory should handle corrupted content gracefully: %v", err)
 	}
 
-	history := hm.GetHistory()
+	history := hm.getHistory()
 	// Should load the valid lines
 	if len(history) == 0 {
 		t.Error("Should have loaded some valid entries")
@@ -1356,10 +1357,10 @@ func TestSaveHistoryPermissionError(t *testing.T) {
 		MaxBackups:  3,
 	}
 
-	hm := NewHistoryManager(config)
-	hm.AddEntry("test")
+	hm := newHistoryManager(config)
+	hm.addEntry("test")
 
-	err = hm.SaveHistory()
+	err = hm.saveHistory()
 	if err == nil {
 		t.Error("Expected error when saving to read-only directory")
 	}
@@ -1383,13 +1384,13 @@ func TestHistoryManagerEdgeCases(t *testing.T) {
 			MaxBackups:  3,
 		}
 
-		hm := NewHistoryManager(config)
-		err = hm.LoadHistory()
+		hm := newHistoryManager(config)
+		err = hm.loadHistory()
 		if err != nil {
 			t.Fatalf("LoadHistory failed on empty file: %v", err)
 		}
 
-		history := hm.GetHistory()
+		history := hm.getHistory()
 		if len(history) != 0 {
 			t.Errorf("Expected empty history from empty file, got %d entries", len(history))
 		}
@@ -1413,13 +1414,13 @@ func TestHistoryManagerEdgeCases(t *testing.T) {
 			MaxBackups:  3,
 		}
 
-		hm := NewHistoryManager(config)
-		err = hm.LoadHistory()
+		hm := newHistoryManager(config)
+		err = hm.loadHistory()
 		if err != nil {
 			t.Fatalf("LoadHistory failed: %v", err)
 		}
 
-		history := hm.GetHistory()
+		history := hm.getHistory()
 		// Should skip blank lines
 		expectedCount := 3
 		if len(history) != expectedCount {
@@ -1438,10 +1439,10 @@ func TestHistoryManagerEdgeCases(t *testing.T) {
 			MaxBackups:  3,
 		}
 
-		hm := NewHistoryManager(config)
+		hm := newHistoryManager(config)
 		// Don't add any entries
 
-		err := hm.SaveHistory()
+		err := hm.saveHistory()
 		if err != nil {
 			t.Fatalf("SaveHistory failed with no entries: %v", err)
 		}
@@ -1492,7 +1493,7 @@ func TestRotationWithZeroMaxBackups(t *testing.T) {
 		MaxBackups:  0,  // No backups
 	}
 
-	hm := NewHistoryManager(config)
+	hm := newHistoryManager(config)
 
 	// Try to rotate
 	err = hm.rotateHistoryFile()
@@ -1560,18 +1561,18 @@ func TestHistoryFileRoundTrip(t *testing.T) {
 				MaxBackups:  3,
 			}
 
-			saver := NewHistoryManager(config)
-			saver.SetHistory(tt.entries)
-			if err := saver.SaveHistory(); err != nil {
+			saver := newHistoryManager(config)
+			saver.setHistory(tt.entries)
+			if err := saver.saveHistory(); err != nil {
 				t.Fatalf("SaveHistory failed: %v", err)
 			}
 
-			loader := NewHistoryManager(config)
-			if err := loader.LoadHistory(); err != nil {
+			loader := newHistoryManager(config)
+			if err := loader.loadHistory(); err != nil {
 				t.Fatalf("LoadHistory failed: %v", err)
 			}
 
-			got := loader.GetHistory()
+			got := loader.getHistory()
 			if len(got) != len(tt.entries) {
 				t.Fatalf("got %d entries %q, want %d entries %q", len(got), got, len(tt.entries), tt.entries)
 			}
@@ -1594,18 +1595,18 @@ func TestLoadHistorySkipsEmptyLinesAndCRLF(t *testing.T) {
 		t.Fatalf("failed to write history file: %v", err)
 	}
 
-	hm := NewHistoryManager(&HistoryConfig{
+	hm := newHistoryManager(&HistoryConfig{
 		Enabled:     true,
 		File:        historyFile,
 		MaxFileSize: 1024 * 1024,
 		MaxBackups:  3,
 	})
-	if err := hm.LoadHistory(); err != nil {
+	if err := hm.loadHistory(); err != nil {
 		t.Fatalf("LoadHistory failed: %v", err)
 	}
 
 	want := []string{"first", "second"}
-	got := hm.GetHistory()
+	got := hm.getHistory()
 	if len(got) != len(want) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -1633,5 +1634,166 @@ func TestHistoryLineEncodingRoundTrip(t *testing.T) {
 	}
 	if err := quick.Check(roundTrip, config); err != nil {
 		t.Errorf("encode/decode round trip failed: %v", err)
+	}
+}
+
+// TestHistoryManagerKeepsAtMostMaxEntries pins the limit at the layer that owns
+// the history. It used to be applied only by the prompt, which read the
+// manager's history back and pushed a shortened copy down again, so a manager
+// used on its own grew without bound.
+func TestHistoryManagerKeepsAtMostMaxEntries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		maxEntries int
+		added      []string
+		want       []string
+	}{
+		{
+			name:       "fewer entries than the limit are all kept",
+			maxEntries: 3,
+			added:      []string{"a", "b"},
+			want:       []string{"a", "b"},
+		},
+		{
+			name:       "exactly the limit is kept",
+			maxEntries: 3,
+			added:      []string{"a", "b", "c"},
+			want:       []string{"a", "b", "c"},
+		},
+		{
+			name:       "the oldest entries are dropped past the limit",
+			maxEntries: 3,
+			added:      []string{"a", "b", "c", "d", "e"},
+			want:       []string{"c", "d", "e"},
+		},
+		{
+			name:       "a limit of one keeps the newest entry",
+			maxEntries: 1,
+			added:      []string{"a", "b", "c"},
+			want:       []string{"c"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			hm := newHistoryManager(&HistoryConfig{Enabled: true, MaxEntries: tt.maxEntries})
+			for _, entry := range tt.added {
+				hm.addEntry(entry)
+			}
+			got := hm.getHistory()
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("GetHistory() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestHistoryManagerLoadHistoryReplacesWhatItHolds covers reloading. A load is a
+// read of the file, but it appended, so asking a manager for the file's current
+// contents duplicated every entry it already had.
+func TestHistoryManagerLoadHistoryReplacesWhatItHolds(t *testing.T) {
+	t.Parallel()
+
+	file := filepath.Join(t.TempDir(), "history")
+	saved := newHistoryManager(&HistoryConfig{Enabled: true, File: file})
+	saved.addEntry("one")
+	saved.addEntry("two")
+	if err := saved.saveHistory(); err != nil {
+		t.Fatalf("SaveHistory() error = %v", err)
+	}
+
+	loaded := newHistoryManager(&HistoryConfig{Enabled: true, File: file})
+	for range 2 {
+		if err := loaded.loadHistory(); err != nil {
+			t.Fatalf("LoadHistory() error = %v", err)
+		}
+	}
+
+	want := []string{"one", "two"}
+	if got := loaded.getHistory(); !slices.Equal(got, want) {
+		t.Errorf("GetHistory() = %q, want %q", got, want)
+	}
+}
+
+// TestHistoryManagerLoadHistoryKeepsTheHistoryWhenThereIsNoFile pins the other
+// half of replacing: a file that does not exist yet says nothing about the
+// history, and must not empty it.
+func TestHistoryManagerLoadHistoryKeepsTheHistoryWhenThereIsNoFile(t *testing.T) {
+	t.Parallel()
+
+	hm := newHistoryManager(&HistoryConfig{Enabled: true, File: filepath.Join(t.TempDir(), "absent")})
+	hm.addEntry("kept")
+	if err := hm.loadHistory(); err != nil {
+		t.Fatalf("LoadHistory() error = %v", err)
+	}
+	if got := hm.getHistory(); !slices.Equal(got, []string{"kept"}) {
+		t.Errorf("GetHistory() = %q, want [kept]", got)
+	}
+}
+
+// TestHistoryManagerLoadHistoryKeepsAtMostMaxEntries covers a file holding more
+// than the limit, which is what a file written by an older version, or by hand,
+// can hold.
+func TestHistoryManagerLoadHistoryKeepsAtMostMaxEntries(t *testing.T) {
+	t.Parallel()
+
+	file := filepath.Join(t.TempDir(), "history")
+	if err := os.WriteFile(file, []byte("a\nb\nc\nd\ne\n"), 0600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	hm := newHistoryManager(&HistoryConfig{Enabled: true, File: file, MaxEntries: 2})
+	if err := hm.loadHistory(); err != nil {
+		t.Fatalf("LoadHistory() error = %v", err)
+	}
+	want := []string{"d", "e"}
+	if got := hm.getHistory(); !slices.Equal(got, want) {
+		t.Errorf("GetHistory() = %q, want %q", got, want)
+	}
+}
+
+// TestRenderHistorySearchDrawsOneRowPerResult covers reverse search over a
+// statement entered across several lines, which is what the history file's
+// escaping exists to preserve. Each result is one row of the block, but an entry
+// holding a newline was written to the terminal as it was stored, so the block
+// drew rows it had not counted and they stayed on screen when the search closed.
+func TestRenderHistorySearchDrawsOneRowPerResult(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		results []string
+		want    int
+	}{
+		{name: "single line results", results: []string{"select 1", "select 2"}, want: 3},
+		{name: "a result entered across two lines", results: []string{"select *\nfrom t"}, want: 2},
+		{name: "a result holding an escape sequence", results: []string{"\x1b[2Jselect 1"}, want: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			p := newTestPrompt(newMockTerminal(""))
+			p.output = &out
+
+			rows, err := p.renderHistorySearch("sel", tt.results, 0)
+			if err != nil {
+				t.Fatalf("renderHistorySearch() error = %v", err)
+			}
+			if rows != tt.want {
+				t.Errorf("renderHistorySearch() reported %d rows, want %d", rows, tt.want)
+			}
+			screen := newScreenModel(40)
+			screen.feed(out.String())
+			if drawn := len(screen.rows()); drawn != tt.want {
+				t.Errorf("renderHistorySearch() drew %d rows, want %d: %q", drawn, tt.want, screen.rows())
+			}
+		})
 	}
 }

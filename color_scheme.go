@@ -200,7 +200,7 @@ func (c Color) ToANSI() string {
 	return fmt.Sprintf("\x1b[%sm", strings.Join(codes, ";"))
 }
 
-// Reset returns the ANSI reset sequence.
-func Reset() string {
+// ansiReset returns the sequence that puts the terminal back to its own colors.
+func ansiReset() string {
 	return "\x1b[0m"
 }

@@ -13,7 +13,8 @@ import (
 // the start of a row, and the column it ends on. That column can equal width,
 // which is the state a terminal is in once it has filled its last cell: the
 // cursor stays there until another character arrives, rather than moving to a
-// row that does not exist yet.
+// row that does not exist yet. Only a written cell reaches that state; a tab
+// stops one column short of it.
 //
 // Everything here is measured in cells rather than runes, because a rune is not
 // a cell: "データ> " is 5 runes and 8 columns, an emoji is 1 rune and 2 columns,
@@ -38,9 +39,12 @@ func layout(s string, width int) (rows, col int) {
 				rows++
 				col = 0
 			}
-			// A terminal stops a tab at the right margin instead of carrying it
-			// onto the next row.
-			col = min(col+tabWidth-col%tabWidth, width)
+			// A terminal stops a tab at the last column instead of carrying it
+			// onto the next row, and stopping there is not the same as filling
+			// the row: no cell was written, so the cursor sits on the last
+			// column with no wrap owed and the next character prints beside it.
+			// Reporting width here claimed a wrap the terminal never made.
+			col = min(col+tabWidth-col%tabWidth, width-1)
 			continue
 		}
 		w := runewidth.RuneWidth(r)
@@ -247,7 +251,7 @@ func (r *renderer) renderLines(prefix, input string) error {
 			if _, err := fmt.Fprint(r.output, linePrefix); err != nil {
 				return err
 			}
-			if _, err := fmt.Fprint(r.output, Reset()); err != nil {
+			if _, err := fmt.Fprint(r.output, ansiReset()); err != nil {
 				return err
 			}
 		}
@@ -282,7 +286,7 @@ func (r *renderer) renderLineContent(line string, lineStart int, spans []StyleSp
 	base := r.colorScheme.Input.ToANSI()
 
 	write := func(color, text string) error {
-		if _, err := fmt.Fprint(r.output, color, text, Reset()); err != nil {
+		if _, err := fmt.Fprint(r.output, color, text, ansiReset()); err != nil {
 			return err
 		}
 		return nil
@@ -396,12 +400,12 @@ func (r *renderer) renderSuggestionsWithOffset(_, _ string, _ int, suggestions [
 			indicator = "\u25b6 "
 			textColor = r.colorScheme.Selected.ToANSI()
 		}
-		if _, err := fmt.Fprint(r.output, textColor, indicator, suggestion.Text, Reset()); err != nil {
+		if _, err := fmt.Fprint(r.output, textColor, indicator, singleLine(suggestion.Text), ansiReset()); err != nil {
 			return 0, err
 		}
 
 		if suggestion.Description != "" {
-			if _, err := fmt.Fprint(r.output, " ", r.colorScheme.Suggestion.Description.ToANSI(), "- ", suggestion.Description, Reset()); err != nil {
+			if _, err := fmt.Fprint(r.output, " ", r.colorScheme.Suggestion.Description.ToANSI(), "- ", singleLine(suggestion.Description), ansiReset()); err != nil {
 				return 0, err
 			}
 		}
@@ -427,13 +431,45 @@ func (r *renderer) renderSuggestionsWithOffset(_, _ string, _ int, suggestions [
 // suggestionCells returns the printable text of one menu row: what the loop in
 // renderSuggestionsWithOffset prints, minus the color escapes, which occupy no
 // cells. The two have to stay in step, or the height is measured against text
-// that was never drawn.
+// that was never drawn, which is why the loop prints this rather than assembling
+// the row a second time.
 func suggestionCells(indicator string, s Suggestion) string {
-	line := indicator + s.Text
+	line := indicator + singleLine(s.Text)
 	if s.Description != "" {
-		line += " - " + s.Description
+		line += " - " + singleLine(s.Description)
 	}
 	return line
+}
+
+// singleLine returns s with every rune that would take the cursor off the row
+// replaced by a space.
+//
+// A menu row and a search result are one row each, and their height is measured
+// by walking the text for cells. A newline occupies no cells and moves the
+// terminal to the next row, so an entry carrying one was drawn taller than it
+// was counted and the extra row was left behind by the erase. The other C0
+// controls are worse than uncounted: a suggestion or a history entry holding an
+// escape sequence is written to the terminal as a command, and the history file
+// preserves whatever was typed, so an entry can hold one.
+//
+// A tab is kept, because layout measures it against tab stops and a terminal
+// keeps it on the row.
+func singleLine(s string) string {
+	if strings.IndexFunc(s, leavesRow) < 0 {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if leavesRow(r) {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
+// leavesRow reports whether a terminal would do something other than draw r on
+// the row it is on.
+func leavesRow(r rune) bool {
+	return (r < 0x20 && r != '\t') || r == 0x7f
 }
 
 // clearPreviousLines clears the previously rendered lines.

@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/mattn/go-colorable"
 )
@@ -33,7 +34,7 @@ type Prompt struct {
 	config         Config
 	output         io.Writer
 	history        []string
-	historyManager *HistoryManager
+	historyManager *historyManager
 	buffer         []rune
 	cursor         int
 	renderer       *renderer
@@ -65,13 +66,6 @@ type Prompt struct {
 // readResult is one rune from the shared input reader.
 type readResult struct {
 	r rune
-}
-
-// KeyBinding represents a keyboard shortcut mapping
-type KeyBinding struct {
-	Key    rune   // Key character (for simple keys)
-	Seq    string // Escape sequence (for special keys like arrows)
-	Action KeyAction
 }
 
 // KeyAction represents the action to perform when a key is pressed
@@ -109,10 +103,18 @@ const (
 const (
 	bracketedPasteEnableSequence  = "\x1b[?2004h"
 	bracketedPasteDisableSequence = "\x1b[?2004l"
-	// maxCSILength bounds how many runes are read after "ESC [" while looking for
-	// the sequence's final byte. It is far longer than any key sequence a
-	// terminal sends, and exists so a malformed one cannot read forever.
+	// maxCSILength bounds how much of a CSI sequence is remembered while looking
+	// for its final byte. It is far longer than any key sequence a terminal
+	// sends; a sequence that outgrows it is read to its end and reported as no
+	// sequence at all, since nothing could be bound to it anyway.
 	maxCSILength = 32
+	// csiParamFirst and csiParamLast bracket the parameter and intermediate
+	// bytes of a CSI sequence, and csiFinalFirst and csiFinalLast its final
+	// byte. A byte outside both ranges aborts the sequence.
+	csiParamFirst = ' '
+	csiParamLast  = '?'
+	csiFinalFirst = '@'
+	csiFinalLast  = '~'
 )
 
 // KeyMap holds the key binding configuration
@@ -559,106 +561,6 @@ type Suggestion struct {
 // Suggest is an alias for Suggestion for compatibility
 type Suggest = Suggestion
 
-// Document represents the current input state for completers
-type Document struct {
-	Text           string // The entire input text
-	CursorPosition int    // Current cursor position in the text
-}
-
-// TextBeforeCursor returns the text before the cursor.
-//
-// CursorPosition is counted in runes, because it is an index into the prompt's
-// []rune buffer. Slicing the text by it as if it were a byte offset cut a
-// multi-byte identifier in half and returned a prefix shorter than what the
-// user had typed, so a completer saw the wrong word.
-func (d *Document) TextBeforeCursor() string {
-	runes := []rune(d.Text)
-	if d.CursorPosition < 0 || d.CursorPosition > len(runes) {
-		return d.Text
-	}
-	return string(runes[:d.CursorPosition])
-}
-
-// TextAfterCursor returns the text after the cursor. CursorPosition is counted
-// in runes; see TextBeforeCursor.
-func (d *Document) TextAfterCursor() string {
-	runes := []rune(d.Text)
-	if d.CursorPosition < 0 || d.CursorPosition >= len(runes) {
-		return ""
-	}
-	return string(runes[d.CursorPosition:])
-}
-
-// GetWordBeforeCursor returns the word before the cursor
-func (d *Document) GetWordBeforeCursor() string {
-	runes := []rune(d.TextBeforeCursor())
-	if len(runes) == 0 {
-		return ""
-	}
-
-	// If cursor is right after a whitespace character, return empty string
-	if isWordSeparator(runes[len(runes)-1]) {
-		return ""
-	}
-
-	// Find the start of the current word by scanning backwards
-	start := len(runes) - 1
-	for start >= 0 && !isWordSeparator(runes[start]) {
-		start--
-	}
-	start++ // Move to the first character of the word
-
-	return string(runes[start:])
-}
-
-// GetWordBeforeCursorEscaped is like GetWordBeforeCursor but treats whitespace
-// that is backslash-escaped as part of the word, so a shell-style path such as
-// "my\ data.csv" counts as a single word rather than two. A whitespace character
-// is a word boundary only when an even number of backslashes precede it. The
-// prompt uses it for completion when WithWordEscape is set.
-func (d *Document) GetWordBeforeCursorEscaped() string {
-	text := d.TextBeforeCursor()
-	if len(text) == 0 {
-		return ""
-	}
-
-	runes := []rune(text)
-	last := len(runes) - 1
-	if isWordSeparator(runes[last]) && !isEscaped(runes, last) {
-		return ""
-	}
-
-	start := 0
-	for i := last; i >= 0; i-- {
-		if isWordSeparator(runes[i]) && !isEscaped(runes, i) {
-			start = i + 1
-			break
-		}
-	}
-	return string(runes[start:])
-}
-
-// isWordSeparator reports whether r ends a word for completion purposes. It
-// matches the separators GetWordBeforeCursor recognizes.
-func isWordSeparator(r rune) bool {
-	return r == ' ' || r == '\t' || r == '\n'
-}
-
-// isEscaped reports whether the rune at index i is escaped, i.e. preceded by an
-// odd number of backslashes.
-func isEscaped(runes []rune, i int) bool {
-	backslashes := 0
-	for j := i - 1; j >= 0 && runes[j] == '\\'; j-- {
-		backslashes++
-	}
-	return backslashes%2 == 1
-}
-
-// CurrentLine returns the current line
-func (d *Document) CurrentLine() string {
-	return d.Text
-}
-
 // New creates a new prompt with the specified prefix and optional configuration.
 //
 // This is the recommended way to create a new prompt as it provides a clean API
@@ -712,7 +614,7 @@ func New(prefix string, options ...Option) (*Prompt, error) {
 func newFromConfig(config Config) (*Prompt, error) {
 	// Set defaults for history config
 	if config.HistoryConfig == nil {
-		config.HistoryConfig = DefaultHistoryConfig()
+		config.HistoryConfig = defaultHistoryConfig()
 	} else {
 		// Set defaults for incomplete history config
 		if config.HistoryConfig.MaxEntries <= 0 {
@@ -750,10 +652,10 @@ func newFromConfig(config Config) (*Prompt, error) {
 	}
 
 	// Initialize history manager
-	historyManager := NewHistoryManager(config.HistoryConfig)
+	historyManager := newHistoryManager(config.HistoryConfig)
 
 	// Load history from file if configured
-	if err := historyManager.LoadHistory(); err != nil {
+	if err := historyManager.loadHistory(); err != nil {
 		return nil, fmt.Errorf("failed to load history: %w", err)
 	}
 
@@ -763,7 +665,7 @@ func newFromConfig(config Config) (*Prompt, error) {
 	p := &Prompt{
 		config:         config,
 		output:         output,
-		history:        historyManager.GetHistory(),
+		history:        historyManager.getHistory(),
 		historyManager: historyManager,
 		terminal:       terminal,
 		keyMap:         config.KeyMap,
@@ -1238,7 +1140,7 @@ func (p *Prompt) Close() error {
 
 	// Save history before closing
 	if p.historyManager != nil {
-		if err := p.historyManager.SaveHistory(); err != nil {
+		if err := p.historyManager.saveHistory(); err != nil {
 			// Log error but continue with cleanup
 			fmt.Fprintf(os.Stderr, "Warning: failed to save history: %v\n", err)
 		}
@@ -1409,10 +1311,10 @@ func (p *Prompt) getCurrentWordBounds() (start, end int) {
 
 // GetHistory returns the current command history
 func (p *Prompt) GetHistory() []string {
-	if p.historyManager != nil && p.historyManager.IsEnabled() {
-		return p.historyManager.GetHistory()
+	if p.historyManager != nil && p.historyManager.isEnabled() {
+		return p.historyManager.getHistory()
 	}
-	if p.historyManager != nil && !p.historyManager.IsEnabled() {
+	if p.historyManager != nil && !p.historyManager.isEnabled() {
 		return []string{} // Return empty when disabled
 	}
 	return append([]string{}, p.history...)
@@ -1425,17 +1327,17 @@ func (p *Prompt) AddHistory(command string) {
 
 // ClearHistory clears the command history
 func (p *Prompt) ClearHistory() {
-	if p.historyManager != nil && p.historyManager.IsEnabled() {
-		p.historyManager.ClearHistory()
+	if p.historyManager != nil && p.historyManager.isEnabled() {
+		p.historyManager.clearHistory()
 	}
 	p.history = []string{}
 }
 
 // SetHistory replaces the entire history
 func (p *Prompt) SetHistory(history []string) {
-	if p.historyManager != nil && p.historyManager.IsEnabled() {
-		p.historyManager.SetHistory(history)
-		p.history = p.historyManager.GetHistory()
+	if p.historyManager != nil && p.historyManager.isEnabled() {
+		p.historyManager.setHistory(history)
+		p.history = p.historyManager.getHistory()
 	} else {
 		p.history = append([]string{}, history...)
 	}
@@ -1443,8 +1345,8 @@ func (p *Prompt) SetHistory(history []string) {
 	maxEntries := p.getMaxHistoryEntries()
 	if len(p.history) > maxEntries {
 		p.history = p.history[len(p.history)-maxEntries:]
-		if p.historyManager != nil && p.historyManager.IsEnabled() {
-			p.historyManager.SetHistory(p.history)
+		if p.historyManager != nil && p.historyManager.isEnabled() {
+			p.historyManager.setHistory(p.history)
 		}
 	}
 }
@@ -1627,41 +1529,27 @@ func (p *Prompt) findWordBoundary(direction int) int {
 // and word deletion operations (Ctrl+W). The implementation follows common text
 // editor conventions:
 //
-//   - Letters (a-z, A-Z): Always considered part of a word
-//   - Digits (0-9): Always considered part of a word
+//   - Letters: Always considered part of a word
+//   - Digits: Always considered part of a word
 //   - Underscore (_): Considered part of a word (programming convention)
 //   - All other characters: Considered word separators (spaces, punctuation, etc.)
 //
 // This character classification enables intuitive text navigation in programming
 // contexts where identifiers commonly contain underscores.
 //
+// A letter is a letter in any script. Testing for a-z alone made every other
+// alphabet a separator, so word navigation walked over a word written in
+// Japanese as if it were whitespace and carried on into the word before it,
+// and a letter with a diacritic split its own word in two.
+//
 // Used by findWordBoundary() for word-based cursor movement operations.
 func isWordChar(r rune) bool {
-	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }
 
-// NewHistorySearcher creates a new history searcher for command history.
-//
-// The history searcher provides fuzzy search capabilities through command
-// history, similar to reverse-i-search in bash (Ctrl+R). This is primarily
-// used internally by the prompt for history search functionality.
-//
-// This function returns a search function that can be used to find commands
-// in the provided history that match a given query using fuzzy matching.
-//
-// Example:
-//
-//	history := []string{
-//		"git status",
-//		"git commit -m 'fix bug'",
-//		"docker run -it ubuntu",
-//		"kubectl get pods",
-//	}
-//
-//	search := prompt.NewHistorySearcher(history)
-//	matches := search("git")
-//	// Returns: ["git commit -m 'fix bug'", "git status"] (sorted by relevance)
-func NewHistorySearcher(history []string) func(string) []string {
+// newHistorySearcher returns the search function Ctrl+R calls for matches. It
+// ranks the history by fuzzy match against the query, closest first.
+func newHistorySearcher(history []string) func(string) []string {
 	fm := &fuzzyMatcher{
 		items: history,
 	}
@@ -1685,7 +1573,7 @@ func (f *fuzzyMatcher) searchFunc(query string) []string {
 
 // searchHistory implements reverse history search (like Ctrl+R in bash)
 func (p *Prompt) searchHistory() (_ string, err error) {
-	search := NewHistorySearcher(p.history)
+	search := newHistorySearcher(p.history)
 	searchBuffer := []rune{}
 	searchResults := search("")
 	selectedIndex := 0
@@ -1754,9 +1642,14 @@ func (p *Prompt) searchHistory() (_ string, err error) {
 // renderHistorySearch renders the history search interface and returns how many
 // terminal rows it occupies, which is what the next render has to erase.
 func (p *Prompt) renderHistorySearch(query string, results []string, selected int) (int, error) {
-	header := "reverse-i-search: " + query
+	// Every line of the block is one terminal row, so what is drawn is flattened
+	// to one: a history entry can hold newlines -- a statement entered across
+	// several lines is stored as one entry, which is what the file's escaping is
+	// for -- and drawing one raw took rows the block never counted, leaving them
+	// on screen when the search closed.
+	header := "reverse-i-search: " + singleLine(query)
 	if selected < len(results) && len(results) > 0 {
-		header += " -> " + results[selected]
+		header += " -> " + singleLine(results[selected])
 	}
 
 	// Show top 5 results. The header names the selection even when Tab has
@@ -1770,10 +1663,10 @@ func (p *Prompt) renderHistorySearch(query string, results []string, selected in
 	lines = append(lines, header)
 	for i, result := range results {
 		if i == selected {
-			lines = append(lines, "  > "+result)
+			lines = append(lines, "  > "+singleLine(result))
 			continue
 		}
-		lines = append(lines, "    "+result)
+		lines = append(lines, "    "+singleLine(result))
 	}
 
 	if _, err := fmt.Fprint(p.output, "\r\x1b[K"); err != nil {
@@ -1823,14 +1716,10 @@ func (p *Prompt) searchBlockRows(lines []string) int {
 
 // syncHistoryAfterAdd synchronizes in-memory history with history manager after adding an entry.
 func (p *Prompt) syncHistoryAfterAdd() {
-	if p.historyManager != nil && p.historyManager.IsEnabled() {
-		p.history = p.historyManager.GetHistory()
-		// Trim in-memory history if it exceeds max size
-		maxEntries := p.getMaxHistoryEntries()
-		if len(p.history) > maxEntries {
-			p.history = p.history[len(p.history)-maxEntries:]
-			p.historyManager.SetHistory(p.history)
-		}
+	if p.historyManager != nil && p.historyManager.isEnabled() {
+		// The manager applies MaxEntries itself now, so there is nothing to cut
+		// and push back down: what it holds is what the prompt shows.
+		p.history = p.historyManager.getHistory()
 	}
 }
 
@@ -1849,8 +1738,8 @@ func (p *Prompt) addToHistory(text string) {
 	}
 
 	if p.historyManager != nil {
-		if p.historyManager.IsEnabled() {
-			p.historyManager.AddEntry(text)
+		if p.historyManager.isEnabled() {
+			p.historyManager.addEntry(text)
 			p.syncHistoryAfterAdd()
 		}
 		// Do nothing when history manager exists but is disabled
@@ -2239,20 +2128,43 @@ func (p *Prompt) readEscapeSequence() (string, error) {
 	// the final range. Reading to that byte keeps a long sequence (bracketed
 	// paste markers, Ctrl+arrow, a mouse or paste report with many parameters)
 	// whole instead of cutting it after three runes.
+	//
+	// The grammar decides where the sequence ends, not a rune count. A count can
+	// only stop reading, and a sequence the terminal is still sending does not
+	// stop with it: everything past the count stayed in the input and reached
+	// the read loop as keystrokes, so a long terminal reply appeared in the
+	// user's line one parameter at a time. maxCSILength bounds what is
+	// remembered instead, so a sequence too long to name is still consumed
+	// whole.
 	seq := make([]rune, 0, 8)
 	seq = append(seq, r)
-	for range maxCSILength { // Bound the read so a malformed sequence cannot hang the prompt
+	overlong := false
+	for {
 		r, err := p.readRune()
 		if err != nil {
 			return "", err
 		}
-		seq = append(seq, r)
-		if r >= '@' && r <= '~' {
-			return string(seq), nil
+		switch {
+		case r >= csiFinalFirst && r <= csiFinalLast:
+			if overlong {
+				// The terminal is sending something this prompt cannot name. It
+				// has been read to its end, so nothing is left to be mistaken
+				// for typing.
+				return "", nil
+			}
+			return string(append(seq, r)), nil
+		case r >= csiParamFirst && r <= csiParamLast:
+			if len(seq) >= maxCSILength {
+				overlong = true
+				continue
+			}
+			seq = append(seq, r)
+		default:
+			// A byte outside the grammar aborts the sequence and is input in its
+			// own right. Counting it as a parameter swallowed it: ESC [ followed
+			// by Enter left the line unsubmittable.
+			p.unreadRune(r)
+			return "", nil
 		}
 	}
-	// No final byte within the bound: the terminal is sending something this
-	// prompt cannot name. Report no sequence rather than a truncated one, whose
-	// unread tail would otherwise be inserted into the buffer as typed text.
-	return "", nil
 }

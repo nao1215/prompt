@@ -61,10 +61,10 @@ func TestNewFuzzyCompleter(t *testing.T) {
 
 func TestNewHistorySearcher(t *testing.T) {
 	history := []string{"git status", "git commit", "ls -la"}
-	search := NewHistorySearcher(history)
+	search := newHistorySearcher(history)
 
 	if search == nil {
-		t.Error("NewHistorySearcher() returned nil")
+		t.Error("newHistorySearcher() returned nil")
 	}
 
 	// Test empty query returns all history

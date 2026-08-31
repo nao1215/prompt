@@ -348,15 +348,6 @@ completer := prompt.NewFileCompleter()
 p, err := prompt.New(">>> ", prompt.WithCompleter(completer))
 ```
 
-### History Search
-```go
-searcher := prompt.NewHistorySearcher([]string{
-    "previous command 1",
-    "previous command 2",
-})
-results := searcher("prev") // Returns matching history items
-```
-
 ## Contributing
 
 Feel free to add more examples! When creating a new example:
