@@ -1177,11 +1177,9 @@ func (p *Prompt) getCurrentWordBounds() (start, end int) {
 
 // GetHistory returns the current command history
 func (p *Prompt) GetHistory() []string {
-	if p.historyManager != nil && p.historyManager.isEnabled() {
+	if p.historyManager != nil {
+		// A disabled manager holds nothing, and getHistory says so.
 		return p.historyManager.getHistory()
-	}
-	if p.historyManager != nil && !p.historyManager.isEnabled() {
-		return []string{} // Return empty when disabled
 	}
 	return append([]string{}, p.history...)
 }
@@ -1196,24 +1194,32 @@ func (p *Prompt) ClearHistory() {
 	if p.historyManager != nil && p.historyManager.isEnabled() {
 		p.historyManager.clearHistory()
 	}
+	// Emptying it is right whether or not there is a manager: with one, this
+	// mirrors what the manager now holds; without one, this is the history.
 	p.history = []string{}
 }
 
 // SetHistory replaces the entire history
 func (p *Prompt) SetHistory(history []string) {
-	if p.historyManager != nil && p.historyManager.isEnabled() {
+	if p.historyManager != nil {
+		// A manager that is disabled holds nothing and is given nothing, the way
+		// AddHistory already treats it. Falling through to the branch below --
+		// which exists for a prompt with no manager at all, where p.history is
+		// the only place a history can live -- put the entries in the list the
+		// arrow keys walk while GetHistory reported none.
+		if !p.historyManager.isEnabled() {
+			return
+		}
 		p.historyManager.setHistory(history)
 		p.history = p.historyManager.getHistory()
-	} else {
-		p.history = append([]string{}, history...)
+		return
 	}
+
+	p.history = append([]string{}, history...)
 	// Trim history if it exceeds max size
 	maxEntries := p.getMaxHistoryEntries()
 	if len(p.history) > maxEntries {
 		p.history = p.history[len(p.history)-maxEntries:]
-		if p.historyManager != nil && p.historyManager.isEnabled() {
-			p.historyManager.setHistory(p.history)
-		}
 	}
 }
 
