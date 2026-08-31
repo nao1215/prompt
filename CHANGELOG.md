@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Suggestion.Replace` names the span of the input a suggestion overwrites (PR [#45](https://github.com/nao1215/prompt/pull/45), [c04734e](https://github.com/nao1215/prompt/commit/c04734e)), so a completer can match by its own rule. The prompt otherwise decides what a suggestion stands for by taking the word before the cursor and keeping only the suggestions that word is a case-sensitive prefix of. A completer matching case-insensitively had its whole answer discarded — typing `sel` and pressing Tab did nothing, because `SELECT` is not prefixed by `sel` — and one completing a qualified name such as `t.na` could not say that only the part after the dot was being replaced. A suggestion carrying `Replace` is applied literally, and a set containing one skips the built-in filter; leaving it nil keeps the existing behavior. The span is counted in runes and clamped to the buffer.
+
+### Fixed
+
+- `Document.CursorPosition` is now read as the rune offset it is everywhere in `Document` (PR [#45](https://github.com/nao1215/prompt/pull/45), [c04734e](https://github.com/nao1215/prompt/commit/c04734e)): it indexes the prompt's `[]rune` buffer, but `TextBeforeCursor`, `TextAfterCursor`, and `GetWordBeforeCursor` sliced the text by it as a byte offset, so with any multi-byte rune on the line a completer was handed a prefix shorter than what had been typed, cut mid-character.
+
 ### Changed
 
 - Dependencies updated (`golang.org/x/term`, `golang.org/x/sys`, `github.com/mattn/go-tty`, `github.com/mattn/go-colorable`, `github.com/mattn/go-runewidth`, `github.com/stretchr/testify`), holding `x/term` at 0.40.0 and `x/sys` at 0.41.0 so the supported Go floor stays at 1.24.0. The GitHub Actions pins move from v5 to v7, and the unit-test matrix runs the floor and the newest Go release.

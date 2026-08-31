@@ -456,10 +456,32 @@ func WithWordEscape() Option {
 	}
 }
 
+// Range is a half-open span [Start, End) of a Document's text, counted in
+// runes, which is the unit Document.CursorPosition is counted in.
+type Range struct {
+	// Start is the first rune of the span.
+	Start int
+	// End is one past the last rune of the span. Start == End names an empty
+	// span, i.e. a position to insert at.
+	End int
+}
+
 // Suggestion represents a completion suggestion.
 type Suggestion struct {
 	Text        string // The text to complete
 	Description string // Description of the suggestion
+	// Replace, when non-nil, is the span of the input that accepting this
+	// suggestion overwrites with Text. It lets a completer that knows more about
+	// the input than a word boundary can express — a qualified name, a
+	// case-insensitive match, a token the prompt would not have split there —
+	// say exactly what its suggestion stands for.
+	//
+	// A completer that sets it takes over matching: the prompt applies the span
+	// literally and skips the prefix filter it otherwise runs over the returned
+	// suggestions, which is a case-sensitive test against the word before the
+	// cursor. Leave it nil to keep that behavior. A span outside the buffer, or
+	// an inverted one, is clamped rather than rejected.
+	Replace *Range
 }
 
 // Suggest is an alias for Suggestion for compatibility
@@ -471,42 +493,50 @@ type Document struct {
 	CursorPosition int    // Current cursor position in the text
 }
 
-// TextBeforeCursor returns the text before the cursor
+// TextBeforeCursor returns the text before the cursor.
+//
+// CursorPosition is counted in runes, because it is an index into the prompt's
+// []rune buffer. Slicing the text by it as if it were a byte offset cut a
+// multi-byte identifier in half and returned a prefix shorter than what the
+// user had typed, so a completer saw the wrong word.
 func (d *Document) TextBeforeCursor() string {
-	if d.CursorPosition < 0 || d.CursorPosition > len(d.Text) {
+	runes := []rune(d.Text)
+	if d.CursorPosition < 0 || d.CursorPosition > len(runes) {
 		return d.Text
 	}
-	return d.Text[:d.CursorPosition]
+	return string(runes[:d.CursorPosition])
 }
 
-// TextAfterCursor returns the text after the cursor
+// TextAfterCursor returns the text after the cursor. CursorPosition is counted
+// in runes; see TextBeforeCursor.
 func (d *Document) TextAfterCursor() string {
-	if d.CursorPosition < 0 || d.CursorPosition >= len(d.Text) {
+	runes := []rune(d.Text)
+	if d.CursorPosition < 0 || d.CursorPosition >= len(runes) {
 		return ""
 	}
-	return d.Text[d.CursorPosition:]
+	return string(runes[d.CursorPosition:])
 }
 
 // GetWordBeforeCursor returns the word before the cursor
 func (d *Document) GetWordBeforeCursor() string {
-	text := d.TextBeforeCursor()
-	if len(text) == 0 {
+	runes := []rune(d.TextBeforeCursor())
+	if len(runes) == 0 {
 		return ""
 	}
 
 	// If cursor is right after a whitespace character, return empty string
-	if text[len(text)-1] == ' ' || text[len(text)-1] == '\t' || text[len(text)-1] == '\n' {
+	if isWordSeparator(runes[len(runes)-1]) {
 		return ""
 	}
 
 	// Find the start of the current word by scanning backwards
-	start := len(text) - 1
-	for start >= 0 && text[start] != ' ' && text[start] != '\t' && text[start] != '\n' {
+	start := len(runes) - 1
+	for start >= 0 && !isWordSeparator(runes[start]) {
 		start--
 	}
 	start++ // Move to the first character of the word
 
-	return text[start:]
+	return string(runes[start:])
 }
 
 // GetWordBeforeCursorEscaped is like GetWordBeforeCursor but treats whitespace
@@ -1005,9 +1035,12 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 					selectedSuggestion = 0
 					suggestionOffset = 0 // Reset scroll position
 
-					// Smart matching: filter suggestions based on current input
+					// Smart matching: filter suggestions based on current input.
+					// A completer that names the span each suggestion replaces has
+					// already decided what matches, and by a rule this filter cannot
+					// reproduce, so it is skipped for such a set.
 					currentWord := p.completionWord(doc)
-					if currentWord != "" {
+					if currentWord != "" && !hasReplaceRange(suggestions) {
 						// Filter suggestions to only show those that match the current input
 						filteredSuggestions := make([]Suggestion, 0)
 						for _, suggestion := range suggestions {
@@ -1196,7 +1229,26 @@ func (p *Prompt) completionWord(doc Document) string {
 	return doc.GetWordBeforeCursor()
 }
 
+// hasReplaceRange reports whether any suggestion names the span it replaces,
+// which is how a completer says it owns matching for this set.
+func hasReplaceRange(suggestions []Suggestion) bool {
+	for _, s := range suggestions {
+		if s.Replace != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *Prompt) acceptSuggestion(suggestion Suggestion) {
+	// A suggestion that names the span it stands for is applied literally: the
+	// completer knows what it matched, and the word-boundary guesswork below
+	// cannot express a qualified name or a case-insensitive match.
+	if suggestion.Replace != nil {
+		p.replaceRange(*suggestion.Replace, suggestion.Text)
+		return
+	}
+
 	// Get current document state for context
 	doc := Document{
 		Text:           string(p.buffer),
@@ -1230,6 +1282,20 @@ func (p *Prompt) acceptSuggestion(suggestion Suggestion) {
 			p.cursor = wordStart + len([]rune(suggestion.Text))
 		}
 	}
+}
+
+// replaceRange overwrites the buffer's runes in r with text and leaves the
+// cursor after it. A span outside the buffer, or an inverted one, is clamped
+// instead of panicking: a completer's arithmetic mistake should not take the
+// line editor down with it.
+func (p *Prompt) replaceRange(r Range, text string) {
+	start := min(max(r.Start, 0), len(p.buffer))
+	end := min(max(r.End, start), len(p.buffer))
+
+	replacement := []rune(text)
+	tail := append(replacement, p.buffer[end:]...)
+	p.buffer = append(p.buffer[:start:start], tail...)
+	p.cursor = start + len(replacement)
 }
 
 // getCurrentWordBounds finds the start and end positions of the current word at cursor
