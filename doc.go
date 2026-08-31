@@ -62,6 +62,19 @@
 //	}
 //	fmt.Printf("Command: %s\n", result)
 //
+// Choosing What a Suggestion Replaces:
+//
+// By default the prompt keeps only the suggestions that the word before the
+// cursor is a case-sensitive prefix of, and replaces that word. A completer
+// matching by another rule sets Suggestion.Replace to the span it stands for,
+// counted in runes like Document.CursorPosition, and the prompt applies that
+// span literally instead:
+//
+//	prompt.Suggestion{
+//		Text:    "SELECT",
+//		Replace: &prompt.Range{Start: d.CursorPosition - 3, End: d.CursorPosition},
+//	}
+//
 // Key Bindings:
 //
 // The library supports comprehensive key bindings out of the box:
