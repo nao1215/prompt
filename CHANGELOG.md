@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- `ColorScheme.Background`, `ColorScheme.Cursor`, `SuggestionColors.Match`, and `SuggestionColors.Background` are gone ([#93](https://github.com/nao1215/prompt/issues/93)). Nothing ever read them: the prompt writes a foreground color and nothing else, so setting one changed nothing on screen. The one application using this library set `Cursor` and `Suggestion.Match` on every one of its twelve themes, so those colors were chosen twelve times and never drawn. A field that changes nothing is worse than one that is missing.
+
+  Coloring the part of a suggestion that matched would need the completer to say which part matched, which is what `Suggestion.Replace` is for and is not something the renderer is told today; a background would mean painting cells no text covers, which is a different renderer from this one; and a cursor color would mean OSC 12 and restoring the terminal's own afterwards. None of the three can be turned on from where the field sat, which is why they are removed rather than implemented.
+
+  Migration: delete those fields from any `ColorScheme` literal. Nothing else changes -- the colors they held were never on screen to lose.
+
 ## [0.0.26] - 2026-09-01
 
 ### Fixed

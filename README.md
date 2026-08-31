@@ -527,9 +527,9 @@ p, err := prompt.New("$ ",
 )
 ```
 
-A scheme decides foreground colors. The prompt writes over the terminal's own
-background and leaves the terminal's own cursor alone, so `Background` and
-`Cursor` on a scheme of your own are not drawn.
+A scheme of your own decides foreground colors: the prefix, the input, and the
+completion menu. The prompt writes over the terminal's own background and leaves
+the terminal's own cursor alone, so there is no field for either.
 
 ## Examples
 
