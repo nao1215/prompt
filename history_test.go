@@ -1783,3 +1783,54 @@ func TestSearchHistoryConsumesEscapeSequences(t *testing.T) {
 		})
 	}
 }
+
+// TestLoadHistoryReadsAnEntryOfAnyLength covers what the prompt itself can
+// write. A pasted statement is content, so an entry has no length limit, but the
+// read used a bufio.Scanner and refused a line over 64KB: the load failed, the
+// whole history was lost with it, and New -- which returns that error -- could
+// not open a prompt again until the file was deleted by hand.
+func TestLoadHistoryReadsAnEntryOfAnyLength(t *testing.T) {
+	t.Parallel()
+
+	file := filepath.Join(t.TempDir(), "history")
+	long := "INSERT INTO t VALUES ('" + strings.Repeat("x", 70000) + "');"
+
+	saved := newHistoryManager(&HistoryConfig{Enabled: true, File: file, MaxEntries: 100, MaxFileSize: 1 << 30})
+	saved.addEntry("select 1;")
+	saved.addEntry(long)
+	saved.addEntry("select 2;")
+	if err := saved.saveHistory(); err != nil {
+		t.Fatalf("saveHistory() error = %v", err)
+	}
+
+	loaded := newHistoryManager(&HistoryConfig{Enabled: true, File: file, MaxEntries: 100})
+	if err := loaded.loadHistory(); err != nil {
+		t.Fatalf("loadHistory() error = %v", err)
+	}
+	want := []string{"select 1;", long, "select 2;"}
+	if got := loaded.getHistory(); !slices.Equal(got, want) {
+		t.Errorf("loaded %d entries, want %d; the long one came back as %d characters",
+			len(got), len(want), len(got[min(1, len(got)-1)]))
+	}
+}
+
+// TestLoadHistoryKeepsALastLineWithoutANewline covers a file another program
+// wrote, or one cut short: the last line is an entry whether or not it ends the
+// way this package writes it.
+func TestLoadHistoryKeepsALastLineWithoutANewline(t *testing.T) {
+	t.Parallel()
+
+	file := filepath.Join(t.TempDir(), "history")
+	if err := os.WriteFile(file, []byte("first\nsecond"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	hm := newHistoryManager(&HistoryConfig{Enabled: true, File: file, MaxEntries: 100})
+	if err := hm.loadHistory(); err != nil {
+		t.Fatalf("loadHistory() error = %v", err)
+	}
+	want := []string{"first", "second"}
+	if got := hm.getHistory(); !slices.Equal(got, want) {
+		t.Errorf("getHistory() = %q, want %q", got, want)
+	}
+}

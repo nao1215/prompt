@@ -2,7 +2,9 @@ package prompt
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -98,20 +100,31 @@ func (hm *historyManager) loadHistory() error {
 	// asking a second time -- after another shell wrote to the file, after the
 	// user edited it -- returned every entry twice. The entries are collected
 	// separately so a read that fails partway leaves the existing history alone.
+	// Read with a bufio.Reader rather than a bufio.Scanner, which refuses a line
+	// over 64KB. An entry has no length limit -- a paste is content, and what
+	// the user submits is whatever they typed -- so the writer could produce a
+	// file the reader rejected. The load then failed, took the whole history
+	// with it, and New returns that error: one long paste left the application
+	// unable to start until the file was deleted by hand.
 	loaded := make([]string, 0, len(hm.history))
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		// Only the line terminator is dropped: an entry's own leading and
-		// trailing whitespace is part of the command the user submitted.
-		entry, ok := decodeHistoryLine(strings.TrimSuffix(scanner.Text(), "\r"))
-		if !ok {
-			continue
+	reader := bufio.NewReader(file)
+	for {
+		line, readErr := reader.ReadString('\n')
+		if line != "" || readErr == nil {
+			// Only the line terminator is dropped: an entry's own leading and
+			// trailing whitespace is part of the command the user submitted. A
+			// last line without a newline is an entry too.
+			line = strings.TrimSuffix(line, "\n")
+			if entry, ok := decodeHistoryLine(strings.TrimSuffix(line, "\r")); ok {
+				loaded = append(loaded, entry)
+			}
 		}
-		loaded = append(loaded, entry)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("failed to read history file: %w", err)
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				return fmt.Errorf("failed to read history file: %w", readErr)
+			}
+			break
+		}
 	}
 
 	hm.history = hm.trim(loaded)

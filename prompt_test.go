@@ -4445,3 +4445,71 @@ func TestErrEOFKeepsItsMessage(t *testing.T) {
 		t.Errorf("ErrEOF.Error() = %q, want %q", got, "EOF")
 	}
 }
+
+// closeCountingTerminal records how often it was closed, so a test can see a
+// terminal that was opened and then abandoned.
+type closeCountingTerminal struct {
+	mockTerminal
+	closes int
+}
+
+func (c *closeCountingTerminal) Close() error {
+	c.closes++
+	return nil
+}
+
+// TestNewClosesTheTerminalWhenItCannotFinish covers the descriptor a failed New
+// used to leave open. The terminal is opened before the history is loaded, and a
+// load that fails returns no prompt, so nothing was left that could close it:
+// the go-tty handle, the descriptor the reader polls, and the pipe that wakes it
+// leaked, three per attempt for a caller that retries.
+func TestNewClosesTheTerminalWhenItCannotFinish(t *testing.T) {
+	t.Parallel()
+
+	// A directory opens and then fails to read, which is a history file New
+	// cannot load.
+	unreadable := filepath.Join(t.TempDir(), "history")
+	if err := os.Mkdir(unreadable, 0o750); err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+
+	terminal := &closeCountingTerminal{}
+	config := Config{
+		Prefix:        "> ",
+		HistoryConfig: &HistoryConfig{Enabled: true, File: unreadable, MaxEntries: 100},
+		ColorScheme:   ThemeDefault,
+		KeyMap:        NewDefaultKeyMap(),
+	}
+
+	p, err := newFromConfigOn(config, terminal, io.Discard)
+	if err == nil {
+		t.Fatalf("newFromConfigOn() built a prompt over an unreadable history file")
+	}
+	if p != nil {
+		t.Errorf("newFromConfigOn() returned a prompt alongside its error")
+	}
+	if terminal.closes != 1 {
+		t.Errorf("the terminal was closed %d times, want 1", terminal.closes)
+	}
+}
+
+// TestNewKeepsTheTerminalWhenItSucceeds is the other half: the prompt owns the
+// terminal once it has one, and closing it is the caller's to do.
+func TestNewKeepsTheTerminalWhenItSucceeds(t *testing.T) {
+	t.Parallel()
+
+	terminal := &closeCountingTerminal{}
+	config := Config{
+		Prefix:        "> ",
+		HistoryConfig: &HistoryConfig{Enabled: true, MaxEntries: 100},
+		ColorScheme:   ThemeDefault,
+		KeyMap:        NewDefaultKeyMap(),
+	}
+
+	if _, err := newFromConfigOn(config, terminal, io.Discard); err != nil {
+		t.Fatalf("newFromConfigOn() error = %v", err)
+	}
+	if terminal.closes != 0 {
+		t.Errorf("the terminal was closed %d times, want 0", terminal.closes)
+	}
+}
