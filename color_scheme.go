@@ -6,22 +6,44 @@ import (
 )
 
 // ColorScheme defines the color configuration for the prompt.
+//
+// The prompt draws foreground colors and nothing else: it writes over the
+// terminal's own background and leaves the terminal's own cursor alone. The
+// fields marked below as not drawn are kept because applications set them, but
+// setting one changes nothing on screen.
 type ColorScheme struct {
-	Name       string           `json:"name"`
-	Prefix     Color            `json:"prefix"`
-	Input      Color            `json:"input"`
+	// Name is what an application calls this scheme. Nothing here reads it.
+	Name string `json:"name"`
+	// Prefix is the color of the prompt's prefix.
+	Prefix Color `json:"prefix"`
+	// Input is the color of the text being typed, except where a highlighter
+	// asks for another one.
+	Input Color `json:"input"`
+	// Suggestion is the colors of the completion menu.
 	Suggestion SuggestionColors `json:"suggestion"`
-	Selected   Color            `json:"selected"`
-	Background *Color           `json:"background"` // nil for transparent
-	Cursor     Color            `json:"cursor"`
+	// Selected is the color of the suggestion the menu is pointing at.
+	Selected Color `json:"selected"`
+	// Background is not drawn. Painting it would mean coloring cells no text
+	// covers, and every measurement here counts the cells text occupies.
+	Background *Color `json:"background"` // nil for transparent
+	// Cursor is not drawn. Setting the terminal's cursor color means OSC 12 and
+	// putting the terminal's own color back afterwards.
+	Cursor Color `json:"cursor"`
 }
 
 // SuggestionColors defines colors for completion suggestions.
 type SuggestionColors struct {
-	Text        Color  `json:"text"`
-	Description Color  `json:"description"`
-	Match       Color  `json:"match"`      // Highlight color for matching parts
-	Background  *Color `json:"background"` // nil for transparent
+	// Text is the color of a suggestion in the menu.
+	Text Color `json:"text"`
+	// Description is the color of the description beside it.
+	Description Color `json:"description"`
+	// Match is not drawn. Coloring the part of a suggestion that matched means
+	// knowing which part matched, and that is the completer's knowledge rather
+	// than the prompt's -- a completer naming its own span through
+	// Suggestion.Replace never tells the prompt what it matched on.
+	Match Color `json:"match"` // Highlight color for matching parts
+	// Background is not drawn, for the same reason as ColorScheme.Background.
+	Background *Color `json:"background"` // nil for transparent
 }
 
 // StyleSpan marks a run of the input to draw in a color of its own. Start and
