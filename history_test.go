@@ -1834,3 +1834,32 @@ func TestLoadHistoryKeepsALastLineWithoutANewline(t *testing.T) {
 		t.Errorf("getHistory() = %q, want %q", got, want)
 	}
 }
+
+// FuzzHistoryLineRoundTrip pins the encoding a history file is written in. An
+// entry is whatever the user submitted, including a line break, a backslash, and
+// bytes that are not valid UTF-8, and it has to come back as it went in --
+// otherwise the file quietly rewrites what was typed.
+func FuzzHistoryLineRoundTrip(f *testing.F) {
+	for _, s := range []string{"", "a", "a\\b", "a\nb", "a\r\nb", "\\", "\\\\", "\\n", "日本語", "  spaced  ", "\x00\x01"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, entry string) {
+		encoded := encodeHistoryLine(entry)
+		if strings.ContainsAny(encoded, "\n\r") {
+			t.Fatalf("encodeHistoryLine(%q) = %q, which holds a line break", entry, encoded)
+		}
+		decoded, ok := decodeHistoryLine(encoded)
+		if entry == "" {
+			if ok {
+				t.Fatalf("an empty entry decoded as an entry")
+			}
+			return
+		}
+		if !ok {
+			t.Fatalf("encodeHistoryLine(%q) = %q did not decode as an entry", entry, encoded)
+		}
+		if decoded != entry {
+			t.Fatalf("round trip: %q -> %q -> %q", entry, encoded, decoded)
+		}
+	})
+}
