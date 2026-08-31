@@ -117,10 +117,6 @@ func TestHistoryManagerDisabled(t *testing.T) {
 }
 
 func TestHistoryFilePersistence(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "" {
-		t.Skip("Skipping slow test in local development")
-	}
-
 	// Create temporary directory
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "test_history")
@@ -172,10 +168,6 @@ func TestHistoryFilePersistence(t *testing.T) {
 }
 
 func TestHistoryFileRotation(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "" {
-		t.Skip("Skipping slow test in local development")
-	}
-
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "test_history")
 
@@ -225,10 +217,6 @@ func TestHistoryFileRotation(t *testing.T) {
 }
 
 func TestHistoryFileRotationNoBackups(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "" {
-		t.Skip("Skipping slow test in local development")
-	}
-
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "test_history")
 
@@ -260,10 +248,6 @@ func TestHistoryFileRotationNoBackups(t *testing.T) {
 }
 
 func TestPromptHistoryIntegration(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "" {
-		t.Skip("Skipping slow test in local development")
-	}
-
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "prompt_history")
 
@@ -350,10 +334,6 @@ func TestHistoryLoadNonExistentFile(t *testing.T) {
 }
 
 func TestHistoryFileRotationDetailed(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "" {
-		t.Skip("Skipping slow test in local development")
-	}
-
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "detailed_history")
 
@@ -408,10 +388,6 @@ func TestHistoryFileRotationDetailed(t *testing.T) {
 }
 
 func TestHistoryRotationWithMultipleBackups(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "" {
-		t.Skip("Skipping slow test in local development")
-	}
-
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "multi_backup_history")
 
@@ -486,10 +462,6 @@ func TestHistoryRotationEdgeCases(t *testing.T) {
 	})
 
 	t.Run("FileCreationError", func(t *testing.T) {
-		if os.Getenv("GITHUB_ACTIONS") == "" {
-			t.Skip("Skipping slow test in local development")
-		}
-
 		// Create a file, then try to create a directory with same name as parent
 		filePath := filepath.Join(tmpDir, "existing_file")
 		if err := os.WriteFile(filePath, []byte("content"), 0600); err != nil {
@@ -1128,10 +1100,6 @@ func TestNewHistoryManagerPathExpansion(t *testing.T) {
 }
 
 func TestHistoryFileOperationsWithExpandedPaths(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "" {
-		t.Skip("Skipping slow test in local development")
-	}
-
 	tmpDir := t.TempDir()
 
 	// Test with a path that needs expansion
@@ -1197,10 +1165,6 @@ func TestGetDefaultHistoryFile(t *testing.T) {
 }
 
 func TestRotateHistoryFile(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "" {
-		t.Skip("Skipping slow test in local development")
-	}
-
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "rotate_test_history")
 
@@ -1308,8 +1272,15 @@ func TestLoadHistoryCorruptedFile(t *testing.T) {
 }
 
 func TestSaveHistoryPermissionError(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "" || runtime.GOOS == windowsOS {
-		t.Skip("Skipping permission test")
+	// A read-only directory is not read-only to root, and a directory mode does
+	// not stop a write on Windows. Those are the conditions the test needs;
+	// whether it is running in CI is not one of them, and asking that instead
+	// left the error path untested everywhere a developer works.
+	if runtime.GOOS == windowsOS {
+		t.Skip("a directory mode does not stop a write on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root writes to a read-only directory")
 	}
 
 	tmpDir := t.TempDir()
