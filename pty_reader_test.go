@@ -51,6 +51,10 @@ func TestMain(m *testing.M) {
 // while "running" it, close, optionally run a child on the same terminal, then
 // open a second prompt and read another line.
 func helperMain() {
+	if scenario := os.Getenv("PROMPT_PTY_SCENARIO"); scenario != "" {
+		helperScenario(scenario)
+		return
+	}
 	watch := os.Getenv("PROMPT_PTY_WATCH") == "1"
 	child := os.Getenv("PROMPT_PTY_CHILD") == "1"
 
@@ -114,18 +118,34 @@ func TestPromptReopensAfterCloseUnderAPTY(t *testing.T) {
 	}
 }
 
+// ptyStep is one exchange with the program under the terminal: wait for what it
+// draws, then type. Waiting first is what keeps a line out of a session that is
+// not reading yet.
+type ptyStep struct {
+	await string
+	send  string
+}
+
 // runHelperUnderPTY re-executes the test binary as the prompt program, types
 // two lines into it, and returns everything the terminal showed.
 func runHelperUnderPTY(t *testing.T, watch, child bool) string {
 	t.Helper()
 
-	cmd := exec.CommandContext(t.Context(), os.Args[0]) //nolint:gosec // the test binary re-executing itself
-	cmd.Env = append(os.Environ(),
-		helperEnv+"=1",
-		"PROMPT_PTY_WATCH="+boolEnv(watch),
-		"PROMPT_PTY_CHILD="+boolEnv(child),
-		"TERM=xterm-256color",
+	return runPromptUnderPTY(t,
+		[]string{"PROMPT_PTY_WATCH=" + boolEnv(watch), "PROMPT_PTY_CHILD=" + boolEnv(child)},
+		[]ptyStep{{await: "p1> ", send: "first\r"}, {await: "p2> ", send: "second\r"}},
 	)
+}
+
+// runPromptUnderPTY re-executes the test binary as the prompt program with env
+// added to its environment, walks it through steps, and returns everything the
+// terminal showed.
+func runPromptUnderPTY(t *testing.T, env []string, steps []ptyStep) string {
+	t.Helper()
+
+	cmd := exec.CommandContext(t.Context(), os.Args[0]) //nolint:gosec // the test binary re-executing itself
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color", helperEnv+"=1")
+	cmd.Env = append(cmd.Env, env...)
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -166,19 +186,20 @@ func runHelperUnderPTY(t *testing.T, watch, child bool) string {
 		return buf.String()
 	}
 
-	// Each line is written once the prompt that reads it is on screen, so
-	// neither is typed into a session that is not reading yet.
-	for _, step := range []struct{ await, send string }{
-		{await: "p1> ", send: "first\r"},
-		{await: "p2> ", send: "second\r"},
-	} {
+	// A prompt is counted rather than looked for, because a scenario can draw
+	// the same prefix twice and the second one has to be waited for again.
+	seen := map[string]int{}
+	for _, step := range steps {
 		// The helper is a freshly started process on a runner that may be busy,
 		// so this waits far longer than the prompt takes to appear on an idle
 		// machine. It is a bound on a hang, not a measurement.
-		if !waitUpTo(15*time.Second, func() bool { return strings.Contains(transcript(), step.await) }) {
+		if !waitUpTo(15*time.Second, func() bool {
+			return strings.Count(transcript(), step.await) > seen[step.await]
+		}) {
 			kill(t, cmd)
-			t.Fatalf("the %q prompt never appeared\n--- transcript ---\n%s", step.await, transcript())
+			t.Fatalf("the program never drew %q\n--- transcript ---\n%s", step.await, transcript())
 		}
+		seen[step.await] = strings.Count(transcript(), step.await)
 		if _, err := ptmx.WriteString(step.send); err != nil {
 			t.Fatalf("writing %q to the terminal: %v", step.send, err)
 		}
@@ -196,7 +217,7 @@ func runHelperUnderPTY(t *testing.T, watch, child bool) string {
 		t.Fatalf("the program never finished; a session read nothing\n--- transcript ---\n%s", transcript())
 	}
 
-	// The helper has exited, so reading the terminal ends and the drain
+	// The program has exited, so reading the terminal ends and the drain
 	// finishes with everything it wrote.
 	select {
 	case <-drained:
@@ -220,4 +241,248 @@ func boolEnv(b bool) string {
 		return "1"
 	}
 	return "0"
+}
+
+func helperScenario(name string) {
+	open := func(n int) *Prompt {
+		p, err := New(fmt.Sprintf("p%d> ", n), WithPersistentRawMode())
+		if err != nil {
+			fmt.Printf("new%d: %v\r\n", n, err)
+			os.Exit(1)
+		}
+		return p
+	}
+	runChild := func(script string) {
+		cmd := exec.CommandContext(context.Background(), "sh", "-c", script) //nolint:gosec // a fixed script from the table above
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("child: %v\r\n", err)
+		}
+	}
+
+	switch name {
+	case "reopen3":
+		for i := 1; i <= 3; i++ {
+			p := open(i)
+			line, err := p.Run()
+			fmt.Printf("session%d=%q err=%v\r\n", i, line, err)
+			_, stop := p.WatchInterrupt(context.Background())
+			stop()
+			if err := p.Close(); err != nil {
+				fmt.Printf("close%d: %v\r\n", i, err)
+				os.Exit(1)
+			}
+			runChild("true")
+		}
+	case "watchtwice":
+		p := open(1)
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		for range 3 {
+			_, stop := p.WatchInterrupt(context.Background())
+			stop()
+			stop() // a CancelFunc may be called more than once
+		}
+		line, err = p.Run()
+		fmt.Printf("session2=%q err=%v\r\n", line, err)
+		if err := p.Close(); err != nil {
+			fmt.Printf("close: %v\r\n", err)
+			os.Exit(1)
+		}
+	case "watchnostop":
+		p := open(1)
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		// The stop function is deliberately dropped: a watch left running is
+		// what Close has to cope with.
+		_, _ = p.WatchInterrupt(context.Background())
+		if err := p.Close(); err != nil {
+			fmt.Printf("close1: %v\r\n", err)
+			os.Exit(1)
+		}
+		p2 := open(2)
+		line, err = p2.Run()
+		fmt.Printf("session2=%q err=%v\r\n", line, err)
+		if err := p2.Close(); err != nil {
+			fmt.Printf("close2: %v\r\n", err)
+			os.Exit(1)
+		}
+	case "doubleclose":
+		p := open(1)
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		for range 3 {
+			if err := p.Close(); err != nil {
+				fmt.Printf("close: %v\r\n", err)
+				os.Exit(1)
+			}
+		}
+		p2 := open(2)
+		line, err = p2.Run()
+		fmt.Printf("session2=%q err=%v\r\n", line, err)
+		_ = p2.Close()
+	case "childstty":
+		p := open(1)
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		if err := p.Close(); err != nil {
+			fmt.Printf("close1: %v\r\n", err)
+			os.Exit(1)
+		}
+		runChild("stty sane")
+		p2 := open(2)
+		line, err = p2.Run()
+		fmt.Printf("session2=%q err=%v\r\n", line, err)
+		_ = p2.Close()
+	case "nestedwatch":
+		p := open(1)
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		_, stopA := p.WatchInterrupt(context.Background())
+		_, stopB := p.WatchInterrupt(context.Background())
+		stopB()
+		stopA()
+		line, err = p.Run()
+		fmt.Printf("session2=%q err=%v\r\n", line, err)
+		_ = p.Close()
+	case "cancelduringrun":
+		// Cancelling from another goroutine is the one concurrent use the
+		// package supports, so a read waiting for a key has to end on it.
+		p := open(1)
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			line, err := p.RunWithContext(ctx)
+			fmt.Printf("session1=%q err=%v\r\n", line, err)
+			close(done)
+		}()
+		time.Sleep(500 * time.Millisecond)
+		cancel()
+		select {
+		case <-done:
+			fmt.Printf("run returned\r\n")
+		case <-time.After(5 * time.Second):
+			fmt.Printf("run never returned\r\n")
+			os.Exit(1)
+		}
+		_ = p.Close()
+	case "typeahead":
+		p := open(1)
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		ctx, stop := p.WatchInterrupt(context.Background())
+		fmt.Printf("watching\r\n")
+		<-ctx.Done()
+		stop()
+		fmt.Printf("interrupted\r\n")
+		line, err = p.Run()
+		fmt.Printf("session2=%q err=%v\r\n", line, err)
+		_ = p.Close()
+	case "winch":
+		p := open(1)
+		fmt.Printf("ready\r\n")
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		_ = p.Close()
+	case "childinput":
+		p := open(1)
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		if err := p.Close(); err != nil {
+			fmt.Printf("close1: %v\r\n", err)
+		}
+		fmt.Printf("childstart\r\n")
+		runChild("sleep 0.5")
+		p2 := open(2)
+		line, err = p2.Run()
+		fmt.Printf("session2=%q err=%v\r\n", line, err)
+		_ = p2.Close()
+	default:
+		fmt.Printf("unknown scenario %q\r\n", name)
+		os.Exit(1)
+	}
+}
+
+// TestPromptLifecycleOrdersUnderAPTY walks the orders a REPL can put a prompt
+// through and asserts that every session still reads its line. #47 was found by
+// one of these orders; the rest are the ones no application had tried, and a
+// terminal is the only place they mean anything -- a mock returns EOF the moment
+// its input runs out, so nothing that happens while a read is waiting can
+// happen there at all.
+func TestPromptLifecycleOrdersUnderAPTY(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		scenario string
+		steps    []ptyStep
+		want     []string
+	}{
+		{
+			name:     "three sessions in a row, each handing the terminal to a child",
+			scenario: "reopen3",
+			steps:    []ptyStep{{"p1> ", "one\r"}, {"p2> ", "two\r"}, {"p3> ", "three\r"}},
+			want:     []string{`session1="one"`, `session2="two"`, `session3="three"`},
+		},
+		{
+			name:     "a watch started and stopped repeatedly, and stopped twice each time",
+			scenario: "watchtwice",
+			steps:    []ptyStep{{"p1> ", "one\r"}, {"p1> ", "two\r"}},
+			want:     []string{`session1="one"`, `session2="two"`},
+		},
+		{
+			name:     "a watch that is never stopped before the prompt is closed",
+			scenario: "watchnostop",
+			steps:    []ptyStep{{"p1> ", "one\r"}, {"p2> ", "two\r"}},
+			want:     []string{`session1="one"`, `session2="two"`},
+		},
+		{
+			name:     "two watches at once, stopped in reverse order",
+			scenario: "nestedwatch",
+			steps:    []ptyStep{{"p1> ", "one\r"}, {"p1> ", "two\r"}},
+			want:     []string{`session1="one"`, `session2="two"`},
+		},
+		{
+			name:     "closing more than once",
+			scenario: "doubleclose",
+			steps:    []ptyStep{{"p1> ", "one\r"}, {"p2> ", "two\r"}},
+			want:     []string{`session1="one"`, `session2="two"`},
+		},
+		{
+			name:     "a child that resets the terminal before the next session",
+			scenario: "childstty",
+			steps:    []ptyStep{{"p1> ", "one\r"}, {"p2> ", "two\r"}},
+			want:     []string{`session1="one"`, `session2="two"`},
+		},
+		{
+			name:     "typing while a child holds the terminal reaches the next session",
+			scenario: "childinput",
+			steps:    []ptyStep{{"p1> ", "one\r"}, {"childstart", "typed\r"}},
+			want:     []string{`session1="one"`, `session2="typed"`},
+		},
+		{
+			name:     "typing ahead of an interrupt is delivered to the next session",
+			scenario: "typeahead",
+			steps:    []ptyStep{{"p1> ", "one\r"}, {"watching", "ahead\x03"}, {"interrupted", "\r"}},
+			want:     []string{`session1="one"`, `session2="ahead"`},
+		},
+		{
+			name:     "cancelling the context from another goroutine ends the read",
+			scenario: "cancelduringrun",
+			want:     []string{"run returned"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out := runPromptUnderPTY(t, []string{"PROMPT_PTY_SCENARIO=" + tt.scenario}, tt.steps)
+			for _, want := range tt.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("the transcript does not contain %s\n--- transcript ---\n%s", want, out)
+				}
+			}
+		})
+	}
 }

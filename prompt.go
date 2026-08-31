@@ -770,14 +770,11 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 	suggestionOffset := 0 // Track the offset for scrolling through suggestions
 
 	for {
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		default:
-		}
-
 		// Read key input
-		r, err := p.readRune()
+		r, err := p.readRuneContext(ctx)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return "", err
+		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				// Input reached EOF; the session is over, so restore the terminal
@@ -1995,6 +1992,47 @@ func (p *Prompt) renderWithSuggestionsOffset(suggestions []Suggestion, selected 
 	p.renderer.setContinuationPrefix(p.config.ContinuationPrefix)
 	p.renderer.setHighlighter(p.config.Highlighter)
 	return p.renderer.renderWithSuggestionsOffset(p.config.Prefix, string(p.buffer), p.cursor, suggestions, selected, offset)
+}
+
+// readRuneContext reads the next rune and gives up when ctx is done.
+//
+// A terminal read cannot be canceled, so a context can only be noticed between
+// one key and the next: checking it before a blocking read and then waiting made
+// a deadline fire on the keystroke after it rather than on time, and an idle
+// prompt never returned at all. Where the context can actually be canceled the
+// read therefore moves to the shared reader goroutine, whose channel can be
+// waited on alongside the context.
+//
+// A context that can never be canceled -- context.Background(), which is what
+// Run passes -- keeps reading the terminal directly and starts no goroutine.
+// That is deliberate: on Windows the read goes through go-tty and Close does not
+// wait for the reader, so a session that never asked for cancellation should not
+// grow a goroutine that nothing can interrupt.
+func (p *Prompt) readRuneContext(ctx context.Context) (rune, error) {
+	done := ctx.Done()
+	if done == nil {
+		return p.readRune()
+	}
+	// A context already done takes precedence over input already held, which is
+	// what checking it at the top of the read loop used to do.
+	select {
+	case <-done:
+		return 0, ctx.Err()
+	default:
+	}
+	if r, ok := p.takePending(); ok {
+		return r, nil
+	}
+	reads := p.startInputReader()
+	select {
+	case <-done:
+		return 0, ctx.Err()
+	case res, ok := <-reads:
+		if !ok {
+			return 0, p.readErr
+		}
+		return res.r, nil
+	}
 }
 
 func (p *Prompt) readRune() (rune, error) {
