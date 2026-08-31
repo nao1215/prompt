@@ -665,12 +665,31 @@ func newFromConfig(config Config) (*Prompt, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}
+	return newFromConfigOn(config, terminal, output)
+}
+
+// newFromConfigOn builds a prompt over a terminal that is already open. It owns
+// that terminal from here on: nothing that fails below hands the caller a
+// prompt, so nothing would be left to close it, and the go-tty handle, the
+// descriptor the reader polls, and the pipe that wakes it would all be leaked --
+// three per attempt for a caller that retries.
+//
+// The close is deferred rather than written into each path so that a fallible
+// step added later is covered too, which is how the history load came to leak.
+func newFromConfigOn(config Config, terminal terminalInterface, output io.Writer) (_ *Prompt, err error) {
+	defer func() {
+		if err != nil {
+			if cerr := terminal.Close(); cerr != nil {
+				err = errors.Join(err, cerr)
+			}
+		}
+	}()
 
 	// Initialize history manager
 	historyManager := newHistoryManager(config.HistoryConfig)
 
 	// Load history from file if configured
-	if err := historyManager.loadHistory(); err != nil {
+	if err = historyManager.loadHistory(); err != nil {
 		return nil, fmt.Errorf("failed to load history: %w", err)
 	}
 
