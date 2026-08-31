@@ -8,9 +8,10 @@ import (
 // ColorScheme defines the color configuration for the prompt.
 //
 // The prompt draws foreground colors and nothing else: it writes over the
-// terminal's own background and leaves the terminal's own cursor alone. The
-// fields marked below as not drawn are kept because applications set them, but
-// setting one changes nothing on screen.
+// terminal's own background and leaves the terminal's own cursor alone. There is
+// no field for either, because a field that changes nothing on screen is worse
+// than one that is missing -- it was set, twelve times over, by the one
+// application using this library.
 type ColorScheme struct {
 	// Name is what an application calls this scheme. Nothing here reads it.
 	Name string `json:"name"`
@@ -23,12 +24,6 @@ type ColorScheme struct {
 	Suggestion SuggestionColors `json:"suggestion"`
 	// Selected is the color of the suggestion the menu is pointing at.
 	Selected Color `json:"selected"`
-	// Background is not drawn. Painting it would mean coloring cells no text
-	// covers, and every measurement here counts the cells text occupies.
-	Background *Color `json:"background"` // nil for transparent
-	// Cursor is not drawn. Setting the terminal's cursor color means OSC 12 and
-	// putting the terminal's own color back afterwards.
-	Cursor Color `json:"cursor"`
 }
 
 // SuggestionColors defines colors for completion suggestions.
@@ -37,13 +32,6 @@ type SuggestionColors struct {
 	Text Color `json:"text"`
 	// Description is the color of the description beside it.
 	Description Color `json:"description"`
-	// Match is not drawn. Coloring the part of a suggestion that matched means
-	// knowing which part matched, and that is the completer's knowledge rather
-	// than the prompt's -- a completer naming its own span through
-	// Suggestion.Replace never tells the prompt what it matched on.
-	Match Color `json:"match"` // Highlight color for matching parts
-	// Background is not drawn, for the same reason as ColorScheme.Background.
-	Background *Color `json:"background"` // nil for transparent
 }
 
 // StyleSpan marks a run of the input to draw in a color of its own. Start and
@@ -71,12 +59,8 @@ var ThemeDefault = &ColorScheme{
 	Suggestion: SuggestionColors{
 		Text:        Color{R: 200, G: 200, B: 200, Bold: false},
 		Description: Color{R: 128, G: 128, B: 128, Bold: false},
-		Match:       Color{R: 255, G: 255, B: 0, Bold: true},
-		Background:  nil,
 	},
-	Selected:   Color{R: 0, G: 255, B: 255, Bold: true},
-	Background: nil,
-	Cursor:     Color{R: 255, G: 255, B: 255, Bold: true},
+	Selected: Color{R: 0, G: 255, B: 255, Bold: true},
 }
 
 // ThemeDark is a dark theme with light blue prefix and off-white text
@@ -87,12 +71,8 @@ var ThemeDark = &ColorScheme{
 	Suggestion: SuggestionColors{
 		Text:        Color{R: 189, G: 147, B: 249, Bold: false},
 		Description: Color{R: 98, G: 114, B: 164, Bold: false},
-		Match:       Color{R: 255, G: 184, B: 108, Bold: true},
-		Background:  nil,
 	},
-	Selected:   Color{R: 80, G: 250, B: 123, Bold: true},
-	Background: &Color{R: 40, G: 42, B: 54},
-	Cursor:     Color{R: 248, G: 248, B: 242, Bold: false},
+	Selected: Color{R: 80, G: 250, B: 123, Bold: true},
 }
 
 // ThemeLight is a light theme with blue prefix and dark gray text
@@ -103,12 +83,8 @@ var ThemeLight = &ColorScheme{
 	Suggestion: SuggestionColors{
 		Text:        Color{R: 88, G: 96, B: 105, Bold: false},
 		Description: Color{R: 149, G: 157, B: 165, Bold: false},
-		Match:       Color{R: 215, G: 58, B: 73, Bold: true},
-		Background:  nil,
 	},
-	Selected:   Color{R: 40, G: 167, B: 69, Bold: true},
-	Background: &Color{R: 255, G: 255, B: 255},
-	Cursor:     Color{R: 36, G: 41, B: 46, Bold: false},
+	Selected: Color{R: 40, G: 167, B: 69, Bold: true},
 }
 
 // ThemeSolarizedDark is the Solarized Dark color scheme
@@ -119,12 +95,8 @@ var ThemeSolarizedDark = &ColorScheme{
 	Suggestion: SuggestionColors{
 		Text:        Color{R: 131, G: 148, B: 150, Bold: false},
 		Description: Color{R: 88, G: 110, B: 117, Bold: false},
-		Match:       Color{R: 181, G: 137, B: 0, Bold: true},
-		Background:  nil,
 	},
-	Selected:   Color{R: 38, G: 139, B: 210, Bold: true},
-	Background: &Color{R: 0, G: 43, B: 54},
-	Cursor:     Color{R: 253, G: 246, B: 227, Bold: false},
+	Selected: Color{R: 38, G: 139, B: 210, Bold: true},
 }
 
 // ThemeAccessible is a colorblind-safe theme with high contrast
@@ -135,12 +107,8 @@ var ThemeAccessible = &ColorScheme{
 	Suggestion: SuggestionColors{
 		Text:        Color{R: 255, G: 255, B: 255, Bold: false},
 		Description: Color{R: 204, G: 204, B: 204, Bold: false},
-		Match:       Color{R: 240, G: 228, B: 66, Bold: true},
-		Background:  nil,
 	},
-	Selected:   Color{R: 230, G: 159, B: 0, Bold: true},
-	Background: nil,
-	Cursor:     Color{R: 255, G: 255, B: 255, Bold: false},
+	Selected: Color{R: 230, G: 159, B: 0, Bold: true},
 }
 
 // ThemeVSCode is the VS Code dark theme colors
@@ -151,12 +119,8 @@ var ThemeVSCode = &ColorScheme{
 	Suggestion: SuggestionColors{
 		Text:        Color{R: 156, G: 220, B: 254, Bold: false},
 		Description: Color{R: 106, G: 153, B: 85, Bold: false},
-		Match:       Color{R: 255, G: 206, B: 84, Bold: true},
-		Background:  nil,
 	},
-	Selected:   Color{R: 0, G: 122, B: 204, Bold: true},
-	Background: &Color{R: 30, G: 30, B: 30},
-	Cursor:     Color{R: 255, G: 255, B: 255, Bold: true},
+	Selected: Color{R: 0, G: 122, B: 204, Bold: true},
 }
 
 // ThemeNightOwl is the Night Owl color scheme
@@ -167,12 +131,8 @@ var ThemeNightOwl = &ColorScheme{
 	Suggestion: SuggestionColors{
 		Text:        Color{R: 197, G: 228, B: 120, Bold: false},
 		Description: Color{R: 127, G: 219, B: 202, Bold: false},
-		Match:       Color{R: 199, G: 146, B: 234, Bold: true},
-		Background:  nil,
 	},
-	Selected:   Color{R: 34, G: 218, B: 110, Bold: true},
-	Background: &Color{R: 1, G: 22, B: 39},
-	Cursor:     Color{R: 214, G: 222, B: 235, Bold: true},
+	Selected: Color{R: 34, G: 218, B: 110, Bold: true},
 }
 
 // ThemeDracula is the Dracula color scheme
@@ -183,12 +143,8 @@ var ThemeDracula = &ColorScheme{
 	Suggestion: SuggestionColors{
 		Text:        Color{R: 139, G: 233, B: 253, Bold: false},
 		Description: Color{R: 98, G: 114, B: 164, Bold: false},
-		Match:       Color{R: 241, G: 250, B: 140, Bold: true},
-		Background:  nil,
 	},
-	Selected:   Color{R: 80, G: 250, B: 123, Bold: true},
-	Background: &Color{R: 40, G: 42, B: 54},
-	Cursor:     Color{R: 248, G: 248, B: 242, Bold: false},
+	Selected: Color{R: 80, G: 250, B: 123, Bold: true},
 }
 
 // ThemeMonokai is the Monokai color scheme
@@ -199,12 +155,8 @@ var ThemeMonokai = &ColorScheme{
 	Suggestion: SuggestionColors{
 		Text:        Color{R: 166, G: 226, B: 46, Bold: false},
 		Description: Color{R: 117, G: 113, B: 94, Bold: false},
-		Match:       Color{R: 253, G: 151, B: 31, Bold: true},
-		Background:  nil,
 	},
-	Selected:   Color{R: 102, G: 217, B: 239, Bold: true},
-	Background: &Color{R: 39, G: 40, B: 34},
-	Cursor:     Color{R: 248, G: 248, B: 242, Bold: false},
+	Selected: Color{R: 102, G: 217, B: 239, Bold: true},
 }
 
 // ToANSI converts a Color to an ANSI escape sequence.
