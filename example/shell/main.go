@@ -13,6 +13,16 @@ import (
 	"github.com/nao1215/prompt"
 )
 
+// The shell's command names, so the completer and the dispatcher cannot drift
+// apart.
+const (
+	cmdLs   = "ls"
+	cmdCd   = "cd"
+	cmdCat  = "cat"
+	cmdPwd  = "pwd"
+	cmdExit = "exit"
+)
+
 func main() {
 	fmt.Println("Shell-like File Explorer Example")
 	fmt.Println("================================")
@@ -56,7 +66,7 @@ func main() {
 		result = strings.TrimSpace(result)
 
 		// Handle exit commands
-		if result == "exit" || result == "quit" {
+		if result == cmdExit || result == "quit" {
 			fmt.Println("Goodbye!")
 			break
 		}
@@ -88,8 +98,8 @@ func createShellCompleter() func(prompt.Document) []prompt.Suggestion {
 				{Text: "ls ", Description: "list directory contents"},
 				{Text: "cd ", Description: "change directory"},
 				{Text: "cat ", Description: "show file contents"},
-				{Text: "pwd", Description: "print working directory"},
-				{Text: "exit", Description: "exit shell"},
+				{Text: cmdPwd, Description: "print working directory"},
+				{Text: cmdExit, Description: "exit shell"},
 			}
 		}
 
@@ -98,11 +108,11 @@ func createShellCompleter() func(prompt.Document) []prompt.Suggestion {
 		// If we're typing the first word and it's incomplete, suggest commands
 		if len(words) == 1 && !strings.HasSuffix(text, " ") {
 			commands := []prompt.Suggestion{
-				{Text: "ls", Description: "list directory contents"},
-				{Text: "cd", Description: "change directory"},
-				{Text: "cat", Description: "show file contents"},
-				{Text: "pwd", Description: "print working directory"},
-				{Text: "exit", Description: "exit shell"},
+				{Text: cmdLs, Description: "list directory contents"},
+				{Text: cmdCd, Description: "change directory"},
+				{Text: cmdCat, Description: "show file contents"},
+				{Text: cmdPwd, Description: "print working directory"},
+				{Text: cmdExit, Description: "exit shell"},
 			}
 
 			var filtered []prompt.Suggestion
@@ -115,7 +125,7 @@ func createShellCompleter() func(prompt.Document) []prompt.Suggestion {
 		}
 
 		// For file/directory arguments, use file completer
-		if cmd == "ls" || cmd == "cd" || cmd == "cat" {
+		if cmd == cmdLs || cmd == cmdCd || cmd == cmdCat {
 			// Extract the path part after the command
 			pathStart := len(cmd)
 			if pathStart < len(text) && text[pathStart] == ' ' {
@@ -128,7 +138,10 @@ func createShellCompleter() func(prompt.Document) []prompt.Suggestion {
 			}
 
 			pathText := text[pathStart:]
-			suggestions := fileCompleter(prompt.Document{Text: pathText, CursorPosition: len(pathText)})
+			// CursorPosition is a rune offset, which is what the prompt's own
+			// buffer is indexed by. Counting bytes puts it past the end of a
+			// path holding any character outside ASCII.
+			suggestions := fileCompleter(prompt.Document{Text: pathText, CursorPosition: len([]rune(pathText))})
 
 			// Adjust suggestions to include the command prefix
 			var adjusted []prompt.Suggestion
@@ -155,7 +168,7 @@ func executeCommand(input string) {
 	args := words[1:]
 
 	switch cmd {
-	case "pwd":
+	case cmdPwd:
 		cwd, err := os.Getwd()
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
@@ -163,7 +176,7 @@ func executeCommand(input string) {
 			fmt.Println(cwd)
 		}
 
-	case "ls":
+	case cmdLs:
 		path := "."
 		if len(args) > 0 {
 			path = args[0]
@@ -185,7 +198,7 @@ func executeCommand(input string) {
 			}
 		}
 
-	case "cd":
+	case cmdCd:
 		if len(args) == 0 {
 			fmt.Println("Error: cd requires a directory argument")
 			return
@@ -202,7 +215,7 @@ func executeCommand(input string) {
 			fmt.Printf("Changed to: %s\n", cwd)
 		}
 
-	case "cat":
+	case cmdCat:
 		if len(args) == 0 {
 			fmt.Println("Error: cat requires a file argument")
 			return
