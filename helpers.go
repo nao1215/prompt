@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,4 +134,120 @@ func completeFilePath(path string) []Suggestion {
 	}
 
 	return suggestions
+}
+
+// fuzzyMatcher provides reusable fuzzy matching logic for completions and history search
+type fuzzyMatcher struct {
+	items []string
+}
+
+// NewFuzzyCompleter creates a new fuzzy completer with the given candidates.
+//
+// The fuzzy completer provides intelligent auto-completion by matching
+// user input against a list of candidates using fuzzy string matching.
+// It supports partial matches, substring matches, and character-by-character
+// fuzzy matching with scoring.
+//
+// This is a convenience function that returns a completer function that can be
+// used directly in Config.Completer. The returned function implements fuzzy
+// matching and scoring automatically.
+//
+// Example:
+//
+//	candidates := []string{
+//		"git status", "git commit", "git push", "git pull",
+//		"docker run", "docker build", "docker ps",
+//		"kubectl get", "kubectl apply", "kubectl delete",
+//	}
+//
+//	config := prompt.Config{
+//		Prefix: "$ ",
+//		Completer: prompt.NewFuzzyCompleter(candidates),
+//	}
+//
+//	p, _ := prompt.New(config)
+//	defer p.Close()
+//	result, _ := p.Run()
+func NewFuzzyCompleter(candidates []string) func(Document) []Suggestion {
+	fm := &fuzzyMatcher{
+		items: candidates,
+	}
+	return fm.completionFunc
+}
+
+// completionFunc returns fuzzy-matched suggestions for the given document context
+func (f *fuzzyMatcher) completionFunc(d Document) []Suggestion {
+	input := d.TextBeforeCursor()
+	if input == "" {
+		// Return all items if no input
+		suggestions := make([]Suggestion, len(f.items))
+		for i, item := range f.items {
+			suggestions[i] = Suggestion{
+				Text:        item,
+				Description: "",
+			}
+		}
+		return suggestions
+	}
+
+	matches := f.fuzzySearch(input)
+	// Convert to suggestions
+	suggestions := make([]Suggestion, len(matches))
+	for i, match := range matches {
+		suggestions[i] = Suggestion{
+			Text:        match.text,
+			Description: fmt.Sprintf("score: %d", match.score),
+		}
+	}
+	return suggestions
+}
+
+type fuzzyMatch struct {
+	text  string
+	score int
+}
+
+// fuzzySearch performs fuzzy matching against items and returns sorted matches
+func (f *fuzzyMatcher) fuzzySearch(query string) []fuzzyMatch {
+	if query == "" {
+		return nil
+	}
+
+	var matches []fuzzyMatch
+	queryLower := strings.ToLower(query)
+
+	for _, item := range f.items {
+		if score := calculateFuzzyScore(queryLower, strings.ToLower(item)); score > 0 {
+			matches = append(matches, fuzzyMatch{
+				text:  item,
+				score: score,
+			})
+		}
+	}
+
+	// Sort by score (descending)
+	for i := range len(matches) - 1 {
+		for j := i + 1; j < len(matches); j++ {
+			if matches[i].score < matches[j].score {
+				matches[i], matches[j] = matches[j], matches[i]
+			}
+		}
+	}
+
+	return matches
+}
+
+// searchFunc returns items that match the query using fuzzy matching
+func (f *fuzzyMatcher) searchFunc(query string) []string {
+	if query == "" {
+		return f.items
+	}
+
+	matches := f.fuzzySearch(query)
+	// Convert to string slice
+	results := make([]string, len(matches))
+	for i, match := range matches {
+		results[i] = match.text
+	}
+	return results
 }

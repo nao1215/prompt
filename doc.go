@@ -96,6 +96,9 @@
 //   - Ctrl+D: EOF when buffer is empty
 //   - Esc: Close the completion popup
 //
+// A completion menu stands for the word before the cursor, so editing the line
+// or moving the cursor off that word ends it and the next Tab asks again.
+//
 // While an application runs work between prompts (a query, an import), no one is
 // reading the terminal, so Ctrl+C is a byte that simply waits in the buffer.
 // WatchInterrupt watches for it during that gap and returns a context canceled
