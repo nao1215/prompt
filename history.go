@@ -35,7 +35,7 @@ func GetDefaultHistoryFile() string {
 }
 
 // defaultMaxHistoryEntries is how many entries are kept when the configuration
-// names no limit.
+// sets no limit.
 const defaultMaxHistoryEntries = 1000
 
 // historyManager manages command history persistence and rotation
@@ -89,11 +89,11 @@ func (hm *historyManager) loadHistory() error {
 	}
 	defer file.Close()
 
-	// The file's contents replace what the manager holds rather than joining it.
-	// A load answers "what is in the file", and appending made asking twice --
-	// after another shell wrote to it, after the user edited it -- return every
-	// entry twice. It is built up separately so a read that fails partway leaves
-	// the existing history alone.
+	// The file's contents replace what the manager holds rather than being added
+	// to it. A load answers "what is in the file", and because it appended,
+	// asking a second time -- after another shell wrote to the file, after the
+	// user edited it -- returned every entry twice. The entries are collected
+	// separately so a read that fails partway leaves the existing history alone.
 	loaded := make([]string, 0, len(hm.history))
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -245,7 +245,7 @@ func (hm *historyManager) addEntry(entry string) {
 // The limit belongs here, where the history is held. It used to be applied only
 // by the prompt, which read this history back, cut it, and pushed the shortened
 // copy down again, so a manager used on its own grew for as long as the process
-// ran however small a limit it was given.
+// ran, however small a limit it was given.
 func (hm *historyManager) trim(history []string) []string {
 	limit := hm.config.MaxEntries
 	if limit <= 0 {

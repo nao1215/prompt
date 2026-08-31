@@ -400,12 +400,12 @@ func (r *renderer) renderSuggestionsWithOffset(_, _ string, _ int, suggestions [
 			indicator = "\u25b6 "
 			textColor = r.colorScheme.Selected.ToANSI()
 		}
-		if _, err := fmt.Fprint(r.output, textColor, indicator, suggestion.Text, ansiReset()); err != nil {
+		if _, err := fmt.Fprint(r.output, textColor, indicator, singleLine(suggestion.Text), ansiReset()); err != nil {
 			return 0, err
 		}
 
 		if suggestion.Description != "" {
-			if _, err := fmt.Fprint(r.output, " ", r.colorScheme.Suggestion.Description.ToANSI(), "- ", suggestion.Description, ansiReset()); err != nil {
+			if _, err := fmt.Fprint(r.output, " ", r.colorScheme.Suggestion.Description.ToANSI(), "- ", singleLine(suggestion.Description), ansiReset()); err != nil {
 				return 0, err
 			}
 		}
@@ -431,13 +431,45 @@ func (r *renderer) renderSuggestionsWithOffset(_, _ string, _ int, suggestions [
 // suggestionCells returns the printable text of one menu row: what the loop in
 // renderSuggestionsWithOffset prints, minus the color escapes, which occupy no
 // cells. The two have to stay in step, or the height is measured against text
-// that was never drawn.
+// that was never drawn, which is why the loop prints this rather than assembling
+// the row a second time.
 func suggestionCells(indicator string, s Suggestion) string {
-	line := indicator + s.Text
+	line := indicator + singleLine(s.Text)
 	if s.Description != "" {
-		line += " - " + s.Description
+		line += " - " + singleLine(s.Description)
 	}
 	return line
+}
+
+// singleLine returns s with every rune that would take the cursor off the row
+// replaced by a space.
+//
+// A menu row and a search result are one row each, and their height is measured
+// by walking the text for cells. A newline occupies no cells and moves the
+// terminal to the next row, so an entry carrying one was drawn taller than it
+// was counted and the extra row was left behind by the erase. The other C0
+// controls are worse than uncounted: a suggestion or a history entry holding an
+// escape sequence is written to the terminal as a command, and the history file
+// preserves whatever was typed, so an entry can hold one.
+//
+// A tab is kept, because layout measures it against tab stops and a terminal
+// keeps it on the row.
+func singleLine(s string) string {
+	if strings.IndexFunc(s, leavesRow) < 0 {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if leavesRow(r) {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
+// leavesRow reports whether a terminal would do something other than draw r on
+// the row it is on.
+func leavesRow(r rune) bool {
+	return (r < 0x20 && r != '\t') || r == 0x7f
 }
 
 // clearPreviousLines clears the previously rendered lines.

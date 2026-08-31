@@ -1902,7 +1902,7 @@ func TestRendererKeepsATabOnTheRowTheTerminalPutIt(t *testing.T) {
 	}
 }
 
-// TestRendererDoesNotEraseTheRowAboveAfterATab is the same measurement seen a
+// TestRendererDoesNotEraseTheRowAboveAfterATab is the same measurement as seen a
 // keystroke later: an overstated cursor row makes the next render move up past
 // the top of its own block and erase what the application printed there.
 func TestRendererDoesNotEraseTheRowAboveAfterATab(t *testing.T) {
@@ -1980,6 +1980,80 @@ func TestLayoutStopsATabAtTheLastColumn(t *testing.T) {
 			rows, col := layout(tt.s, tt.width)
 			if rows != tt.wantRows || col != tt.wantCol {
 				t.Errorf("layout(%q, %d) = (%d, %d), want (%d, %d)", tt.s, tt.width, rows, col, tt.wantRows, tt.wantCol)
+			}
+		})
+	}
+}
+
+// TestRendererDrawsOneRowPerSuggestion covers what a menu row holds. A menu row
+// is one terminal row and its height is measured by walking its text for cells,
+// but a newline occupies no cells and moves the terminal to the next row, so a
+// suggestion carrying one was drawn taller than it was counted and the extra row
+// survived the erase.
+func TestRendererDrawsOneRowPerSuggestion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		suggestion Suggestion
+	}{
+		{name: "a newline in the text", suggestion: Suggestion{Text: "a\nb"}},
+		{name: "a newline in the description", suggestion: Suggestion{Text: "a", Description: "one\ntwo"}},
+		{name: "a carriage return", suggestion: Suggestion{Text: "a\rb"}},
+		{name: "an escape sequence", suggestion: Suggestion{Text: "\x1b[2Jwipe"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			const width = 40
+
+			var out bytes.Buffer
+			r := newRenderer(&out, ThemeDefault, &widthTerminal{width: width})
+			if err := r.renderWithSuggestionsOffset("> ", "a", 1, []Suggestion{tt.suggestion}, 0, 0); err != nil {
+				t.Fatalf("renderWithSuggestionsOffset: %v", err)
+			}
+
+			screen := newScreenModel(width)
+			screen.feed(out.String())
+
+			if drawn := len(screen.rows()); drawn != r.lastLines {
+				t.Errorf("the menu recorded %d rows and drew %d: %q", r.lastLines, drawn, screen.rows())
+			}
+			if r.lastCursorRow != screen.row {
+				t.Errorf("the menu recorded the cursor on row %d and left it on row %d", r.lastCursorRow, screen.row)
+			}
+		})
+	}
+}
+
+// TestSingleLineKeepsTextOnItsRow pins what is flattened. A tab stays, because a
+// terminal keeps it on the row and layout measures it against tab stops.
+func TestSingleLineKeepsTextOnItsRow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		s    string
+		want string
+	}{
+		{name: "plain text is returned as it is", s: "select * from t", want: "select * from t"},
+		{name: "a newline becomes a space", s: "a\nb", want: "a b"},
+		{name: "a carriage return becomes a space", s: "a\rb", want: "a b"},
+		{name: "an escape becomes a space", s: "a\x1b[2Jb", want: "a [2Jb"},
+		{name: "a delete becomes a space", s: "a\x7fb", want: "a b"},
+		{name: "a tab is kept", s: "a\tb", want: "a\tb"},
+		{name: "text outside ascii is kept", s: "日本語 naïve", want: "日本語 naïve"},
+		{name: "empty stays empty", s: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := singleLine(tt.s); got != tt.want {
+				t.Errorf("singleLine(%q) = %q, want %q", tt.s, got, tt.want)
 			}
 		})
 	}

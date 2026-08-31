@@ -1755,3 +1755,45 @@ func TestHistoryManagerLoadHistoryKeepsAtMostMaxEntries(t *testing.T) {
 		t.Errorf("GetHistory() = %q, want %q", got, want)
 	}
 }
+
+// TestRenderHistorySearchDrawsOneRowPerResult covers reverse search over a
+// statement entered across several lines, which is what the history file's
+// escaping exists to preserve. Each result is one row of the block, but an entry
+// holding a newline was written to the terminal as it was stored, so the block
+// drew rows it had not counted and they stayed on screen when the search closed.
+func TestRenderHistorySearchDrawsOneRowPerResult(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		results []string
+		want    int
+	}{
+		{name: "single line results", results: []string{"select 1", "select 2"}, want: 3},
+		{name: "a result entered across two lines", results: []string{"select *\nfrom t"}, want: 2},
+		{name: "a result holding an escape sequence", results: []string{"\x1b[2Jselect 1"}, want: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			p := newTestPrompt(newMockTerminal(""))
+			p.output = &out
+
+			rows, err := p.renderHistorySearch("sel", tt.results, 0)
+			if err != nil {
+				t.Fatalf("renderHistorySearch() error = %v", err)
+			}
+			if rows != tt.want {
+				t.Errorf("renderHistorySearch() reported %d rows, want %d", rows, tt.want)
+			}
+			screen := newScreenModel(40)
+			screen.feed(out.String())
+			if drawn := len(screen.rows()); drawn != tt.want {
+				t.Errorf("renderHistorySearch() drew %d rows, want %d: %q", drawn, tt.want, screen.rows())
+			}
+		})
+	}
+}

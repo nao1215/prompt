@@ -1547,9 +1547,8 @@ func isWordChar(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }
 
-// newHistorySearcher returns the function reverse search (Ctrl+R) asks for
-// matches, which ranks the history by fuzzy match against the query and returns
-// the closest first.
+// newHistorySearcher returns the search function Ctrl+R calls for matches. It
+// ranks the history by fuzzy match against the query, closest first.
 func newHistorySearcher(history []string) func(string) []string {
 	fm := &fuzzyMatcher{
 		items: history,
@@ -1643,9 +1642,14 @@ func (p *Prompt) searchHistory() (_ string, err error) {
 // renderHistorySearch renders the history search interface and returns how many
 // terminal rows it occupies, which is what the next render has to erase.
 func (p *Prompt) renderHistorySearch(query string, results []string, selected int) (int, error) {
-	header := "reverse-i-search: " + query
+	// Every line of the block is one terminal row, so what is drawn is flattened
+	// to one: a history entry can hold newlines -- a statement entered across
+	// several lines is stored as one entry, which is what the file's escaping is
+	// for -- and drawing one raw took rows the block never counted, leaving them
+	// on screen when the search closed.
+	header := "reverse-i-search: " + singleLine(query)
 	if selected < len(results) && len(results) > 0 {
-		header += " -> " + results[selected]
+		header += " -> " + singleLine(results[selected])
 	}
 
 	// Show top 5 results. The header names the selection even when Tab has
@@ -1659,10 +1663,10 @@ func (p *Prompt) renderHistorySearch(query string, results []string, selected in
 	lines = append(lines, header)
 	for i, result := range results {
 		if i == selected {
-			lines = append(lines, "  > "+result)
+			lines = append(lines, "  > "+singleLine(result))
 			continue
 		}
-		lines = append(lines, "    "+result)
+		lines = append(lines, "    "+singleLine(result))
 	}
 
 	if _, err := fmt.Fprint(p.output, "\r\x1b[K"); err != nil {
