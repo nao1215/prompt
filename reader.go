@@ -8,9 +8,9 @@ import (
 
 // This file holds the path a keystroke takes from the terminal to the line
 // editor: the shared reader goroutine, the runes held back for the next read,
-// and the ways a read ends. It is one surface because only one of them may own
-// the terminal at a time -- a watcher and the line editor reading it at once
-// would each take half of what was typed.
+// and the ways a read ends. It is one surface because only one reader may own
+// the terminal at a time: a watcher and the line editor reading at once would
+// each take half of what was typed.
 
 // readResult is one rune from the shared input reader.
 type readResult struct {
@@ -60,7 +60,7 @@ func (p *Prompt) readRuneContext(ctx context.Context) (rune, error) {
 
 // endOfInput reports whether err ends this prompt's input rather than being a
 // failure to report. The terminal saying so is one way; the other is Close,
-// which ends the read it was waiting in -- from the reader's side that is an
+// which ends the read a Run is waiting in -- from the reader's side that is an
 // error, and to the caller it is the same ending as EOF.
 func (p *Prompt) endOfInput(err error) bool {
 	return errors.Is(err, io.EOF) || p.closed.Load()

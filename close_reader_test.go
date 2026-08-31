@@ -339,8 +339,8 @@ func TestCloseLeavesNoGoroutineBehind(t *testing.T) {
 	}
 }
 
-// TestCloseWhileRunWaitsReportsEOF covers the other way a session ends under a
-// Run: another goroutine closes the prompt while the read is waiting for a key.
+// TestCloseWhileRunWaitsReportsEOF covers a session ended from outside while a
+// Run is waiting: another goroutine closes the prompt before any key arrives.
 // The read ends, which is what Close is for, and what the caller is told has to
 // be the ending it knows -- a REPL loop leaves on ErrEOF, and the unexported
 // terminal error it used to get matched nothing, so the loop drew the prompt

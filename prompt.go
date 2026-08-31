@@ -58,7 +58,8 @@ type Prompt struct {
 	keyMap         *KeyMap
 	// rawActive says whether the terminal is currently in raw mode. Close can be
 	// called while a Run waits for a key, and both of them restore the terminal,
-	// so the two transitions are taken by whichever gets there first.
+	// so each transition is made by whichever caller gets there first and the
+	// other one does nothing.
 	rawActive atomic.Bool
 
 	// pending holds runes that were read before they were needed and must be
@@ -82,10 +83,10 @@ type Prompt struct {
 	readerDone chan struct{}
 
 	// closed is set by Close and says the session is over. Every entry point
-	// that would touch the terminal has to know that, because the terminal was
-	// given up while its settings live on: raw mode is set on a descriptor Close
-	// never touches, so entering it again succeeds and leaves nobody to restore
-	// it. It is read from another goroutine -- Close while a Run waits for a key
+	// that would touch the terminal has to know that, because the terminal has
+	// been given up while its settings live on: raw mode is set on a descriptor
+	// Close never touches, so entering it again succeeds and nothing is left
+	// that would restore it. It is read from another goroutine -- Close while a Run waits for a key
 	// is a supported order -- so it is atomic.
 	closed atomic.Bool
 }
@@ -600,10 +601,10 @@ func (p *Prompt) Run() (string, error) {
 //	}
 //	fmt.Printf("Input: %s\n", input)
 func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
-	// A closed prompt has no input left to read, which is what ErrEOF says. It
-	// is answered here rather than by the read, because the read is reached
-	// through raw mode: entering it on a terminal the session has given up
-	// leaves it raw with nothing left to restore it.
+	// A closed prompt has no input left to read, which is what ErrEOF says. This
+	// is answered before the read rather than by it, because reaching the read
+	// means entering raw mode first: doing that on a terminal the session has
+	// given up leaves the terminal raw with nothing left to restore it.
 	if p.closed.Load() {
 		return "", ErrEOF
 	}

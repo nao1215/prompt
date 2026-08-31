@@ -35,14 +35,15 @@ const ctrlC = '\x03'
 // was typed, so typing ahead keeps working. The Ctrl+C itself is taken, which is
 // what stops it from also canceling the next line.
 //
-// Both spellings of the key are watched, because which one the terminal uses
-// depends on the mode it is in: the byte 0x03 in raw mode, and SIGINT in cooked
-// mode, which is where a prompt built without WithPersistentRawMode sits between
-// one line and the next. While the watch is active the signal's default action
-// is suppressed, so the interrupt cancels the work instead of killing the
-// application; the stop function gives it back. An interrupt sent any other way
-// -- kill -INT from another terminal -- is watched too, because there is nothing
-// to tell it apart from the key.
+// The key reaches the process in one of two forms, and which one depends on the
+// mode the terminal is in: the byte 0x03 while the prompt holds the terminal,
+// and SIGINT once it has given it back, which is where a prompt built without
+// WithPersistentRawMode sits between one line and the next. Both are watched.
+// While the watch is active the signal's default action is taken away, so the
+// interrupt cancels the work instead of killing the application; the stop
+// function gives it back. An interrupt sent any other way -- kill -INT from
+// another terminal -- cancels the work too, because there is nothing to tell it
+// apart from the key.
 //
 // The returned context is a child of the one passed in, so a caller whose own
 // context is canceled still sees the work stop. It is canceled by the returned
@@ -58,18 +59,9 @@ func (p *Prompt) WatchInterrupt(parent context.Context) (context.Context, contex
 	stop := make(chan struct{})
 	done := make(chan struct{})
 
-	// Ctrl+C only reaches the reader as a byte while the terminal is in raw
-	// mode, and outside a persistent session it is not: Run restores the
-	// terminal when it returns, so the gap this watches over is a cooked
-	// terminal, where the driver turns the key into SIGINT for the foreground
-	// process group. Watching for the signal as well is what makes the key mean
-	// the same thing in both modes. Registering for it also takes away its
-	// default action, which was to kill the application in the middle of the
-	// work this exists to cancel.
-	//
-	// The registration happens here rather than in the goroutine so the signal
-	// is trapped by the time this returns, leaving no window where the key still
-	// kills the caller.
+	// The registration happens here rather than in the goroutine, so the signal
+	// is trapped by the time this returns and there is no window in which the
+	// key still kills the caller.
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt)
 

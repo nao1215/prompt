@@ -443,10 +443,10 @@ func helperScenario(name string) {
 		if err := p.Close(); err != nil {
 			fmt.Printf("close: %v\r\n", err)
 		}
-		// A REPL that closed on one path and came round again. The read has to
-		// fail -- the terminal is gone -- but nothing on the way to failing may
-		// touch the terminal, because in a persistent session the Close that
-		// would restore it has already run.
+		// A REPL that closed on one path and came round again. The second Run has
+		// to report that the session is over, and it must do so without touching
+		// the terminal, because in a persistent session the Close that would
+		// restore it has already run.
 		line, err = p.Run()
 		fmt.Printf("session2=%q err=%v errEOF=%v\r\n", line, err, errors.Is(err, ErrEOF))
 		after, stateErr := term.GetState(int(os.Stdin.Fd()))
@@ -544,7 +544,7 @@ func TestPromptLifecycleOrdersUnderAPTY(t *testing.T) {
 			want:     []string{`session1="one"`, "interrupted"},
 		},
 		{
-			name:     "a Run on a closed prompt gives the terminal back as it found it",
+			name:     "a Run on a closed prompt leaves the terminal as it found it",
 			scenario: "runafterclose",
 			steps:    []ptyStep{{await: "p1> ", send: "one\r"}},
 			want:     []string{`session1="one"`, "errEOF=true", "restored=true"},

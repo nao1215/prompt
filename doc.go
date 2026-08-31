@@ -95,15 +95,6 @@
 //   - Ctrl+C: Discard the current line and return ErrInterrupted
 //   - Ctrl+D: EOF when buffer is empty
 //   - Esc: Close the completion popup
-//
-// A completion menu stands for the word before the cursor, so editing the line
-// or moving the cursor off that word ends it and the next Tab asks again.
-//
-// While an application runs work between prompts (a query, an import), no one is
-// reading the terminal, so Ctrl+C either waits in the buffer as a byte or, once
-// the prompt has given raw mode back, arrives as a SIGINT that kills the
-// application. WatchInterrupt watches for both during that gap and returns a
-// context canceled when it arrives.
 //   - Arrow keys: Navigate history (up/down) and move cursor (left/right)
 //   - Ctrl+A / Home: Move to beginning of line
 //   - Ctrl+E / End: Move to end of line
@@ -116,6 +107,16 @@
 //   - Backspace: Delete character backwards
 //   - Delete: Delete character forwards
 //   - Ctrl+Left/Right: Move by word boundaries
+//
+// A completion menu stands for the word before the cursor, so editing the line
+// or moving the cursor off that word ends it and the next Tab asks again.
+//
+// While an application runs work between prompts (a query, an import), no one is
+// reading the terminal, so Ctrl+C either waits in the buffer as a byte or, once
+// the prompt has given raw mode back, arrives as a SIGINT that would otherwise
+// kill the application. WatchInterrupt watches for the byte and the signal
+// during that gap: the key cancels the context it returns instead of ending the
+// process, until the stop function is called.
 //
 // Custom Key Bindings:
 //
@@ -164,8 +165,9 @@
 // Thread Safety:
 //
 // Prompt instances are not thread-safe. Each prompt should be used from a single
-// goroutine. However, you can safely cancel a prompt from another goroutine using
-// context cancellation.
+// goroutine. Ending a session is the exception, because a prompt waiting for a
+// key cannot end itself: canceling the context passed to RunWithContext returns
+// context.Canceled, and Close returns ErrEOF.
 //
 // Resource Management:
 //
