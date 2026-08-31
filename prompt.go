@@ -997,10 +997,11 @@ func (p *Prompt) Close() error {
 		fmt.Fprintf(os.Stderr, "Warning: failed to exit raw mode: %v\n", err)
 	}
 
-	// Restore cursor visibility before closing
+	// Restore cursor visibility before closing. It is done here as well as in
+	// restoreOnExit because a prompt can be closed without ever having run.
 	if p.output != nil {
-		fmt.Fprint(p.output, "\x1b[?25h") // Show cursor
-		fmt.Fprint(p.output, "\n")        // Move to new line
+		p.showCursor()
+		fmt.Fprint(p.output, "\n") // Move to new line
 	}
 
 	// Save history before closing
@@ -1825,9 +1826,23 @@ func (p *Prompt) enterRawMode() error {
 // (interrupt or EOF), logging any failure. It is used so a persistent session is
 // restored on those paths even though the deferred per-call cleanup skips restore.
 func (p *Prompt) restoreOnExit() {
+	// The completion menu hides the cursor while it is drawn and shows it again
+	// on the next render without one, which an ending never reaches. Handing the
+	// terminal back with no cursor outlives the program, so it is shown here,
+	// where both endings that give the terminal up already pass. Showing a
+	// cursor that is already visible does nothing.
+	p.showCursor()
 	if err := p.exitRawMode(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to restore terminal state: %v\n", err)
 	}
+}
+
+// showCursor makes the terminal cursor visible again.
+func (p *Prompt) showCursor() {
+	if p.output == nil {
+		return
+	}
+	fmt.Fprint(p.output, showCursorSequence)
 }
 
 // exitRawMode disables bracketed paste and restores the original terminal state.

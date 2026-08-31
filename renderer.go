@@ -154,7 +154,7 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 
 	if len(suggestions) > 0 {
 		// Hide cursor during suggestion rendering
-		if _, err := fmt.Fprint(r.output, "\x1b[?25l"); err != nil {
+		if _, err := fmt.Fprint(r.output, hideCursorSequence); err != nil {
 			return err
 		}
 
@@ -185,7 +185,7 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 		}
 
 		// Show cursor
-		if _, err := fmt.Fprint(r.output, "\x1b[?25h"); err != nil {
+		if _, err := fmt.Fprint(r.output, showCursorSequence); err != nil {
 			return err
 		}
 
@@ -681,6 +681,14 @@ func (r *renderer) measureTerminal() {
 		r.width = width
 	}
 }
+
+// showCursorSequence makes the terminal cursor visible; hideCursorSequence hides
+// it while a completion menu is drawn, where a cursor left among the suggestions
+// would sit on a row the user is not editing.
+const (
+	showCursorSequence = "\x1b[?25h"
+	hideCursorSequence = "\x1b[?25l"
+)
 
 // defaultTerminalWidth is the width assumed when the terminal cannot report one.
 const defaultTerminalWidth = 80

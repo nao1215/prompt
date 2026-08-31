@@ -2068,3 +2068,43 @@ func TestSingleLineKeepsTextOnItsRow(t *testing.T) {
 		})
 	}
 }
+
+// TestPromptShowsTheCursorWhenItGivesTheTerminalBack covers what an interrupt
+// leaves behind. The completion menu hides the cursor while it is drawn and
+// shows it again on the next render without one, so an interrupt -- which
+// returns before that render -- used to hand the terminal back with no cursor,
+// for as long as the terminal lived if the application exited there.
+func TestPromptShowsTheCursorWhenItGivesTheTerminalBack(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		script string
+	}{
+		{name: "interrupted with the menu open", script: "cre\t\x03"},
+		{name: "interrupted with no menu", script: "abc\x03"},
+		{name: "input ended with the menu open", script: "cre\t\x1b\x04"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			p := newTestPrompt(newMockTerminal(tt.script), WithCompleter(func(Document) []Suggestion {
+				return []Suggestion{{Text: "create"}, {Text: "credit"}}
+			}))
+			p.output = &out
+			p.renderer = newRenderer(&out, ThemeDefault, p.terminal)
+
+			if _, err := p.Run(); err == nil {
+				t.Fatalf("Run() returned no error, want the session to have ended")
+			}
+
+			written := out.String()
+			if hidden, shown := strings.LastIndex(written, "\x1b[?25l"), strings.LastIndex(written, "\x1b[?25h"); hidden > shown {
+				t.Errorf("the prompt returned with the cursor hidden")
+			}
+		})
+	}
+}
