@@ -124,6 +124,10 @@ func TestPromptReopensAfterCloseUnderAPTY(t *testing.T) {
 type ptyStep struct {
 	await string
 	send  string
+	// resizeTo, when set, is the width the terminal is changed to once the
+	// program has drawn what this step waits for and before anything is typed --
+	// that is, while a read is waiting.
+	resizeTo uint16
 }
 
 // runHelperUnderPTY re-executes the test binary as the prompt program, types
@@ -200,6 +204,11 @@ func runPromptUnderPTY(t *testing.T, env []string, steps []ptyStep) string {
 			t.Fatalf("the program never drew %q\n--- transcript ---\n%s", step.await, transcript())
 		}
 		seen[step.await] = strings.Count(transcript(), step.await)
+		if step.resizeTo > 0 {
+			if err := pty.Setsize(ptmx, &pty.Winsize{Rows: 30, Cols: step.resizeTo}); err != nil {
+				t.Logf("could not resize the pty (continuing): %v", err)
+			}
+		}
 		if _, err := ptmx.WriteString(step.send); err != nil {
 			t.Fatalf("writing %q to the terminal: %v", step.send, err)
 		}
@@ -345,6 +354,26 @@ func helperScenario(name string) {
 		line, err = p.Run()
 		fmt.Printf("session2=%q err=%v\r\n", line, err)
 		_ = p.Close()
+	case "childraw":
+		// A child that leaves the terminal in raw mode and dies there.
+		p := open(1)
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		if err := p.Close(); err != nil {
+			fmt.Printf("close1: %v\r\n", err)
+		}
+		runChild("stty raw -echo")
+		p2 := open(2)
+		line, err = p2.Run()
+		fmt.Printf("session2=%q err=%v\r\n", line, err)
+		_ = p2.Close()
+	case "winch":
+		p := open(1)
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		line, err = p.Run()
+		fmt.Printf("session2=%q err=%v\r\n", line, err)
+		_ = p.Close()
 	case "cancelduringrun":
 		// Cancelling from another goroutine is the one concurrent use the
 		// package supports, so a read waiting for a key has to end on it.
@@ -377,12 +406,6 @@ func helperScenario(name string) {
 		fmt.Printf("interrupted\r\n")
 		line, err = p.Run()
 		fmt.Printf("session2=%q err=%v\r\n", line, err)
-		_ = p.Close()
-	case "winch":
-		p := open(1)
-		fmt.Printf("ready\r\n")
-		line, err := p.Run()
-		fmt.Printf("session1=%q err=%v\r\n", line, err)
 		_ = p.Close()
 	case "childinput":
 		p := open(1)
@@ -421,55 +444,99 @@ func TestPromptLifecycleOrdersUnderAPTY(t *testing.T) {
 		{
 			name:     "three sessions in a row, each handing the terminal to a child",
 			scenario: "reopen3",
-			steps:    []ptyStep{{"p1> ", "one\r"}, {"p2> ", "two\r"}, {"p3> ", "three\r"}},
+			steps:    []ptyStep{{await: "p1> ", send: "one\r"}, {await: "p2> ", send: "two\r"}, {await: "p3> ", send: "three\r"}},
 			want:     []string{`session1="one"`, `session2="two"`, `session3="three"`},
 		},
 		{
 			name:     "a watch started and stopped repeatedly, and stopped twice each time",
 			scenario: "watchtwice",
-			steps:    []ptyStep{{"p1> ", "one\r"}, {"p1> ", "two\r"}},
+			steps:    []ptyStep{{await: "p1> ", send: "one\r"}, {await: "p1> ", send: "two\r"}},
 			want:     []string{`session1="one"`, `session2="two"`},
 		},
 		{
 			name:     "a watch that is never stopped before the prompt is closed",
 			scenario: "watchnostop",
-			steps:    []ptyStep{{"p1> ", "one\r"}, {"p2> ", "two\r"}},
+			steps:    []ptyStep{{await: "p1> ", send: "one\r"}, {await: "p2> ", send: "two\r"}},
 			want:     []string{`session1="one"`, `session2="two"`},
 		},
 		{
 			name:     "two watches at once, stopped in reverse order",
 			scenario: "nestedwatch",
-			steps:    []ptyStep{{"p1> ", "one\r"}, {"p1> ", "two\r"}},
+			steps:    []ptyStep{{await: "p1> ", send: "one\r"}, {await: "p1> ", send: "two\r"}},
 			want:     []string{`session1="one"`, `session2="two"`},
 		},
 		{
 			name:     "closing more than once",
 			scenario: "doubleclose",
-			steps:    []ptyStep{{"p1> ", "one\r"}, {"p2> ", "two\r"}},
+			steps:    []ptyStep{{await: "p1> ", send: "one\r"}, {await: "p2> ", send: "two\r"}},
 			want:     []string{`session1="one"`, `session2="two"`},
 		},
 		{
 			name:     "a child that resets the terminal before the next session",
 			scenario: "childstty",
-			steps:    []ptyStep{{"p1> ", "one\r"}, {"p2> ", "two\r"}},
+			steps:    []ptyStep{{await: "p1> ", send: "one\r"}, {await: "p2> ", send: "two\r"}},
 			want:     []string{`session1="one"`, `session2="two"`},
 		},
 		{
 			name:     "typing while a child holds the terminal reaches the next session",
 			scenario: "childinput",
-			steps:    []ptyStep{{"p1> ", "one\r"}, {"childstart", "typed\r"}},
+			steps:    []ptyStep{{await: "p1> ", send: "one\r"}, {await: "childstart", send: "typed\r"}},
 			want:     []string{`session1="one"`, `session2="typed"`},
 		},
 		{
 			name:     "typing ahead of an interrupt is delivered to the next session",
 			scenario: "typeahead",
-			steps:    []ptyStep{{"p1> ", "one\r"}, {"watching", "ahead\x03"}, {"interrupted", "\r"}},
+			steps:    []ptyStep{{await: "p1> ", send: "one\r"}, {await: "watching", send: "ahead\x03"}, {await: "interrupted", send: "\r"}},
 			want:     []string{`session1="one"`, `session2="ahead"`},
 		},
 		{
 			name:     "cancelling the context from another goroutine ends the read",
 			scenario: "cancelduringrun",
 			want:     []string{"run returned"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out := runPromptUnderPTY(t, []string{"PROMPT_PTY_SCENARIO=" + tt.scenario}, tt.steps)
+			for _, want := range tt.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("the transcript does not contain %s\n--- transcript ---\n%s", want, out)
+				}
+			}
+		})
+	}
+}
+
+// TestPromptSurvivesTheTerminalChangingUnderIt covers two things a session can
+// do to the terminal between one prompt and the next, both of which surfaces
+// this package has been bitten by leave in a state the next read has to cope
+// with.
+func TestPromptSurvivesTheTerminalChangingUnderIt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		scenario string
+		steps    []ptyStep
+		want     []string
+	}{
+		{
+			name:     "a child that leaves the terminal in raw mode",
+			scenario: "childraw",
+			steps:    []ptyStep{{await: "p1> ", send: "one\r"}, {await: "p2> ", send: "two\r"}},
+			want:     []string{`session1="one"`, `session2="two"`},
+		},
+		{
+			name:     "the terminal resized while a read is waiting",
+			scenario: "winch",
+			steps: []ptyStep{
+				{await: "p1> ", send: "one\r", resizeTo: 20},
+				{await: "p1> ", send: "two\r", resizeTo: 100},
+			},
+			want: []string{`session1="one"`, `session2="two"`},
 		},
 	}
 
