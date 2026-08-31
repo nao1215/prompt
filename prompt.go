@@ -56,7 +56,10 @@ type Prompt struct {
 	renderer       *renderer
 	terminal       terminalInterface
 	keyMap         *KeyMap
-	rawActive      bool // Whether the terminal is currently in raw mode
+	// rawActive says whether the terminal is currently in raw mode. Close can be
+	// called while a Run waits for a key, and both of them restore the terminal,
+	// so the two transitions are taken by whichever gets there first.
+	rawActive atomic.Bool
 
 	// pending holds runes that were read before they were needed and must be
 	// delivered before anything else: a rune read past the end of an escape
@@ -1011,6 +1014,13 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 // to prevent resource leaks. It's safe to call Close multiple times.
 // It's recommended to use defer for automatic cleanup.
 //
+// Close ends the session, so it is the last thing the prompt does with the
+// terminal: on Unix it ends a read in progress and waits for the reader to
+// finish, and a Run that was waiting for a key returns ErrEOF. A Run called
+// afterwards returns ErrEOF without touching the terminal, rather than taking
+// raw mode back on a terminal the session no longer owns. Open a new prompt for
+// a new session.
+//
 // Example:
 //
 //	p, err := prompt.New(config)
@@ -1508,13 +1518,13 @@ func (p *Prompt) removeTrailingBackslash() {
 // persistent session (see WithPersistentRawMode) acquires raw mode exactly once
 // across many Run calls.
 func (p *Prompt) enterRawMode() error {
-	if p.rawActive {
+	if !p.rawActive.CompareAndSwap(false, true) {
 		return nil
 	}
 	if err := p.terminal.SetRaw(); err != nil {
+		p.rawActive.Store(false)
 		return err
 	}
-	p.rawActive = true
 	if p.output != nil {
 		if _, err := fmt.Fprint(p.output, bracketedPasteEnableSequence); err != nil {
 			return errors.Join(err, p.exitRawMode())
@@ -1550,10 +1560,9 @@ func (p *Prompt) showCursor() {
 // It is idempotent: when the terminal is not in raw mode it does nothing, so it is
 // safe to call from multiple cleanup paths (defer, interrupt, EOF, Close).
 func (p *Prompt) exitRawMode() error {
-	if !p.rawActive {
+	if !p.rawActive.CompareAndSwap(true, false) {
 		return nil
 	}
-	p.rawActive = false
 	var errs []error
 	if p.output != nil {
 		if _, err := fmt.Fprint(p.output, bracketedPasteDisableSequence); err != nil {
