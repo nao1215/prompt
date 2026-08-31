@@ -4326,3 +4326,47 @@ func TestDeleteWordBackStopsAtTheWordItIsIn(t *testing.T) {
 		})
 	}
 }
+
+// TestBackslashContinuationCountsInRunes covers the position arithmetic behind
+// backslash continuation. The buffer is a []rune and the line's start indexes
+// it, but the trailing backslash was found by adding the byte length of the
+// line's text, so every multi-byte rune moved the position three cells further
+// past the end: the prompt panicked, or -- when the buffer's capacity happened
+// to reach that far -- deleted a rune that was not the backslash.
+//
+// The cases have to hold a multi-byte rune before the backslash. An ASCII line
+// cannot tell a byte length from a rune index.
+func TestBackslashContinuationCountsInRunes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		typed string
+		want  string
+	}{
+		{name: "ascii", typed: "select a \\", want: "select a \n"},
+		{name: "a japanese word before the backslash", typed: "select 名前 \\", want: "select 名前 \n"},
+		{name: "the whole line is multibyte", typed: "日本語\\", want: "日本語\n"},
+		{name: "an accented letter", typed: "naïve \\", want: "naïve \n"},
+		{name: "an emoji", typed: "🎉 \\", want: "🎉 \n"},
+		// Whitespace after the backslash is kept and ends up on the new line.
+		// The point of the pair is that the two alphabets agree.
+		{name: "spaces after an ascii backslash", typed: "a \\   ", want: "a \n   "},
+		{name: "spaces after a multibyte backslash", typed: "名前 \\   ", want: "名前 \n   "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newTestPrompt(newMockTerminal(tt.typed + "\r\r"))
+			got, err := p.Run()
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("typing %q then Enter gave %q, want %q", tt.typed, got, tt.want)
+			}
+		})
+	}
+}

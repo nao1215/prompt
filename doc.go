@@ -106,7 +106,8 @@
 //   - Ctrl+K: Delete from cursor to end of line
 //   - Ctrl+U: Delete entire line
 //   - Ctrl+W: Delete word backwards
-//   - Ctrl+R: Reverse history search (like bash)
+//   - Ctrl+R: Reverse history search (like bash). Tab and the arrow keys move
+//     through the matches, Enter accepts one, Escape cancels.
 //   - Tab: Auto-completion
 //   - Backspace: Delete character backwards
 //   - Delete: Delete character forwards
