@@ -280,6 +280,7 @@ type Config struct {
 	Theme         *ColorScheme                // Alias for ColorScheme for compatibility
 	Multiline     bool                        // Enable multiline input mode
 	IsComplete    func(input string) bool     // Decides whether Enter submits in multiline mode (nil = always submit)
+	AutoIndent    func(before string) string  // Decides what a new line opens with (nil = nothing)
 	WordEscape    bool                        // Treat backslash-escaped whitespace as part of a word during completion
 	// ContinuationPrefix is drawn in front of every line after the first while a
 	// multiline entry is still being typed. See WithContinuationPrefix.
@@ -392,6 +393,38 @@ func WithMultiline(multiline bool) Option {
 func WithIsComplete(isComplete func(input string) bool) Option {
 	return func(c *Config) {
 		c.IsComplete = isComplete
+	}
+}
+
+// WithAutoIndent sets what a new line opens with while a multiline entry is
+// being typed.
+//
+// It is called whenever a newline is inserted -- because the input is
+// incomplete, because a newline key was pressed, or because the line ended in a
+// backslash -- and is given the input up to where the line breaks, without the
+// newline itself. What it returns is inserted at the start of the new line.
+//
+// The prompt has no opinion about what that should be. An indenter for a
+// bracketed language returns one unit per bracket left open; one for a language
+// with none can return the leading whitespace of the line it was given, so a
+// continuation stays where the writer put it. Returning "" indents nothing,
+// which is what a prompt without this option does.
+//
+// What it returns is part of the input, so it is submitted, recorded in
+// history, and given to the completer like anything else typed. An indenter
+// that returns something other than whitespace is therefore writing input, not
+// decorating it.
+//
+// Example:
+//
+//	// Keep the indentation of the line being continued.
+//	prompt.WithAutoIndent(func(before string) string {
+//		line := before[strings.LastIndex(before, "\n")+1:]
+//		return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+//	})
+func WithAutoIndent(indent func(before string) string) Option {
+	return func(c *Config) {
+		c.AutoIndent = indent
 	}
 }
 
@@ -869,12 +902,12 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 				// Clear suggestions and continue editing without submitting
 			} else {
 				if p.isShiftEnter() {
-					p.insertRune('\n')
+					p.insertNewline()
 					suggestions = nil
 				} else if p.config.Multiline && p.config.IsComplete != nil && !p.config.IsComplete(string(p.buffer)) {
 					// The app reports the statement is incomplete, so keep editing on a
 					// new line instead of submitting (e.g. SQL buffered until ";").
-					p.insertRune('\n')
+					p.insertNewline()
 					suggestions = nil
 				} else {
 					result := string(p.buffer)
@@ -1083,7 +1116,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			}
 
 		case ActionNewLine:
-			p.insertRune('\n')
+			p.insertNewline()
 			suggestions = nil
 
 		case ActionPasteStart:
@@ -1208,6 +1241,22 @@ func (p *Prompt) insertPastedRune(r, prev rune) rune {
 		p.insertRune(r)
 	}
 	return r
+}
+
+// insertNewline breaks the line at the cursor and opens the next one with
+// whatever the auto-indent hook asks for. Every way a line can break goes
+// through here, so a continuation looks the same however it was asked for.
+func (p *Prompt) insertNewline() {
+	// The indenter is given the line it is continuing, so it is asked before the
+	// newline is inserted rather than after.
+	var indent string
+	if p.config.AutoIndent != nil {
+		indent = p.config.AutoIndent(string(p.buffer[:p.cursor]))
+	}
+	p.insertRune('\n')
+	if indent != "" {
+		p.insertText(indent)
+	}
 }
 
 func (p *Prompt) insertText(text string) {
