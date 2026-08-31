@@ -529,129 +529,98 @@ func TestHistoryRotationEdgeCases(t *testing.T) {
 	})
 }
 
-func TestCreateRotatedFile(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "" {
-		t.Skip("Skipping slow test in local development")
-	}
+func TestHistoryRotationBoundsTheFile(t *testing.T) {
+	t.Parallel()
 
-	tmpDir := t.TempDir()
-	historyFile := filepath.Join(tmpDir, "rotate_test")
-
+	dir := t.TempDir()
+	file := filepath.Join(dir, "history")
+	const maxFileSize = 200
 	config := &HistoryConfig{
 		Enabled:     true,
-		File:        historyFile,
-		MaxFileSize: 500, // Increased to handle larger content
-		MaxBackups:  2,
+		File:        file,
+		MaxEntries:  1000,
+		MaxFileSize: maxFileSize,
+		MaxBackups:  3,
 	}
 
 	hm := newHistoryManager(config)
-
-	// Add more than 100 entries to ensure trimming occurs (createRotatedFile keeps all if < 100)
-	for i := range 150 {
-		hm.addEntry(fmt.Sprintf("initial_entry_%d_%s", i, strings.Repeat("X", 10)))
-	}
-
-	// Create the original file
-	err := hm.saveHistory()
-	if err != nil {
-		t.Fatalf("Failed to save history: %v", err)
-	}
-
-	// Check file size to ensure it's large enough for rotation test
-	info, err := os.Stat(historyFile)
-	if err != nil {
-		t.Fatalf("Failed to stat history file: %v", err)
-	}
-	t.Logf("Initial file size: %d bytes, MaxFileSize: %d bytes", info.Size(), config.MaxFileSize)
-
-	// Force the file to exceed the size limit if needed
-	for info.Size() < config.MaxFileSize {
-		// Add more entries to exceed the size limit
-		for i := range 5 {
-			hm.addEntry(fmt.Sprintf("padding_entry_%d_%s", i, strings.Repeat("P", 50)))
+	for i := range 40 {
+		hm.addEntry(strings.Repeat("x", 20) + string(rune('a'+i%26)))
+		if err := hm.saveHistory(); err != nil {
+			t.Fatalf("saveHistory() error = %v", err)
 		}
-		err = hm.saveHistory()
+
+		info, err := os.Stat(file)
 		if err != nil {
-			t.Fatalf("Failed to save history while building size: %v", err)
+			t.Fatalf("Stat() error = %v", err)
 		}
-		info, err = os.Stat(historyFile)
-		if err != nil {
-			t.Fatalf("Failed to stat history file: %v", err)
+		// The limit applies to what is written, not only to when the file is
+		// rotated. Writing a file the size of the one just rotated away left it
+		// over the limit the moment it appeared, so the next save rotated again
+		// and within MaxBackups saves every backup held a copy of the newest
+		// history.
+		if info.Size() > maxFileSize {
+			t.Fatalf("after %d entries the file is %d bytes, over the %d limit", i+1, info.Size(), maxFileSize)
 		}
-		t.Logf("File size after adding entries: %d bytes", info.Size())
 	}
 
-	originalCount := len(hm.getHistory())
-	t.Logf("Original count before rotation: %d (should be >100 for trimming)", originalCount)
-
-	// The file is already large enough, so next save should trigger rotation
-	// Since rotateIfNeeded() checks existing file size, we need to add more content to current memory
-	// but save separately to trigger the rotation check properly
-
-	// Add several more entries to memory only
-	for i := range 10 {
-		hm.addEntry(fmt.Sprintf("trigger_%d_%s", i, strings.Repeat("T", 30)))
+	// Nothing the session remembers is lost to a save.
+	if got := len(hm.getHistory()); got != 40 {
+		t.Errorf("the history holds %d entries after saving, want 40", got)
 	}
 
-	finalCount := len(hm.getHistory())
-	t.Logf("Final count before rotation save: %d", finalCount)
-
-	// Now save - this should trigger rotation since file exceeds MaxFileSize
-	err = hm.saveHistory()
+	// The entries that did not fit are in the backup, which is what it is for.
+	backup, err := os.ReadFile(filepath.Clean(file + ".1"))
 	if err != nil {
-		t.Fatalf("Failed to save history during rotation: %v", err)
+		t.Fatalf("reading the backup: %v", err)
+	}
+	if !strings.Contains(string(backup), "xxxxxxxxxxxxxxxxxxxxa") {
+		t.Errorf("the backup does not hold the oldest entries: %q", backup)
 	}
 
-	// Check if backup file was created (indication of rotation)
-	backupFile := historyFile + ".1"
-	rotatedCount := len(hm.getHistory())
-	t.Logf("Count after rotation save: %d", rotatedCount)
-
-	// Check the actual file size after save
-	newInfo, err := os.Stat(historyFile)
-	if err == nil {
-		t.Logf("New file size: %d bytes", newInfo.Size())
+	// Rotation happens when the file fills, not on every save.
+	if _, err := os.Stat(file + ".3"); err == nil {
+		t.Errorf("the file rotated often enough to reach a third backup over 40 saves")
 	}
 
-	if _, err := os.Stat(backupFile); err == nil {
-		t.Logf("Backup file created, rotation occurred")
+	// What was written reads back.
+	reloaded := newHistoryManager(&HistoryConfig{Enabled: true, File: file, MaxEntries: 1000})
+	if err := reloaded.loadHistory(); err != nil {
+		t.Fatalf("loadHistory() error = %v", err)
+	}
+	got := reloaded.getHistory()
+	if len(got) == 0 {
+		t.Fatal("the rotated file holds nothing")
+	}
+	if want := hm.getHistory(); got[len(got)-1] != want[len(want)-1] {
+		t.Errorf("the file's newest entry is %q, want %q", got[len(got)-1], want[len(want)-1])
+	}
+}
 
-		// Read the rotated file to see actual content
-		content, err := os.ReadFile(filepath.Clean(historyFile)) // #nosec G304 - test file path is controlled
-		if err == nil {
-			lines := strings.Split(strings.TrimSpace(string(content)), "\n")
-			actualFileLines := 0
-			for _, line := range lines {
-				if strings.TrimSpace(line) != "" {
-					actualFileLines++
-				}
-			}
-			t.Logf("Actual lines in rotated file: %d", actualFileLines)
-		}
+// TestHistoryFileIsCreatedForItsOwnerAlone pins the mode. What the user typed is
+// where a password given on a command line ends up, and os.Create asked for 0666
+// and let the umask decide, which on a common default left the file readable by
+// everyone.
+func TestHistoryFileIsCreatedForItsOwnerAlone(t *testing.T) {
+	t.Parallel()
 
-		// Due to the current implementation where SaveHistory overwrites the rotated file,
-		// the rotation doesn't effectively trim memory. This is a known implementation issue.
-		// For now, just verify that rotation occurred (backup file exists) and
-		// that the system didn't crash.
-		t.Logf("Rotation completed successfully - backup file exists")
-
-		// Verify the new file size is larger than MaxFileSize but reasonable
-		if newInfo != nil && newInfo.Size() > config.MaxFileSize*20 {
-			t.Errorf("New file size %d is excessively large (>%d)", newInfo.Size(), config.MaxFileSize*20)
-		}
-	} else {
-		t.Skipf("No rotation occurred (no backup file created), cannot test trimming")
+	if runtime.GOOS == windowsOS {
+		t.Skip("file modes do not carry the same meaning on Windows")
 	}
 
-	// Verify we can still load the rotated file
-	hm2 := newHistoryManager(config)
-	err = hm2.loadHistory()
+	file := filepath.Join(t.TempDir(), "history")
+	hm := newHistoryManager(&HistoryConfig{Enabled: true, File: file, MaxEntries: 100})
+	hm.addEntry("psql -h db -U admin -W hunter2")
+	if err := hm.saveHistory(); err != nil {
+		t.Fatalf("saveHistory() error = %v", err)
+	}
+
+	info, err := os.Stat(file)
 	if err != nil {
-		t.Fatalf("Failed to load rotated history: %v", err)
+		t.Fatalf("Stat() error = %v", err)
 	}
-
-	if len(hm2.getHistory()) == 0 {
-		t.Error("Rotated file should contain some history")
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		t.Errorf("the history file is %v, want it readable by its owner alone", perm)
 	}
 }
 
@@ -873,7 +842,9 @@ func TestRenderHistorySearch(t *testing.T) {
 	t.Run("BasicRender", func(t *testing.T) {
 		output.Reset()
 		results := []string{"git status", "git commit", "git push"}
-		p.renderHistorySearch("git", results, 0)
+		if _, err := p.renderHistorySearch("git", results, 0); err != nil {
+			t.Fatalf("renderHistorySearch() error = %v", err)
+		}
 
 		outputStr := output.String()
 		if !strings.Contains(outputStr, "git") {
@@ -887,7 +858,9 @@ func TestRenderHistorySearch(t *testing.T) {
 	t.Run("RenderWithSelection", func(t *testing.T) {
 		output.Reset()
 		results := []string{"git status", "git commit", "git push"}
-		p.renderHistorySearch("git", results, 1)
+		if _, err := p.renderHistorySearch("git", results, 1); err != nil {
+			t.Fatalf("renderHistorySearch() error = %v", err)
+		}
 
 		outputStr := output.String()
 		if !strings.Contains(outputStr, "git commit") {
@@ -898,7 +871,9 @@ func TestRenderHistorySearch(t *testing.T) {
 	t.Run("RenderEmptyResults", func(t *testing.T) {
 		output.Reset()
 		results := []string{}
-		p.renderHistorySearch("nomatch", results, 0)
+		if _, err := p.renderHistorySearch("nomatch", results, 0); err != nil {
+			t.Fatalf("renderHistorySearch() error = %v", err)
+		}
 
 		outputStr := output.String()
 		if !strings.Contains(outputStr, "nomatch") {
@@ -909,7 +884,9 @@ func TestRenderHistorySearch(t *testing.T) {
 	t.Run("RenderManyResults", func(t *testing.T) {
 		output.Reset()
 		results := []string{"cmd1", "cmd2", "cmd3", "cmd4", "cmd5", "cmd6", "cmd7"}
-		p.renderHistorySearch("cmd", results, 2)
+		if _, err := p.renderHistorySearch("cmd", results, 2); err != nil {
+			t.Fatalf("renderHistorySearch() error = %v", err)
+		}
 
 		outputStr := output.String()
 		// Should limit to top 5 results (excluding the search prompt line)
