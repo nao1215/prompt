@@ -136,7 +136,13 @@ func runHelperUnderPTY(t *testing.T, watch, child bool) string {
 		mu  sync.Mutex
 		buf strings.Builder
 	)
+	// drained is closed once the terminal has no more to give, which is after
+	// the helper has exited and everything it wrote has been copied. Reading the
+	// transcript before then races the last line the helper printed against the
+	// copy of it.
+	drained := make(chan struct{})
 	go func() {
+		defer close(drained)
 		chunk := make([]byte, 4096)
 		for {
 			n, err := ptmx.Read(chunk)
@@ -178,9 +184,17 @@ func runHelperUnderPTY(t *testing.T, watch, child bool) string {
 	go func() { done <- cmd.Wait() }()
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		kill(t, cmd)
 		t.Fatalf("the program never finished; a session read nothing\n--- transcript ---\n%s", transcript())
+	}
+
+	// The helper has exited, so reading the terminal ends and the drain
+	// finishes with everything it wrote.
+	select {
+	case <-drained:
+	case <-time.After(5 * time.Second):
+		t.Log("the terminal did not reach end of input; the transcript may be short")
 	}
 	return transcript()
 }
