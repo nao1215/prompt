@@ -447,12 +447,13 @@ may lose keystrokes to it.
 ### Interrupting work between prompts
 
 `Run` returns as soon as a line is submitted, so while the application executes
-that line nothing is reading the terminal. In raw mode Ctrl+C is a byte rather
-than a signal, so it cannot reach the running work: it waits in the input buffer
-and is read as part of the next line once the work is over.
+that line nothing is reading the terminal. Ctrl+C cannot reach the running work
+on its own: in raw mode it is a byte that waits in the input buffer and is read
+as part of the next line once the work is over, and in cooked mode it is a
+SIGINT whose default action kills the application in the middle of that work.
 
-`WatchInterrupt` watches for it during that gap and returns a context canceled
-when the key arrives:
+`WatchInterrupt` watches for both during that gap and returns a context canceled
+when the key arrives, whichever way the terminal delivered it:
 
 ```go
 for {
@@ -485,6 +486,11 @@ Everything else typed while the work runs belongs to the next line: it is held
 and delivered to the following `Run` in the order it was typed, so typing ahead
 keeps working. Do not call `Run` while a watch is active — a line editor and a
 watcher cannot both own one terminal.
+
+While the watch is active the interrupt's default action is suppressed, so it
+cancels the work rather than ending the process; `stop` gives it back. An
+interrupt sent any other way, such as `kill -INT` from another terminal, is
+watched too: nothing tells it apart from the key.
 
 ## Key bindings
 
@@ -550,15 +556,20 @@ The [example](./example) directory has complete programs:
 ### Thread safety
 
 This library is not thread-safe. Do not share a prompt instance across
-goroutines, call its methods concurrently, or call `Close()` while `Run()` is
-active in another goroutine. Use a separate instance per goroutine if you need
-concurrency.
+goroutines or call its methods concurrently. Use a separate instance per
+goroutine if you need concurrency.
+
+Ending a session from elsewhere is the exception, because a prompt waiting for a
+key cannot end itself: canceling the context passed to `RunWithContext` and
+calling `Close` both end that wait, and the `Run` returns `context.Canceled` and
+`ErrEOF` respectively. A `Run` on a prompt that is already closed returns
+`ErrEOF` without touching the terminal.
 
 ### Error handling
 
 `Run` and `RunWithContext` return specific errors:
 
-- `prompt.ErrEOF`: Ctrl+D on an empty buffer, or the input reaching its end. It matches `io.EOF` as well as itself
+- `prompt.ErrEOF`: Ctrl+D on an empty buffer, the input reaching its end, or the prompt having been closed. It matches `io.EOF` as well as itself
 - `prompt.ErrInterrupted`: Ctrl+C
 - `context.DeadlineExceeded`: the context deadline passed (with `RunWithContext`)
 - `context.Canceled`: the context was canceled

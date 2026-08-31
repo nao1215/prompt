@@ -100,9 +100,10 @@
 // or moving the cursor off that word ends it and the next Tab asks again.
 //
 // While an application runs work between prompts (a query, an import), no one is
-// reading the terminal, so Ctrl+C is a byte that simply waits in the buffer.
-// WatchInterrupt watches for it during that gap and returns a context canceled
-// when it arrives.
+// reading the terminal, so Ctrl+C either waits in the buffer as a byte or, once
+// the prompt has given raw mode back, arrives as a SIGINT that kills the
+// application. WatchInterrupt watches for both during that gap and returns a
+// context canceled when it arrives.
 //   - Arrow keys: Navigate history (up/down) and move cursor (left/right)
 //   - Ctrl+A / Home: Move to beginning of line
 //   - Ctrl+E / End: Move to end of line
