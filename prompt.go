@@ -282,7 +282,7 @@ type Config struct {
 	IsComplete    func(input string) bool     // Decides whether Enter submits in multiline mode (nil = always submit)
 	AutoIndent    func(before string) string  // Decides what a new line opens with (nil = nothing)
 	WordEscape    bool                        // Treat backslash-escaped whitespace as part of a word during completion
-	// Highlighter colours runs of the input as it is drawn. See WithHighlighter.
+	// Highlighter colors runs of the input as it is drawn. See WithHighlighter.
 	Highlighter func(input string) []StyleSpan
 	// ContinuationPrefix is drawn in front of every line after the first while a
 	// multiline entry is still being typed. See WithContinuationPrefix.
@@ -430,23 +430,23 @@ func WithAutoIndent(indent func(before string) string) Option {
 	}
 }
 
-// WithHighlighter sets the function that colours the input as it is drawn.
+// WithHighlighter sets the function that colors the input as it is drawn.
 //
-// It is given the whole input and returns the runs to draw in a colour other
-// than the scheme's Input colour, as rune offsets into that input. Everything
-// no run covers keeps the scheme's colour. It is called on every render, which
+// It is given the whole input and returns the runs to draw in a color other
+// than the scheme's Input color, as rune offsets into that input. Everything
+// no run covers keeps the scheme's color. It is called on every render, which
 // is once per keystroke, so it should be cheap over a line's worth of text.
 //
 // The prompt has no opinion about what the runs mean, which is what keeps this
-// out of any one language's business: a highlighter for SQL colours keywords
-// and string literals, one for a shell colours the command and its flags.
+// out of any one language's business: a highlighter for SQL colors keywords
+// and string literals, one for a shell colors the command and its flags.
 //
-// It decides colours and nothing else. The input is drawn exactly as it is
+// It decides colors and nothing else. The input is drawn exactly as it is
 // whatever the highlighter returns, and the prompt measures its layout from
 // that text rather than from what is written to the terminal, so a highlighter
 // cannot move the cursor away from the character under it or wrap a line early.
 // A run reaching outside the input, an inverted one, and two that overlap are
-// all drawn over rather than rejected: a colour is a decoration, and getting
+// all drawn over rather than rejected: a color is a decoration, and getting
 // one wrong must not cost the user the line they are typing.
 //
 // Example:

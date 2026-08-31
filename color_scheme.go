@@ -24,7 +24,7 @@ type SuggestionColors struct {
 	Background  *Color `json:"background"` // nil for transparent
 }
 
-// StyleSpan marks a run of the input to draw in a colour of its own. Start and
+// StyleSpan marks a run of the input to draw in a color of its own. Start and
 // End are rune offsets into the whole input, End exclusive, so a highlighter
 // reports positions in what it was given rather than in a line of it.
 type StyleSpan struct {

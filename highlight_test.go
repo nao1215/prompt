@@ -22,7 +22,7 @@ func renderedInput(t *testing.T, input string, highlight func(string) []StyleSpa
 }
 
 // visibleText strips every escape sequence, leaving what the terminal shows.
-// Highlighting must never change that: it decides colours, not content.
+// Highlighting must never change that: it decides colors, not content.
 func visibleText(rendered string) string {
 	var b strings.Builder
 	for i := 0; i < len(rendered); {
@@ -49,8 +49,8 @@ var (
 )
 
 // TestHighlighterColorsTheSpansItNames covers the whole point: a run the
-// highlighter names is drawn in its colour, and everything else in the scheme's
-// input colour.
+// highlighter names is drawn in its color, and everything else in the scheme's
+// input color.
 func TestHighlighterColorsTheSpansItNames(t *testing.T) {
 	t.Parallel()
 
@@ -59,10 +59,10 @@ func TestHighlighterColorsTheSpansItNames(t *testing.T) {
 	})
 
 	if !strings.Contains(rendered, red.ToANSI()+"SELECT") {
-		t.Errorf("the named run was not drawn in its own colour:\n%q", rendered)
+		t.Errorf("the named run was not drawn in its own color:\n%q", rendered)
 	}
 	if !strings.Contains(rendered, ThemeDefault.Input.ToANSI()+" a") {
-		t.Errorf("the rest was not drawn in the scheme's input colour:\n%q", rendered)
+		t.Errorf("the rest was not drawn in the scheme's input color:\n%q", rendered)
 	}
 }
 
@@ -123,7 +123,7 @@ func TestHighlightingSpansEachLineOfAMultilineInput(t *testing.T) {
 
 // TestHighlightingNormalizesWhatItIsGiven covers a highlighter that reports
 // nonsense. The prompt draws over it rather than panicking or cutting a line
-// short: a colour is a decoration, and getting one wrong must not cost the user
+// short: a color is a decoration, and getting one wrong must not cost the user
 // the line they are typing.
 func TestHighlightingNormalizesWhatItIsGiven(t *testing.T) {
 	t.Parallel()

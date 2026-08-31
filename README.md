@@ -389,10 +389,10 @@ p, err := prompt.New("sql> ",
         // Keep the indentation of the line being continued.
         line := before[strings.LastIndex(before, "\n")+1:]
         return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-### Colouring the input
+### Coloring the input
 
 `WithHighlighter` is given the whole input and returns the runs to draw in a
-colour of their own, as rune offsets into that input:
+color of their own, as rune offsets into that input:
 
 ```go
 p, err := prompt.New("sql> ",
@@ -411,8 +411,8 @@ p, err := prompt.New("sql> ",
 
 What it returns is part of the input, so it is submitted and recorded in history
 like anything else typed.
-Everything no run covers keeps the scheme's input colour. The highlighter
-decides colours and nothing else: the input is drawn exactly as it is, and the
+Everything no run covers keeps the scheme's input color. The highlighter
+decides colors and nothing else: the input is drawn exactly as it is, and the
 prompt measures its layout from that text, so highlighting cannot move the
 cursor or wrap a line early. It is called on every render, so it should be cheap
 over a line's worth of text.

@@ -75,8 +75,8 @@ func layout(s string, width int) (rows, col int) {
 // visual output and handles complex scenarios like suggestion menus and
 // multi-line editing with proper text wrapping.
 type renderer struct {
-	// highlighter colours runs of the input as it is drawn. Nil draws the whole
-	// input in the scheme's colour.
+	// highlighter colors runs of the input as it is drawn. Nil draws the whole
+	// input in the scheme's color.
 	highlighter       func(string) []StyleSpan
 	output            io.Writer         // Target output writer (typically stdout or colorable wrapper)
 	colorScheme       *ColorScheme      // Color configuration for themed rendering
@@ -115,8 +115,8 @@ func newRenderer(output io.Writer, colorScheme *ColorScheme, terminal terminalIn
 
 // setContinuationPrefix sets the string drawn in front of every line after the
 // first. It is applied on the next render.
-// setHighlighter sets what colours the input on the next render. A nil one
-// draws the whole input in the scheme's colour, which is what a prompt without
+// setHighlighter sets what colors the input on the next render. A nil one
+// draws the whole input in the scheme's color, which is what a prompt without
 // WithHighlighter does.
 func (r *renderer) setHighlighter(highlighter func(string) []StyleSpan) {
 	r.highlighter = highlighter
@@ -270,7 +270,7 @@ func (r *renderer) renderLines(prefix, input string) error {
 	return nil
 }
 
-// renderLineContent writes one line, colouring the runs the highlighter named.
+// renderLineContent writes one line, coloring the runs the highlighter named.
 // lineStart is the line's first rune offset in the whole input, because that is
 // what the spans are measured in.
 //
@@ -310,7 +310,7 @@ func (r *renderer) renderLineContent(line string, lineStart int, spans []StyleSp
 		pos = end
 	}
 	// The tail, and the whole of a line no span touched. An empty line still
-	// writes its colour, which is what it did before spans existed.
+	// writes its color, which is what it did before spans existed.
 	return write(base, string(runes[pos:]))
 }
 
@@ -320,7 +320,7 @@ func (r *renderer) renderLineContent(line string, lineStart int, spans []StyleSp
 // claimed.
 //
 // A highlighter is application code deciding a decoration. It is normalized
-// rather than trusted, and never rejected, because getting a colour wrong must
+// rather than trusted, and never rejected, because getting a color wrong must
 // not cost the user the line they are typing.
 func (r *renderer) spansFor(input string) []StyleSpan {
 	if r.highlighter == nil {
