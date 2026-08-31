@@ -507,6 +507,10 @@ watcher cannot both own one terminal.
 | Ctrl+←/→ | Move by word boundaries |
 | Esc | Close the completion popup |
 
+A completion menu stands for the word before the cursor, so it lasts only as long
+as that word: editing the line, discarding it with Ctrl+U, or moving the cursor
+off the word ends the completion, and the next Tab asks the completer again.
+
 ## Color themes
 
 ```go

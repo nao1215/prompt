@@ -1,6 +1,8 @@
 package prompt
 
 import (
+	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -586,5 +588,145 @@ func TestCurrentWordBoundsHoldTheCursor(t *testing.T) {
 				t.Errorf("getCurrentWordBounds() spans %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestMenuClosesWhenTheCursorLeavesTheWord covers what a suggestion means. The
+// menu is computed once, for the word before the cursor at the time Tab was
+// pressed, and acceptSuggestion works that word out again from where the cursor
+// is now. Moving in between left the two disagreeing, and part of the suggestion
+// was inserted into the middle of the word already there: "cre", Tab, Left, Tab
+// gave "createe".
+//
+// Each case presses Enter after moving. With the menu closed Enter submits the
+// line; with it open Enter accepts a suggestion instead, so the line that comes
+// back says which of the two happened.
+func TestMenuClosesWhenTheCursorLeavesTheWord(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		move string
+	}{
+		{name: "left once", move: "\x1b[D"},
+		{name: "left twice", move: "\x1b[D\x1b[D"},
+		{name: "home", move: "\x1b[H"},
+		{name: "ctrl+a", move: "\x01"},
+		{name: "ctrl+left", move: "\x1b[1;5D"},
+		{name: "end", move: "\x1b[F"},
+		{name: "ctrl+e", move: "\x05"},
+		{name: "ctrl+right", move: "\x1b[1;5C"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newTestPrompt(newMockTerminal("cre\t"+tt.move+"\r"), WithCompleter(func(Document) []Suggestion {
+				return []Suggestion{{Text: "create"}, {Text: "credit"}}
+			}))
+			got, err := p.Run()
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != "cre" {
+				t.Errorf("Run() = %q, want %q: moving the cursor ends the completion, so Enter submits", got, "cre")
+			}
+		})
+	}
+
+	t.Run("Tab after a move offers a menu for where the cursor is now", func(t *testing.T) {
+		t.Parallel()
+
+		// Closing the menu must not stop completion: the next Tab asks the
+		// completer again, and accepting from that menu works as it always did.
+		p := newTestPrompt(newMockTerminal("cre\t\x1b[F\t\r\r"), WithCompleter(func(Document) []Suggestion {
+			return []Suggestion{{Text: "create"}, {Text: "credit"}}
+		}))
+		got, err := p.Run()
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if got != "create" {
+			t.Errorf("Run() = %q, want %q", got, "create")
+		}
+	})
+}
+
+// TestMenuClosesWhenTheLineIsReplaced covers the keys that replace what is on
+// the line. Every branch that edits the buffer closes the menu; Ctrl+U, Ctrl+K
+// and Ctrl+R did not, so the menu stayed on screen describing a line that was
+// gone and the next accept put the deleted text back.
+func TestMenuClosesWhenTheLineIsReplaced(t *testing.T) {
+	t.Parallel()
+
+	suggestions := func(Document) []Suggestion {
+		return []Suggestion{{Text: "create"}, {Text: "credit"}}
+	}
+
+	t.Run("ctrl+u discards the line and the menu with it", func(t *testing.T) {
+		t.Parallel()
+
+		p := newTestPrompt(newMockTerminal("cre\t\x15\r"), WithCompleter(suggestions))
+		got, err := p.Run()
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if got != "" {
+			t.Errorf("Run() = %q, want an empty line: Ctrl+U discarded it, and Enter must not put it back", got)
+		}
+	})
+
+	t.Run("ctrl+k cuts the line and the menu with it", func(t *testing.T) {
+		t.Parallel()
+
+		p := newTestPrompt(newMockTerminal("credit\x1b[D\x1b[D\x1b[D\t\x0b\r"), WithCompleter(suggestions))
+		got, err := p.Run()
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if got != "cre" {
+			t.Errorf("Run() = %q, want %q: Ctrl+K cut the line and nothing should have grown it back", got, "cre")
+		}
+	})
+
+	t.Run("a history entry chosen by ctrl+r replaces the line alone", func(t *testing.T) {
+		t.Parallel()
+
+		p := newTestPrompt(newMockTerminal("cre\t\x12older\r\t\r"),
+			WithCompleter(suggestions), WithMemoryHistory(10))
+		p.SetHistory([]string{"older one"})
+		got, err := p.Run()
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if got != "older one" {
+			t.Errorf("Run() = %q, want %q: the menu was built for a line the search replaced", got, "older one")
+		}
+	})
+}
+
+// TestMenuIsNotDrawnOverALineItDoesNotDescribe is the same defect seen on
+// screen: the menu outlived the line, so the prompt showed completions under an
+// empty prefix.
+func TestMenuIsNotDrawnOverALineItDoesNotDescribe(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	terminal := &sizedMockTerminal{width: 40}
+	terminal.mockTerminal = *newMockTerminal("cre\t\x15")
+	p := newTestPromptOn(terminal, WithCompleter(func(Document) []Suggestion {
+		return []Suggestion{{Text: "create"}, {Text: "credit"}}
+	}))
+	p.output = &out
+	p.renderer = newRenderer(&out, ThemeDefault, terminal)
+	if _, err := p.Run(); !errors.Is(err, ErrEOF) {
+		t.Fatalf("Run() error = %v, want the input to have ended", err)
+	}
+
+	screen := newScreenModel(40)
+	screen.feed(out.String())
+	if rows := screen.rows(); len(rows) != 1 {
+		t.Errorf("the screen shows %q, want the prompt alone: Ctrl+U emptied the line", rows)
 	}
 }

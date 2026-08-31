@@ -159,3 +159,185 @@ func TestHistorySearchFindsANonAsciiEntry(t *testing.T) {
 		}
 	}
 }
+
+func TestFuzzyCompleter(t *testing.T) {
+	t.Parallel()
+
+	candidates := []string{
+		"git status",
+		"git commit",
+		"git push",
+		"docker build",
+		"docker run",
+		"kubectl get",
+		"kubectl apply",
+	}
+
+	completer := NewFuzzyCompleter(candidates)
+
+	tests := []struct {
+		name     string
+		input    string
+		expected int // expected number of results
+	}{
+		{
+			name:     "empty input returns all",
+			input:    "",
+			expected: 7,
+		},
+		{
+			name:     "git prefix",
+			input:    "git",
+			expected: 4, // fuzzy matches multiple candidates with g-i-t pattern
+		},
+		{
+			name:     "docker prefix",
+			input:    "docker",
+			expected: 2,
+		},
+		{
+			name:     "fuzzy match",
+			input:    "gst",
+			expected: 4, // fuzzy matches multiple candidates with g-s-t pattern
+		},
+		{
+			name:     "no matches",
+			input:    "xyz",
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			doc := Document{Text: tt.input, CursorPosition: len(tt.input)}
+			suggestions := completer(doc)
+			if len(suggestions) != tt.expected {
+				t.Errorf("Complete(%q) returned %d suggestions, want %d",
+					tt.input, len(suggestions), tt.expected)
+			}
+
+			// Verify all suggestions contain the text field
+			for _, s := range suggestions {
+				if s.Text == "" {
+					t.Error("Suggestion with empty Text field")
+				}
+			}
+		})
+	}
+}
+
+func TestFuzzyScore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		input     string
+		candidate string
+		minScore  int
+	}{
+		{
+			name:      "exact match",
+			input:     "git",
+			candidate: "git",
+			minScore:  1000,
+		},
+		{
+			name:      "prefix match",
+			input:     "git",
+			candidate: "git status",
+			minScore:  800,
+		},
+		{
+			name:      "contains match",
+			input:     "status",
+			candidate: "git status",
+			minScore:  500,
+		},
+		{
+			name:      "fuzzy match",
+			input:     "gst",
+			candidate: "git status",
+			minScore:  10,
+		},
+		{
+			name:      "no match",
+			input:     "xyz",
+			candidate: "git status",
+			minScore:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			score := calculateFuzzyScore(tt.input, tt.candidate)
+			if tt.minScore == 0 {
+				if score != 0 {
+					t.Errorf("Expected no match (score 0), got %d", score)
+				}
+			} else {
+				if score < tt.minScore {
+					t.Errorf("Score %d is less than expected minimum %d", score, tt.minScore)
+				}
+			}
+		})
+	}
+}
+
+func TestHistorySearcher(t *testing.T) {
+	t.Parallel()
+
+	history := []string{
+		"git status",
+		"git commit -m 'initial'",
+		"docker build .",
+		"kubectl get pods",
+		"git push origin main",
+	}
+
+	searcher := newHistorySearcher(history)
+
+	tests := []struct {
+		name     string
+		query    string
+		expected int
+	}{
+		{
+			name:     "empty query returns all",
+			query:    "",
+			expected: 5,
+		},
+		{
+			name:     "git query",
+			query:    "git",
+			expected: 4, // fuzzy matches include "kubectl get pods" for g-i-t pattern
+		},
+		{
+			name:     "docker query",
+			query:    "docker",
+			expected: 2, // fuzzy matches may include additional entries with d-o-c-k-e-r pattern
+		},
+		{
+			name:     "no matches",
+			query:    "xyz",
+			expected: 0,
+		},
+		{
+			name:     "fuzzy match",
+			query:    "gst",
+			expected: 4, // fuzzy matches multiple history entries with g-s-t pattern
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			results := searcher(tt.query)
+			if len(results) != tt.expected {
+				t.Errorf("Search(%q) returned %d results, want %d",
+					tt.query, len(results), tt.expected)
+			}
+		})
+	}
+}

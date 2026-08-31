@@ -131,7 +131,14 @@ type Config struct {
 // Option represents a configuration option for prompt
 type Option func(*Config)
 
-// WithCompleter sets the completion function
+// WithCompleter sets the completion function.
+//
+// It is asked on Tab, and given the whole input and where the cursor is. What it
+// answers stands for the word before that cursor, so the menu it opens lasts
+// only as long as that word does: editing the line, discarding it, or moving the
+// cursor off the word ends the completion, and the next Tab asks again. Tab,
+// Enter, and Right accept the highlighted suggestion; Up and Down move through
+// them; Escape closes the menu.
 func WithCompleter(completer func(Document) []Suggestion) Option {
 	return func(c *Config) {
 		c.Completer = completer
@@ -732,6 +739,12 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			if p.cursor > 0 {
 				p.cursor--
 			}
+			// A suggestion means "what the word before the cursor becomes", and
+			// the cursor is no longer where that word was measured. Keeping the
+			// menu open let acceptSuggestion work the word out again from the new
+			// position and insert part of the suggestion into the middle of the
+			// one already there.
+			suggestions = nil
 
 		case ActionMoveRight:
 			if len(suggestions) > 0 {
@@ -806,6 +819,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			} else {
 				p.cursor = 0
 			}
+			suggestions = nil
 
 		case ActionMoveEnd:
 			if p.isMultiLine() {
@@ -813,12 +827,15 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			} else {
 				p.cursor = len(p.buffer)
 			}
+			suggestions = nil
 
 		case ActionMoveWordLeft:
 			p.cursor = p.findWordBoundary(-1)
+			suggestions = nil
 
 		case ActionMoveWordRight:
 			p.cursor = p.findWordBoundary(1)
+			suggestions = nil
 
 		case ActionDeleteChar:
 			if r == '\x7f' || r == '\b' {
@@ -839,6 +856,10 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 		case ActionDeleteLine:
 			p.buffer = []rune{}
 			p.cursor = 0
+			// The line the menu was built for is gone. Leaving it open drew
+			// completions under an empty prompt, and the next accept put the
+			// discarded text back -- which is the opposite of what the key is for.
+			suggestions = nil
 
 		case ActionDeleteToEnd:
 			if p.isMultiLine() {
@@ -847,6 +868,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			} else {
 				p.buffer = p.buffer[:p.cursor]
 			}
+			suggestions = nil
 
 		case ActionDeleteWordBack:
 			if p.cursor > 0 {
@@ -914,6 +936,9 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 				p.setBuffer(result)
 				historyIndex = len(p.history)
 			}
+			// Whatever the search left on the line, it is not the line the menu
+			// was built for.
+			suggestions = nil
 			// Re-render after search
 			if err := p.render(); err != nil {
 				return "", fmt.Errorf("failed to render prompt: %w", err)
@@ -1249,107 +1274,6 @@ func (p *Prompt) SetCompleter(completer func(Document) []Suggestion) {
 	p.config.Completer = completer
 }
 
-// fuzzyMatcher provides reusable fuzzy matching logic for completions and history search
-type fuzzyMatcher struct {
-	items []string
-}
-
-// NewFuzzyCompleter creates a new fuzzy completer with the given candidates.
-//
-// The fuzzy completer provides intelligent auto-completion by matching
-// user input against a list of candidates using fuzzy string matching.
-// It supports partial matches, substring matches, and character-by-character
-// fuzzy matching with scoring.
-//
-// This is a convenience function that returns a completer function that can be
-// used directly in Config.Completer. The returned function implements fuzzy
-// matching and scoring automatically.
-//
-// Example:
-//
-//	candidates := []string{
-//		"git status", "git commit", "git push", "git pull",
-//		"docker run", "docker build", "docker ps",
-//		"kubectl get", "kubectl apply", "kubectl delete",
-//	}
-//
-//	config := prompt.Config{
-//		Prefix: "$ ",
-//		Completer: prompt.NewFuzzyCompleter(candidates),
-//	}
-//
-//	p, _ := prompt.New(config)
-//	defer p.Close()
-//	result, _ := p.Run()
-func NewFuzzyCompleter(candidates []string) func(Document) []Suggestion {
-	fm := &fuzzyMatcher{
-		items: candidates,
-	}
-	return fm.completionFunc
-}
-
-// completionFunc returns fuzzy-matched suggestions for the given document context
-func (f *fuzzyMatcher) completionFunc(d Document) []Suggestion {
-	input := d.TextBeforeCursor()
-	if input == "" {
-		// Return all items if no input
-		suggestions := make([]Suggestion, len(f.items))
-		for i, item := range f.items {
-			suggestions[i] = Suggestion{
-				Text:        item,
-				Description: "",
-			}
-		}
-		return suggestions
-	}
-
-	matches := f.fuzzySearch(input)
-	// Convert to suggestions
-	suggestions := make([]Suggestion, len(matches))
-	for i, match := range matches {
-		suggestions[i] = Suggestion{
-			Text:        match.text,
-			Description: fmt.Sprintf("score: %d", match.score),
-		}
-	}
-	return suggestions
-}
-
-type fuzzyMatch struct {
-	text  string
-	score int
-}
-
-// fuzzySearch performs fuzzy matching against items and returns sorted matches
-func (f *fuzzyMatcher) fuzzySearch(query string) []fuzzyMatch {
-	if query == "" {
-		return nil
-	}
-
-	var matches []fuzzyMatch
-	queryLower := strings.ToLower(query)
-
-	for _, item := range f.items {
-		if score := calculateFuzzyScore(queryLower, strings.ToLower(item)); score > 0 {
-			matches = append(matches, fuzzyMatch{
-				text:  item,
-				score: score,
-			})
-		}
-	}
-
-	// Sort by score (descending)
-	for i := range len(matches) - 1 {
-		for j := i + 1; j < len(matches); j++ {
-			if matches[i].score < matches[j].score {
-				matches[i], matches[j] = matches[j], matches[i]
-			}
-		}
-	}
-
-	return matches
-}
-
 // findWordBoundary finds the next word boundary in the given direction for word-based navigation.
 //
 // This function implements word-based cursor movement similar to text editors:
@@ -1417,251 +1341,6 @@ func (p *Prompt) findWordBoundary(direction int) int {
 // Used by findWordBoundary() for word-based cursor movement operations.
 func isWordChar(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
-}
-
-// newHistorySearcher returns the search function Ctrl+R calls for matches. It
-// ranks the history by fuzzy match against the query, closest first.
-func newHistorySearcher(history []string) func(string) []string {
-	fm := &fuzzyMatcher{
-		items: history,
-	}
-	return fm.searchFunc
-}
-
-// searchFunc returns items that match the query using fuzzy matching
-func (f *fuzzyMatcher) searchFunc(query string) []string {
-	if query == "" {
-		return f.items
-	}
-
-	matches := f.fuzzySearch(query)
-	// Convert to string slice
-	results := make([]string, len(matches))
-	for i, match := range matches {
-		results[i] = match.text
-	}
-	return results
-}
-
-// searchHistory implements reverse history search (like Ctrl+R in bash)
-func (p *Prompt) searchHistory() (_ string, err error) {
-	search := newHistorySearcher(p.history)
-	searchBuffer := []rune{}
-	searchResults := search("")
-	selectedIndex := 0
-
-	// The interface is scratch space on the screen. Each render erases the one
-	// before it, and the last is erased however the search ends, so the prompt
-	// is redrawn on the line the search started on. Appending instead stacked a
-	// block per keystroke and left every one of them in the scrollback.
-	drawn := 0
-	defer func() {
-		// A cleanup that fails is worth reporting, but not at the cost of the
-		// error that ended the search: that one says why it ended.
-		if cerr := p.clearHistorySearch(drawn); cerr != nil && err == nil {
-			err = cerr
-		}
-	}()
-
-	for {
-		if err := p.clearHistorySearch(drawn); err != nil {
-			return "", err
-		}
-		rows, err := p.renderHistorySearch(string(searchBuffer), searchResults, selectedIndex)
-		drawn = rows
-		if err != nil {
-			return "", err
-		}
-
-		// Read key input
-		r, err := p.readRune()
-		if err != nil {
-			return "", err
-		}
-
-		switch r {
-		case '\r', '\n': // Enter - accept selection
-			if selectedIndex < len(searchResults) {
-				return searchResults[selectedIndex], nil
-			}
-			return string(searchBuffer), nil
-
-		case '\x03': // Ctrl+C - cancel search
-			return "", nil
-
-		case '\x1b': // Escape, or a key the terminal spells as a sequence
-			// The sequence has to be read here for the same reason the main loop
-			// reads it: what is not interpreted is still in the input. Ending the
-			// search on the ESC alone left the rest of an arrow key to be typed
-			// into the line, so pressing Up put "[A" in front of the user.
-			seq, serr := p.readEscapeSequence()
-			if errors.Is(serr, io.EOF) {
-				// Nothing followed the Escape and nothing ever will, so it was
-				// the key on its own. The main loop reports the end of input.
-				return "", nil
-			}
-			if serr != nil {
-				return "", serr
-			}
-			switch {
-			case seq == "":
-				return "", nil // a bare Escape, or Alt+key, cancels
-			case p.keyMap.GetSequenceAction(seq) == ActionMoveUp:
-				selectedIndex = moveSearchSelection(selectedIndex, -1, len(searchResults))
-			case p.keyMap.GetSequenceAction(seq) == ActionMoveDown:
-				selectedIndex = moveSearchSelection(selectedIndex, 1, len(searchResults))
-			}
-			// Any other sequence is consumed and ignored: the search has no use
-			// for it, and leaving it unread is how it became text.
-
-		case '\x7f', '\b': // Backspace
-			if len(searchBuffer) > 0 {
-				searchBuffer = searchBuffer[:len(searchBuffer)-1]
-				searchResults = search(string(searchBuffer))
-				selectedIndex = 0
-			}
-
-		case '\t': // Tab - next result
-			selectedIndex = moveSearchSelection(selectedIndex, 1, len(searchResults))
-
-		default:
-			if r >= 32 && r < 127 || r > 127 { // Printable characters
-				searchBuffer = append(searchBuffer, r)
-				searchResults = search(string(searchBuffer))
-				selectedIndex = 0
-			}
-		}
-	}
-}
-
-// moveSearchSelection moves the reverse-search selection by step through count
-// matches, wrapping at either end. With no matches there is nothing to select
-// and the index stays where it is.
-func moveSearchSelection(selected, step, count int) int {
-	if count == 0 {
-		return selected
-	}
-	return ((selected+step)%count + count) % count
-}
-
-// renderHistorySearch renders the history search interface and returns how many
-// terminal rows it occupies, which is what the next render has to erase.
-func (p *Prompt) renderHistorySearch(query string, results []string, selected int) (int, error) {
-	// Every line of the block is one terminal row, so what is drawn is flattened
-	// to one: a history entry can hold newlines -- a statement entered across
-	// several lines is stored as one entry, which is what the file's escaping is
-	// for -- and drawing one raw took rows the block never counted, leaving them
-	// on screen when the search closed.
-	header := "reverse-i-search: " + singleLine(query)
-	if selected < len(results) && len(results) > 0 {
-		header += " -> " + singleLine(results[selected])
-	}
-
-	// Show top 5 results. The header names the selection even when Tab has
-	// cycled past what is listed, so it is built before this cut.
-	const maxResults = 5
-	if len(results) > maxResults {
-		results = results[:maxResults]
-	}
-
-	lines := make([]string, 0, len(results)+1)
-	lines = append(lines, header)
-	for i, result := range results {
-		if i == selected {
-			lines = append(lines, "  > "+singleLine(result))
-			continue
-		}
-		lines = append(lines, "    "+singleLine(result))
-	}
-
-	if _, err := fmt.Fprint(p.output, "\r\x1b[K"); err != nil {
-		return 0, err
-	}
-	for _, line := range lines {
-		if _, err := fmt.Fprintf(p.output, "%s\r\n", line); err != nil {
-			// Some of the block reached the terminal, so report the rows it was
-			// meant to occupy: the caller erases what it asked for rather than
-			// leaving a half-drawn block behind.
-			return p.searchBlockRows(lines), err
-		}
-	}
-	return p.searchBlockRows(lines), nil
-}
-
-// clearHistorySearch erases the rows a previous search render left on screen and
-// returns the cursor to the row that render started on. Rendering ends one row
-// below the block, because every line it writes ends with a line break, so the
-// move up covers the whole block.
-func (p *Prompt) clearHistorySearch(rows int) error {
-	if rows <= 0 {
-		return nil
-	}
-	_, err := fmt.Fprintf(p.output, "\x1b[%dA\r\x1b[0J", rows)
-	return err
-}
-
-// searchBlockRows returns how many terminal rows the given lines occupy. A
-// history entry can be longer than the terminal is wide, and a wrapped line is
-// two rows to erase rather than one.
-func (p *Prompt) searchBlockRows(lines []string) int {
-	width := defaultTerminalWidth
-	if p.terminal != nil {
-		if w, _, err := p.terminal.Size(); err == nil && w > 0 {
-			width = w
-		}
-	}
-
-	rows := 0
-	for _, line := range lines {
-		wrapped, _ := layout(line, width)
-		rows += wrapped + 1
-	}
-	return rows
-}
-
-// syncHistoryAfterAdd synchronizes in-memory history with history manager after adding an entry.
-func (p *Prompt) syncHistoryAfterAdd() {
-	if p.historyManager != nil && p.historyManager.isEnabled() {
-		// The manager applies MaxEntries itself now, so there is nothing to cut
-		// and push back down: what it holds is what the prompt shows.
-		p.history = p.historyManager.getHistory()
-	}
-}
-
-// getMaxHistoryEntries returns the configured maximum history entries or default
-func (p *Prompt) getMaxHistoryEntries() int {
-	if p.config.HistoryConfig != nil && p.config.HistoryConfig.MaxEntries > 0 {
-		return p.config.HistoryConfig.MaxEntries
-	}
-	return 1000 // Default max entries
-}
-
-// addToHistory adds text to history, handling both historyManager and in-memory fallback
-func (p *Prompt) addToHistory(text string) {
-	if text == "" {
-		return
-	}
-
-	if p.historyManager != nil {
-		if p.historyManager.isEnabled() {
-			p.historyManager.addEntry(text)
-			p.syncHistoryAfterAdd()
-		}
-		// Do nothing when history manager exists but is disabled
-		return
-	}
-
-	// Fallback to in-memory only (when no history manager)
-	if len(p.history) > 0 && p.history[len(p.history)-1] == text {
-		return // Avoid duplicate consecutive entries
-	}
-	p.history = append(p.history, text)
-
-	// Trim history if it exceeds max size
-	maxEntries := p.getMaxHistoryEntries()
-	if len(p.history) > maxEntries {
-		p.history = p.history[len(p.history)-maxEntries:]
-	}
 }
 
 // isShiftEnter detects if we should add a newline instead of submitting
