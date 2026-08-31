@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `WithAutoIndent` sets what a new line opens with while a multiline entry is being typed. It is called with the input up to where the line breaks, and what it returns is inserted at the start of the new line. Every way a line can break goes through it -- an input the application reports incomplete, a newline key, a trailing backslash -- so a continuation looks the same however it was asked for. Without the option nothing is inserted, which is what a prompt did before it: every continuation line started at the margin, however deep in a bracket the writer was.
+
 ## [0.0.21] - 2026-08-31
 
 ### Fixed

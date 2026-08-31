@@ -374,6 +374,28 @@ for {
 }
 ```
 
+### Indenting continuation lines
+
+`WithAutoIndent` decides what each new line opens with. It is called with the
+input up to where the line breaks, and what it returns is inserted at the start
+of the new line:
+
+```go
+p, err := prompt.New("sql> ",
+    prompt.WithMultiline(true),
+    prompt.WithIsComplete(func(in string) bool { return strings.HasSuffix(in, ";") }),
+    prompt.WithContinuationPrefix("...> "),
+    prompt.WithAutoIndent(func(before string) string {
+        // Keep the indentation of the line being continued.
+        line := before[strings.LastIndex(before, "\n")+1:]
+        return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+    }),
+)
+```
+
+What it returns is part of the input, so it is submitted and recorded in history
+like anything else typed.
+
 ### Handing the terminal to another program
 
 A prompt owns the terminal while it lives. To run an editor, a pager, or any

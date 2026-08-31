@@ -24,11 +24,18 @@ func newTestPromptOn(terminal terminalInterface, options ...Option) *Prompt {
 	for _, option := range options {
 		option(&config)
 	}
+	// The key map comes from the config when the caller set one, the way New
+	// does it. Hardcoding the default here made WithKeyMap silently do nothing
+	// in a test.
+	keyMap := config.KeyMap
+	if keyMap == nil {
+		keyMap = NewDefaultKeyMap()
+	}
 	var output bytes.Buffer
 	return &Prompt{
 		config:   config,
 		terminal: terminal,
-		keyMap:   NewDefaultKeyMap(),
+		keyMap:   keyMap,
 		output:   &output,
 		buffer:   []rune{},
 		cursor:   0,
