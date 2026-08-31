@@ -1486,7 +1486,7 @@ func (f *fuzzyMatcher) fuzzySearch(query string) []fuzzyMatch {
 	queryLower := strings.ToLower(query)
 
 	for _, item := range f.items {
-		if score := calculateFuzzyScore(queryLower, strings.ToLower(item), false); score > 0 {
+		if score := calculateFuzzyScore(queryLower, strings.ToLower(item)); score > 0 {
 			matches = append(matches, fuzzyMatch{
 				text:  item,
 				score: score,

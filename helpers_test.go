@@ -79,3 +79,83 @@ func TestNewHistorySearcher(t *testing.T) {
 		t.Errorf("Expected 2 results for 'git', got %d", len(results))
 	}
 }
+
+// TestFuzzyScoreWalksTheCandidateByRune covers matching outside ASCII. The
+// candidate was walked a byte at a time and each byte compared to a rune of the
+// input, so one byte of a UTF-8 sequence was tested against the character it is
+// part of and never matched: Ctrl+R and NewFuzzyCompleter could not find a
+// command written in Japanese, or a word with an accent, by its characters.
+func TestFuzzyScoreWalksTheCandidateByRune(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		input     string
+		candidate string
+		want      bool // whether the characters are all there, in order
+	}{
+		{name: "ascii scattered", input: "st", candidate: "select * from t", want: true},
+		{name: "japanese scattered", input: "日語", candidate: "日本語テキスト", want: true},
+		{name: "japanese across a word", input: "名テ", candidate: "名前テーブル", want: true},
+		{name: "an accented letter", input: "éo", candidate: "école", want: true},
+		// A query whose characters are out of order still scores for the ones
+		// found before the walk runs out, which is what it does in ASCII too.
+		{name: "out of order scores partially", input: "語日", candidate: "日本語", want: true},
+		{name: "out of order scores partially in ascii", input: "ca", candidate: "abc", want: true},
+		{name: "a character that is not there scores nothing", input: "猫", candidate: "日本語", want: false},
+		{name: "a character that is not there scores nothing in ascii", input: "z", candidate: "abc", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := calculateFuzzyScore(tt.input, tt.candidate)
+			if (got > 0) != tt.want {
+				t.Errorf("calculateFuzzyScore(%q, %q) = %d, want a score %s zero", tt.input, tt.candidate, got, map[bool]string{true: "above", false: "of"}[tt.want])
+			}
+		})
+	}
+}
+
+// TestFuzzyScoreKeepsItsAsciiScores pins that widening the walk changed nothing
+// for a query and a candidate that were already reachable.
+func TestFuzzyScoreKeepsItsAsciiScores(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input     string
+		candidate string
+		want      int
+	}{
+		{input: "", candidate: "anything", want: 1},
+		{input: "abc", candidate: "", want: 0},
+		{input: "abc", candidate: "abc", want: 1000},
+		{input: "ab", candidate: "abc", want: 820},
+		{input: "bc", candidate: "abcd", want: 510},
+		{input: "ac", candidate: "abc", want: 20},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input+"/"+tt.candidate, func(t *testing.T) {
+			t.Parallel()
+
+			if got := calculateFuzzyScore(tt.input, tt.candidate); got != tt.want {
+				t.Errorf("calculateFuzzyScore(%q, %q) = %d, want %d", tt.input, tt.candidate, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestHistorySearchFindsANonAsciiEntry is the same measurement seen through
+// Ctrl+R, which ranks the history with that score.
+func TestHistorySearchFindsANonAsciiEntry(t *testing.T) {
+	t.Parallel()
+
+	search := newHistorySearcher([]string{"日本語テキスト", "select * from t", "école normale"})
+	for _, query := range []string{"日語", "st", "éo"} {
+		if got := search(query); len(got) == 0 {
+			t.Errorf("searching %q found nothing", query)
+		}
+	}
+}

@@ -2141,7 +2141,7 @@ func TestFuzzyScore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			score := calculateFuzzyScore(tt.input, tt.candidate, false)
+			score := calculateFuzzyScore(tt.input, tt.candidate)
 			if tt.minScore == 0 {
 				if score != 0 {
 					t.Errorf("Expected no match (score 0), got %d", score)
