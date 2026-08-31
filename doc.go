@@ -146,7 +146,8 @@
 // The library provides specific error types for different scenarios:
 //
 //   - prompt.ErrInterrupted: User pressed Ctrl+C
-//   - io.EOF: User pressed Ctrl+D with empty buffer
+//   - prompt.ErrEOF: User pressed Ctrl+D with an empty buffer, or the input
+//     reached its end. It matches io.EOF as well as itself.
 //   - context.DeadlineExceeded: Timeout reached (when using context)
 //   - context.Canceled: Context was canceled
 //

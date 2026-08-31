@@ -23,11 +23,26 @@ const windowsOS = "windows"
 
 // Common errors
 var (
-	// ErrEOF is returned when the user presses Ctrl+D or EOF is encountered
-	ErrEOF = errors.New("EOF")
+	// ErrEOF is returned when the user presses Ctrl+D on an empty line, and when
+	// the input the prompt reads reaches its end. Both are the same thing to a
+	// caller: there is no more input, so the session is over.
+	//
+	// It matches io.EOF as well as itself, so a REPL that breaks its loop on
+	// either is right. The two used to be told apart -- Ctrl+D answered to io.EOF
+	// and nothing else -- and a loop written the way this package documents it
+	// therefore never ended.
+	ErrEOF error = eofError{}
 	// ErrInterrupted is returned when the user presses Ctrl+C
 	ErrInterrupted = errors.New("interrupted")
 )
+
+// eofError is what ErrEOF is. It exists to wrap io.EOF without changing what
+// ErrEOF prints or which value it is.
+type eofError struct{}
+
+func (eofError) Error() string { return "EOF" }
+
+func (eofError) Unwrap() error { return io.EOF }
 
 // Prompt represents an interactive terminal prompt.
 type Prompt struct {
@@ -1101,9 +1116,11 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			} else if r == '\x04' { // Ctrl+D (EOF)
 				if len(p.buffer) == 0 {
 					// Ctrl+D on an empty buffer ends the session; restore the
-					// terminal even in persistent mode before returning.
+					// terminal even in persistent mode before returning. It is
+					// the same ending as input running out, and says so with the
+					// same error.
 					p.restoreOnExit()
-					return "", io.EOF
+					return "", ErrEOF
 				}
 			}
 		}
