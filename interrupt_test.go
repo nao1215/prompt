@@ -3,9 +3,9 @@ package prompt
 import (
 	"context"
 	"errors"
+	"os"
 	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -194,7 +194,11 @@ func TestWatchInterruptCancelsOnSIGINT(t *testing.T) {
 	if !waitFor(func() bool { return terminal.readers.Load() > 0 }) {
 		t.Fatal("the watch never reached the terminal, so the signal would land on nothing")
 	}
-	if err := syscall.Kill(syscall.Getpid(), syscall.SIGINT); err != nil {
+	self, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("finding the test process: %v", err)
+	}
+	if err := self.Signal(os.Interrupt); err != nil {
 		t.Fatalf("sending SIGINT to the test process: %v", err)
 	}
 
