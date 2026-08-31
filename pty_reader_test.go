@@ -561,7 +561,7 @@ func TestPromptLifecycleOrdersUnderAPTY(t *testing.T) {
 			name:     "a Run on a closed prompt leaves the terminal as it found it",
 			scenario: "runafterclose",
 			steps:    []ptyStep{{await: "p1> ", send: "one\r"}},
-			want:     []string{`session1="one"`, "errEOF=true", "restored=true"},
+			want:     []string{`session1="one"`, "errEOF=true", "restored=true", "sessionrestored=true"},
 			absent:   []string{"p2> "},
 		},
 		{
