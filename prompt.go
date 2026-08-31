@@ -763,6 +763,11 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 	}
 
 	historyIndex := len(p.history)
+	// pendingLine holds the line being typed while the history is walked. The
+	// index past the newest entry is where that line belongs, and it has to be
+	// kept somewhere: replacing the buffer with a history entry is what would
+	// otherwise destroy it, and coming back had nothing to come back to.
+	pendingLine := ""
 	inPaste := false
 	lastPasted := rune(0)
 	var suggestions []Suggestion
@@ -901,6 +906,11 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			} else {
 				// Navigate history
 				if historyIndex > 0 {
+					if historyIndex == len(p.history) {
+						// Leaving the line being typed, rather than moving
+						// between entries: this is the last chance to keep it.
+						pendingLine = string(p.buffer)
+					}
 					historyIndex--
 					p.setBuffer(p.history[historyIndex])
 					suggestions = nil
@@ -926,7 +936,11 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 				if historyIndex < len(p.history) {
 					historyIndex++
 					if historyIndex == len(p.history) {
-						p.setBuffer("")
+						// Back past the newest entry, which is the line that was
+						// being typed. An edit made to a history entry along the
+						// way is dropped rather than carried here, the way a
+						// shell drops it.
+						p.setBuffer(pendingLine)
 					} else {
 						p.setBuffer(p.history[historyIndex])
 					}

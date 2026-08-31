@@ -4370,3 +4370,43 @@ func TestBackslashContinuationCountsInRunes(t *testing.T) {
 		})
 	}
 }
+
+// TestHistoryDownRestoresTheLineBeingTyped covers walking out of the history and
+// back. The position past the newest entry is where the line being edited
+// belongs, and nothing had saved it, so coming back to it emptied the prompt:
+// looking up an earlier command cost whatever was half typed.
+func TestHistoryDownRestoresTheLineBeingTyped(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		script string
+		want   string
+	}{
+		{name: "up then down brings the line back", script: "hello\x1b[A\x1b[B\r", want: "hello"},
+		{name: "twice up then twice down brings it back", script: "hello\x1b[A\x1b[A\x1b[B\x1b[B\r", want: "hello"},
+		// Typing puts the prompt back on a fresh line, so an edited history entry
+		// is what is being written now and Down has nowhere further to go.
+		{name: "editing a history entry leaves the history", script: "hello\x1b[A!\x1b[B\r", want: "second!"},
+		{name: "down on an untouched line stays empty", script: "\x1b[B\r", want: ""},
+		{name: "up then down on an empty line stays empty", script: "\x1b[A\x1b[B\r", want: ""},
+		{name: "stopping on a history entry submits that entry", script: "hello\x1b[A\r", want: "second"},
+		{name: "typing after coming back keeps the restored line", script: "hel\x1b[A\x1b[Blo\r", want: "hello"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newTestPrompt(newMockTerminal(tt.script), WithMemoryHistory(10))
+			p.SetHistory([]string{"first", "second"})
+			got, err := p.Run()
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("Run() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
