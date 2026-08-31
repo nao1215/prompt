@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `Close` now ends the goroutine that reads the terminal, so a prompt opened after one was closed reads its input ([#47](https://github.com/nao1215/prompt/issues/47)). `WatchInterrupt` starts a shared reader whose goroutine blocks in a terminal read, and closing the terminal did not end it: go-tty calls `Fd()` on the file it reads, which takes it out of the runtime's poller and back into blocking mode, and a blocking read is what nothing can interrupt. The goroutine was left in `read(2)` on a descriptor number the kernel had taken back, and running a child process is enough to get that number reused — by the next prompt's own `/dev/tty`. The abandoned reader then held the new prompt's terminal, which drew its prefix and swallowed every keystroke, `Ctrl-D` included, so the session could not be ended. On Unix the prompt now reads a descriptor of its own, opened non-blocking so it stays in the poller, and `Close` waits for the reader to finish. Windows still reads through go-tty, where raw mode is routed through the same handle, and `Close` does not wait there.
+
 ## [0.0.20] - 2026-08-31
 
 ### Added

@@ -374,6 +374,26 @@ for {
 }
 ```
 
+### Handing the terminal to another program
+
+A prompt owns the terminal while it lives. To run an editor, a pager, or any
+other program that draws on the terminal, close the prompt and open a new one
+afterwards:
+
+```go
+if err := p.Close(); err != nil {
+    return err
+}
+cmd := exec.Command(os.Getenv("EDITOR"), path)
+cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+runErr := cmd.Run()
+
+p, err = prompt.New("$ ", opts...) // a fresh session takes the terminal back
+```
+
+`Close` ends the goroutine reading the terminal before it returns, so the child
+process and the next prompt get the input typed into them.
+
 ### Interrupting work between prompts
 
 `Run` returns as soon as a line is submitted, so while the application executes
