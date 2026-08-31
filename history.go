@@ -13,7 +13,7 @@ import (
 func DefaultHistoryConfig() *HistoryConfig {
 	return &HistoryConfig{
 		Enabled:     true,
-		MaxEntries:  1000,        // Default memory limit
+		MaxEntries:  defaultMaxHistoryEntries,
 		File:        "",          // Empty by default, can be set to use XDG config directory
 		MaxFileSize: 1024 * 1024, // 1MB
 		MaxBackups:  3,
@@ -33,6 +33,10 @@ func GetDefaultHistoryFile() string {
 	}
 	return filepath.Join(configDir, "prompt", "history")
 }
+
+// defaultMaxHistoryEntries is how many entries are kept when the configuration
+// names no limit.
+const defaultMaxHistoryEntries = 1000
 
 // HistoryManager manages command history persistence and rotation
 type HistoryManager struct {
@@ -85,6 +89,12 @@ func (hm *HistoryManager) LoadHistory() error {
 	}
 	defer file.Close()
 
+	// The file's contents replace what the manager holds rather than joining it.
+	// A load answers "what is in the file", and appending made asking twice --
+	// after another shell wrote to it, after the user edited it -- return every
+	// entry twice. It is built up separately so a read that fails partway leaves
+	// the existing history alone.
+	loaded := make([]string, 0, len(hm.history))
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		// Only the line terminator is dropped: an entry's own leading and
@@ -93,13 +103,14 @@ func (hm *HistoryManager) LoadHistory() error {
 		if !ok {
 			continue
 		}
-		hm.history = append(hm.history, entry)
+		loaded = append(loaded, entry)
 	}
 
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("failed to read history file: %w", err)
 	}
 
+	hm.history = hm.trim(loaded)
 	return nil
 }
 
@@ -226,7 +237,24 @@ func (hm *HistoryManager) AddEntry(entry string) {
 		return
 	}
 
-	hm.history = append(hm.history, entry)
+	hm.history = hm.trim(append(hm.history, entry))
+}
+
+// trim drops the oldest entries until at most MaxEntries remain.
+//
+// The limit belongs here, where the history is held. It used to be applied only
+// by the prompt, which read this history back, cut it, and pushed the shortened
+// copy down again, so a manager used on its own grew for as long as the process
+// ran however small a limit it was given.
+func (hm *HistoryManager) trim(history []string) []string {
+	limit := hm.config.MaxEntries
+	if limit <= 0 {
+		limit = defaultMaxHistoryEntries
+	}
+	if len(history) <= limit {
+		return history
+	}
+	return history[len(history)-limit:]
 }
 
 // GetHistory returns a copy of the current history
@@ -242,7 +270,7 @@ func (hm *HistoryManager) SetHistory(history []string) {
 	if !hm.config.Enabled {
 		return
 	}
-	hm.history = append([]string{}, history...)
+	hm.history = hm.trim(append([]string{}, history...))
 }
 
 // ClearHistory clears the current history

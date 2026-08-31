@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/mattn/go-colorable"
 )
@@ -109,10 +110,18 @@ const (
 const (
 	bracketedPasteEnableSequence  = "\x1b[?2004h"
 	bracketedPasteDisableSequence = "\x1b[?2004l"
-	// maxCSILength bounds how many runes are read after "ESC [" while looking for
-	// the sequence's final byte. It is far longer than any key sequence a
-	// terminal sends, and exists so a malformed one cannot read forever.
+	// maxCSILength bounds how much of a CSI sequence is remembered while looking
+	// for its final byte. It is far longer than any key sequence a terminal
+	// sends; a sequence that outgrows it is read to its end and reported as no
+	// sequence at all, since nothing could be bound to it anyway.
 	maxCSILength = 32
+	// csiParamFirst and csiParamLast bracket the parameter and intermediate
+	// bytes of a CSI sequence, and csiFinalFirst and csiFinalLast its final
+	// byte. A byte outside both ranges aborts the sequence.
+	csiParamFirst = ' '
+	csiParamLast  = '?'
+	csiFinalFirst = '@'
+	csiFinalLast  = '~'
 )
 
 // KeyMap holds the key binding configuration
@@ -1627,17 +1636,22 @@ func (p *Prompt) findWordBoundary(direction int) int {
 // and word deletion operations (Ctrl+W). The implementation follows common text
 // editor conventions:
 //
-//   - Letters (a-z, A-Z): Always considered part of a word
-//   - Digits (0-9): Always considered part of a word
+//   - Letters: Always considered part of a word
+//   - Digits: Always considered part of a word
 //   - Underscore (_): Considered part of a word (programming convention)
 //   - All other characters: Considered word separators (spaces, punctuation, etc.)
 //
 // This character classification enables intuitive text navigation in programming
 // contexts where identifiers commonly contain underscores.
 //
+// A letter is a letter in any script. Testing for a-z alone made every other
+// alphabet a separator, so word navigation walked over a word written in
+// Japanese as if it were whitespace and carried on into the word before it,
+// and a letter with a diacritic split its own word in two.
+//
 // Used by findWordBoundary() for word-based cursor movement operations.
 func isWordChar(r rune) bool {
-	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }
 
 // NewHistorySearcher creates a new history searcher for command history.
@@ -1824,13 +1838,9 @@ func (p *Prompt) searchBlockRows(lines []string) int {
 // syncHistoryAfterAdd synchronizes in-memory history with history manager after adding an entry.
 func (p *Prompt) syncHistoryAfterAdd() {
 	if p.historyManager != nil && p.historyManager.IsEnabled() {
+		// The manager applies MaxEntries itself now, so there is nothing to cut
+		// and push back down: what it holds is what the prompt shows.
 		p.history = p.historyManager.GetHistory()
-		// Trim in-memory history if it exceeds max size
-		maxEntries := p.getMaxHistoryEntries()
-		if len(p.history) > maxEntries {
-			p.history = p.history[len(p.history)-maxEntries:]
-			p.historyManager.SetHistory(p.history)
-		}
 	}
 }
 
@@ -2239,20 +2249,43 @@ func (p *Prompt) readEscapeSequence() (string, error) {
 	// the final range. Reading to that byte keeps a long sequence (bracketed
 	// paste markers, Ctrl+arrow, a mouse or paste report with many parameters)
 	// whole instead of cutting it after three runes.
+	//
+	// The grammar decides where the sequence ends, not a rune count. A count can
+	// only stop reading, and a sequence the terminal is still sending does not
+	// stop with it: everything past the count stayed in the input and reached
+	// the read loop as keystrokes, so a long terminal reply appeared in the
+	// user's line one parameter at a time. maxCSILength bounds what is
+	// remembered instead, so a sequence too long to name is still consumed
+	// whole.
 	seq := make([]rune, 0, 8)
 	seq = append(seq, r)
-	for range maxCSILength { // Bound the read so a malformed sequence cannot hang the prompt
+	overlong := false
+	for {
 		r, err := p.readRune()
 		if err != nil {
 			return "", err
 		}
-		seq = append(seq, r)
-		if r >= '@' && r <= '~' {
-			return string(seq), nil
+		switch {
+		case r >= csiFinalFirst && r <= csiFinalLast:
+			if overlong {
+				// The terminal is sending something this prompt cannot name. It
+				// has been read to its end, so nothing is left to be mistaken
+				// for typing.
+				return "", nil
+			}
+			return string(append(seq, r)), nil
+		case r >= csiParamFirst && r <= csiParamLast:
+			if len(seq) >= maxCSILength {
+				overlong = true
+				continue
+			}
+			seq = append(seq, r)
+		default:
+			// A byte outside the grammar aborts the sequence and is input in its
+			// own right. Counting it as a parameter swallowed it: ESC [ followed
+			// by Enter left the line unsubmittable.
+			p.unreadRune(r)
+			return "", nil
 		}
 	}
-	// No final byte within the bound: the terminal is sending something this
-	// prompt cannot name. Report no sequence rather than a truncated one, whose
-	// unread tail would otherwise be inserted into the buffer as typed text.
-	return "", nil
 }

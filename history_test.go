@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"testing/quick"
@@ -1633,5 +1634,124 @@ func TestHistoryLineEncodingRoundTrip(t *testing.T) {
 	}
 	if err := quick.Check(roundTrip, config); err != nil {
 		t.Errorf("encode/decode round trip failed: %v", err)
+	}
+}
+
+// TestHistoryManagerKeepsAtMostMaxEntries pins the limit at the layer that owns
+// the history. It used to be applied only by the prompt, which read the
+// manager's history back and pushed a shortened copy down again, so a manager
+// used on its own grew without bound.
+func TestHistoryManagerKeepsAtMostMaxEntries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		maxEntries int
+		added      []string
+		want       []string
+	}{
+		{
+			name:       "fewer entries than the limit are all kept",
+			maxEntries: 3,
+			added:      []string{"a", "b"},
+			want:       []string{"a", "b"},
+		},
+		{
+			name:       "exactly the limit is kept",
+			maxEntries: 3,
+			added:      []string{"a", "b", "c"},
+			want:       []string{"a", "b", "c"},
+		},
+		{
+			name:       "the oldest entries are dropped past the limit",
+			maxEntries: 3,
+			added:      []string{"a", "b", "c", "d", "e"},
+			want:       []string{"c", "d", "e"},
+		},
+		{
+			name:       "a limit of one keeps the newest entry",
+			maxEntries: 1,
+			added:      []string{"a", "b", "c"},
+			want:       []string{"c"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			hm := NewHistoryManager(&HistoryConfig{Enabled: true, MaxEntries: tt.maxEntries})
+			for _, entry := range tt.added {
+				hm.AddEntry(entry)
+			}
+			got := hm.GetHistory()
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("GetHistory() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestHistoryManagerLoadHistoryReplacesWhatItHolds covers reloading. A load is a
+// read of the file, but it appended, so asking a manager for the file's current
+// contents duplicated every entry it already had.
+func TestHistoryManagerLoadHistoryReplacesWhatItHolds(t *testing.T) {
+	t.Parallel()
+
+	file := filepath.Join(t.TempDir(), "history")
+	saved := NewHistoryManager(&HistoryConfig{Enabled: true, File: file})
+	saved.AddEntry("one")
+	saved.AddEntry("two")
+	if err := saved.SaveHistory(); err != nil {
+		t.Fatalf("SaveHistory() error = %v", err)
+	}
+
+	loaded := NewHistoryManager(&HistoryConfig{Enabled: true, File: file})
+	for range 2 {
+		if err := loaded.LoadHistory(); err != nil {
+			t.Fatalf("LoadHistory() error = %v", err)
+		}
+	}
+
+	want := []string{"one", "two"}
+	if got := loaded.GetHistory(); !slices.Equal(got, want) {
+		t.Errorf("GetHistory() = %q, want %q", got, want)
+	}
+}
+
+// TestHistoryManagerLoadHistoryKeepsTheHistoryWhenThereIsNoFile pins the other
+// half of replacing: a file that does not exist yet says nothing about the
+// history, and must not empty it.
+func TestHistoryManagerLoadHistoryKeepsTheHistoryWhenThereIsNoFile(t *testing.T) {
+	t.Parallel()
+
+	hm := NewHistoryManager(&HistoryConfig{Enabled: true, File: filepath.Join(t.TempDir(), "absent")})
+	hm.AddEntry("kept")
+	if err := hm.LoadHistory(); err != nil {
+		t.Fatalf("LoadHistory() error = %v", err)
+	}
+	if got := hm.GetHistory(); !slices.Equal(got, []string{"kept"}) {
+		t.Errorf("GetHistory() = %q, want [kept]", got)
+	}
+}
+
+// TestHistoryManagerLoadHistoryKeepsAtMostMaxEntries covers a file holding more
+// than the limit, which is what a file written by an older version, or by hand,
+// can hold.
+func TestHistoryManagerLoadHistoryKeepsAtMostMaxEntries(t *testing.T) {
+	t.Parallel()
+
+	file := filepath.Join(t.TempDir(), "history")
+	if err := os.WriteFile(file, []byte("a\nb\nc\nd\ne\n"), 0600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	hm := NewHistoryManager(&HistoryConfig{Enabled: true, File: file, MaxEntries: 2})
+	if err := hm.LoadHistory(); err != nil {
+		t.Fatalf("LoadHistory() error = %v", err)
+	}
+	want := []string{"d", "e"}
+	if got := hm.GetHistory(); !slices.Equal(got, want) {
+		t.Errorf("GetHistory() = %q, want %q", got, want)
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/mattn/go-runewidth"
 )
 
 func TestNewRenderer(t *testing.T) {
@@ -1542,13 +1544,6 @@ func TestLayoutAdvancesATabToItsTabStop(t *testing.T) {
 			wantCol:  8,
 		},
 		{
-			name:     "a tab past the margin stops at the margin instead of wrapping",
-			s:        strings.Repeat("x", 9) + "\t",
-			width:    10,
-			wantRows: 0,
-			wantCol:  10,
-		},
-		{
 			name:     "text after a tab wraps from the tab stop",
 			s:        "a\t" + strings.Repeat("y", 3),
 			width:    10,
@@ -1670,4 +1665,322 @@ func TestRendererCountsTheRowsAWrappedSuggestionOccupies(t *testing.T) {
 			t.Errorf("render() moved up %d rows, want 3: the menu's wrapped rows are above the prompt", up)
 		}
 	})
+}
+
+// screenModel is a terminal small enough to test against: it interprets the
+// escape sequences the renderer writes and nothing else, and it can be asked
+// what is on screen and where the cursor is.
+//
+// It exists because the renderer's arithmetic is one calculation read four ways
+// -- the rows erased, the rows drawn, the row the cursor is left on, and the
+// column it is left at -- and an assertion on a single escape sequence pins one
+// of the four. Feeding a render to a terminal and looking at the result pins all
+// of them, and it is how a wrong number is caught in the place the user would
+// see it.
+type screenModel struct {
+	cells   [][]rune
+	width   int
+	height  int
+	row     int
+	col     int
+	pending bool // the cursor is parked on the last cell with a wrap owed
+}
+
+func newScreenModel(width int) *screenModel {
+	const height = 64
+	s := &screenModel{width: width, height: height, cells: make([][]rune, height)}
+	for row := range s.cells {
+		s.cells[row] = make([]rune, width)
+		for col := range s.cells[row] {
+			s.cells[row][col] = ' '
+		}
+	}
+	return s
+}
+
+// put writes one rune where the cursor is, the way a terminal does: a glyph is
+// never split across the right margin, a tab stops at the last column rather
+// than wrapping, and filling the last cell leaves the cursor on it with a wrap
+// owed until another rune arrives.
+func (s *screenModel) put(r rune) {
+	if r == '\t' {
+		s.resolvePending()
+		stop := min(s.col+tabWidth-s.col%tabWidth, s.width-1)
+		s.col = stop
+		return
+	}
+	width := runewidth.RuneWidth(r)
+	if width == 0 {
+		return
+	}
+	s.resolvePending()
+	if s.col+width > s.width {
+		s.newRow()
+	}
+	s.cells[s.row][s.col] = r
+	for cell := 1; cell < width; cell++ {
+		if s.col+cell < s.width {
+			s.cells[s.row][s.col+cell] = 0 // the second half of a wide glyph holds nothing
+		}
+	}
+	s.col += width
+	if s.col >= s.width {
+		s.col = s.width - 1
+		s.pending = true
+	}
+}
+
+func (s *screenModel) resolvePending() {
+	if s.pending {
+		s.newRow()
+		s.pending = false
+	}
+}
+
+func (s *screenModel) newRow() {
+	s.col = 0
+	s.row = min(s.row+1, s.height-1)
+	s.pending = false
+}
+
+func (s *screenModel) writeString(text string) {
+	for _, r := range text {
+		s.put(r)
+	}
+}
+
+// startRow moves to the start of the next row, the way a line break in the input
+// does.
+func (s *screenModel) startRow() {
+	s.pending = false
+	s.col = 0
+	s.row = min(s.row+1, s.height-1)
+}
+
+func (s *screenModel) eraseToEndOfRow() {
+	for col := s.col; col < s.width; col++ {
+		s.cells[s.row][col] = ' '
+	}
+}
+
+func (s *screenModel) eraseToEndOfScreen() {
+	s.eraseToEndOfRow()
+	for row := s.row + 1; row < s.height; row++ {
+		for col := range s.cells[row] {
+			s.cells[row][col] = ' '
+		}
+	}
+}
+
+func (s *screenModel) eraseAll() {
+	for row := range s.cells {
+		for col := range s.cells[row] {
+			s.cells[row][col] = ' '
+		}
+	}
+}
+
+// feed interprets what a render wrote.
+func (s *screenModel) feed(output string) {
+	runes := []rune(output)
+	for i := 0; i < len(runes); i++ {
+		switch r := runes[i]; {
+		case r == '\r':
+			s.col, s.pending = 0, false
+		case r == '\n':
+			s.row, s.pending = min(s.row+1, s.height-1), false
+		case r == '\x1b' && i+1 < len(runes) && runes[i+1] == '[':
+			i = s.control(runes, i)
+		default:
+			s.put(r)
+		}
+	}
+}
+
+// control applies the CSI sequence starting at start and returns the index of
+// its final byte.
+func (s *screenModel) control(runes []rune, start int) int {
+	end := start + 2
+	for end < len(runes) && !(runes[end] >= '@' && runes[end] <= '~') {
+		end++
+	}
+	if end >= len(runes) {
+		return len(runes)
+	}
+	params := string(runes[start+2 : end])
+	count := 1
+	if digits := strings.TrimLeft(params, "?"); digits == params && params != "" {
+		if n, err := strconv.Atoi(params); err == nil {
+			count = n
+		}
+	}
+	switch runes[end] {
+	case 'A':
+		s.row, s.pending = max(s.row-count, 0), false
+	case 'B':
+		s.row, s.pending = min(s.row+count, s.height-1), false
+	case 'C':
+		s.col, s.pending = min(s.col+count, s.width-1), false
+	case 'D':
+		s.col, s.pending = max(s.col-count, 0), false
+	case 'H':
+		s.row, s.col, s.pending = 0, 0, false
+	case 'K':
+		s.eraseToEndOfRow()
+	case 'J':
+		if params == "2" || params == "3" {
+			s.eraseAll()
+		} else {
+			s.eraseToEndOfScreen()
+		}
+	}
+	return end
+}
+
+// rows returns what is on screen, without the blank rows below it.
+func (s *screenModel) rows() []string {
+	out := make([]string, s.height)
+	for row := range s.cells {
+		var line strings.Builder
+		for _, cell := range s.cells[row] {
+			if cell != 0 {
+				line.WriteRune(cell)
+			}
+		}
+		out[row] = strings.TrimRight(line.String(), " ")
+	}
+	last := len(out) - 1
+	for last >= 0 && out[last] == "" {
+		last--
+	}
+	return out[:last+1]
+}
+
+// widthTerminal reports a fixed width, so a render can be measured against a
+// terminal narrower than the fallback.
+type widthTerminal struct {
+	mockTerminal
+	width int
+}
+
+func (w *widthTerminal) Size() (width, height int, err error) { return w.width, 24, nil }
+
+// TestRendererKeepsATabOnTheRowTheTerminalPutIt renders a line whose tab reaches
+// the right margin and compares the result against a terminal. A tab that stops
+// at the margin has not filled the last cell, so the character after it belongs
+// to the same row; counting it as a wrap drew the cursor on a row the text never
+// reached and left the next erase one row too high.
+func TestRendererKeepsATabOnTheRowTheTerminalPutIt(t *testing.T) {
+	t.Parallel()
+
+	const width = 10
+	const input = "x\ty\tz"
+
+	var out bytes.Buffer
+	r := newRenderer(&out, ThemeDefault, &widthTerminal{width: width})
+	if err := r.render("> ", input, len([]rune(input))); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	screen := newScreenModel(width)
+	screen.feed(out.String())
+
+	want := newScreenModel(width)
+	want.writeString("> " + input)
+
+	if got, expected := screen.rows(), want.rows(); strings.Join(got, "|") != strings.Join(expected, "|") {
+		t.Errorf("render() drew %q, want %q", got, expected)
+	}
+	if screen.row != want.row || screen.col != want.col {
+		t.Errorf("render() left the cursor at (%d, %d), want (%d, %d)", screen.row, screen.col, want.row, want.col)
+	}
+	if r.lastLines != want.row+1 {
+		t.Errorf("render() recorded %d rows, want %d", r.lastLines, want.row+1)
+	}
+	if r.lastCursorRow != screen.row {
+		t.Errorf("render() recorded the cursor on row %d, but left it on row %d", r.lastCursorRow, screen.row)
+	}
+}
+
+// TestRendererDoesNotEraseTheRowAboveAfterATab is the same measurement seen a
+// keystroke later: an overstated cursor row makes the next render move up past
+// the top of its own block and erase what the application printed there.
+func TestRendererDoesNotEraseTheRowAboveAfterATab(t *testing.T) {
+	t.Parallel()
+
+	const width = 10
+
+	var out bytes.Buffer
+	r := newRenderer(&out, ThemeDefault, &widthTerminal{width: width})
+	if err := r.render("> ", "x\ty\tz", 5); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if err := r.render("> ", "x\ty\tzz", 6); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	screen := newScreenModel(width)
+	screen.writeString("earlier")
+	screen.startRow()
+	screen.feed(out.String())
+
+	if rows := screen.rows(); len(rows) == 0 || rows[0] != "earlier" {
+		t.Errorf("the second render erased the line above the prompt: %q", screen.rows())
+	}
+}
+
+// TestLayoutStopsATabAtTheLastColumn pins the measurement itself. A terminal
+// moves a tab to the next stop and, when the row holds no further stop, to the
+// last column -- where the cursor sits without a wrap owed, so the next
+// character prints on the same row.
+func TestLayoutStopsATabAtTheLastColumn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		s        string
+		width    int
+		wantRows int
+		wantCol  int
+	}{
+		{
+			name:     "a tab past the last stop reaches the last column",
+			s:        strings.Repeat("x", 9) + "\t",
+			width:    10,
+			wantRows: 0,
+			wantCol:  9,
+		},
+		{
+			name:     "a character after such a tab stays on the row",
+			s:        strings.Repeat("x", 9) + "\tz",
+			width:    10,
+			wantRows: 0,
+			wantCol:  10,
+		},
+		{
+			name:     "two tabs in a row cannot push past the last column",
+			s:        "x\ty\tz",
+			width:    10,
+			wantRows: 0,
+			wantCol:  10,
+		},
+		{
+			name:     "a tab on a filled row belongs to the next one",
+			s:        strings.Repeat("x", 10) + "\t",
+			width:    10,
+			wantRows: 1,
+			wantCol:  8,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rows, col := layout(tt.s, tt.width)
+			if rows != tt.wantRows || col != tt.wantCol {
+				t.Errorf("layout(%q, %d) = (%d, %d), want (%d, %d)", tt.s, tt.width, rows, col, tt.wantRows, tt.wantCol)
+			}
+		})
+	}
 }

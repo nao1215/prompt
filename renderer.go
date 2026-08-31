@@ -13,7 +13,8 @@ import (
 // the start of a row, and the column it ends on. That column can equal width,
 // which is the state a terminal is in once it has filled its last cell: the
 // cursor stays there until another character arrives, rather than moving to a
-// row that does not exist yet.
+// row that does not exist yet. Only a written cell reaches that state; a tab
+// stops one column short of it.
 //
 // Everything here is measured in cells rather than runes, because a rune is not
 // a cell: "データ> " is 5 runes and 8 columns, an emoji is 1 rune and 2 columns,
@@ -38,9 +39,12 @@ func layout(s string, width int) (rows, col int) {
 				rows++
 				col = 0
 			}
-			// A terminal stops a tab at the right margin instead of carrying it
-			// onto the next row.
-			col = min(col+tabWidth-col%tabWidth, width)
+			// A terminal stops a tab at the last column instead of carrying it
+			// onto the next row, and stopping there is not the same as filling
+			// the row: no cell was written, so the cursor sits on the last
+			// column with no wrap owed and the next character prints beside it.
+			// Reporting width here claimed a wrap the terminal never made.
+			col = min(col+tabWidth-col%tabWidth, width-1)
 			continue
 		}
 		w := runewidth.RuneWidth(r)

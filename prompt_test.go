@@ -556,10 +556,12 @@ func TestReadEscapeSequenceBareEscape(t *testing.T) {
 		{name: "CSI arrow is still recognized as a sequence", input: "[Ax", wantSeq: "[A", wantNex: 'x'},
 		{name: "SS3 function key is still recognized as a sequence", input: "OPx", wantSeq: "OP", wantNex: 'x'},
 		{name: "long CSI is read to its final byte", input: "[1;2;3;4;5;6;7;8;9;10Cx", wantSeq: "[1;2;3;4;5;6;7;8;9;10C", wantNex: 'x'},
-		// A sequence with no final byte within the bound is reported as no
-		// sequence. Returning the truncated prefix would leave its tail to be read
-		// as typed text.
-		{name: "CSI without a final byte reports no sequence", input: "[" + strings.Repeat("1", 40) + "x", wantSeq: "", wantNex: '1'},
+		// A sequence too long to name is still read to its end, so its tail
+		// cannot be picked up as typed text; only what follows it is.
+		{name: "CSI past the bound reports no sequence and is consumed whole", input: "[" + strings.Repeat("1;", 40) + "Rx", wantSeq: "", wantNex: 'x'},
+		// A byte outside the CSI grammar aborts the sequence and belongs to the
+		// input, so it is pushed back the way a bare Escape's rune is.
+		{name: "a control byte aborts a CSI and is kept", input: "[1;\rx", wantSeq: "", wantNex: '\r'},
 	}
 
 	for _, tt := range tests {
@@ -4450,4 +4452,87 @@ func TestContinuationPrefix(t *testing.T) {
 		p.SetContinuationPrefix("  -> ")
 		assert.Equal(t, "  -> ", p.config.ContinuationPrefix)
 	})
+}
+
+// TestReadEscapeSequenceConsumesASequenceItCannotName covers what happens past
+// the bound on a CSI: the prompt stops naming the sequence, but it must still
+// take it out of the input. Stopping the read left the rest of the sequence to
+// be picked up as keystrokes, and the user watched a terminal reply appear in
+// their line.
+func TestReadEscapeSequenceConsumesASequenceItCannotName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "a sequence past the bound leaves nothing behind",
+			input: "\x1b[" + strings.Repeat("1;", 40) + "R" + "ok\r",
+			want:  "ok",
+		},
+		{
+			name:  "a sequence within the bound is a key, not text",
+			input: "\x1b[1;5Cok\r",
+			want:  "ok",
+		},
+		{
+			name:  "a control byte ends a sequence and is a key of its own",
+			input: "ab\x1b[\r",
+			want:  "ab",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newTestPrompt(newMockTerminal(tt.input))
+			got, err := p.Run()
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("Run() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDeleteWordBackStopsAtTheWordItIsIn covers word editing outside ASCII. Every
+// letter that is not a-z was a separator, so a word in Japanese was walked over
+// as if it were whitespace and the deletion carried on into the word before it,
+// while a letter with a diacritic split its own word in two.
+func TestDeleteWordBackStopsAtTheWordItIsIn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		typed string
+		want  string
+	}{
+		{name: "ascii", typed: "one two", want: "one "},
+		{name: "a japanese word after an ascii one", typed: "select 名前", want: "select "},
+		{name: "a chinese word after an ascii one", typed: "a 中文", want: "a "},
+		{name: "a word whose only non-ascii letter is inside it", typed: "naïve ", want: ""},
+		{name: "a japanese word on its own", typed: "テーブル", want: ""},
+		{name: "an underscore joins a word", typed: "a table_name", want: "a "},
+		{name: "punctuation is still a separator", typed: "a, b", want: "a, "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newTestPrompt(newMockTerminal(tt.typed + "\x17\r"))
+			got, err := p.Run()
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("typing %q then Ctrl+W left %q, want %q", tt.typed, got, tt.want)
+			}
+		})
+	}
 }
