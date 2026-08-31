@@ -86,8 +86,8 @@ type Prompt struct {
 	// that would touch the terminal has to know that, because the terminal has
 	// been given up while its settings live on: raw mode is set on a descriptor
 	// Close never touches, so entering it again succeeds and nothing is left
-	// that would restore it. It is read from another goroutine -- Close while a Run waits for a key
-	// is a supported order -- so it is atomic.
+	// that would restore it. It is read from another goroutine -- Close while a
+	// Run waits for a key is a supported order -- so it is atomic.
 	closed atomic.Bool
 }
 
