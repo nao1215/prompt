@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode"
 
 	"github.com/mattn/go-colorable"
@@ -76,6 +77,14 @@ type Prompt struct {
 	// readerDone is closed when the reader goroutine returns, so its release can
 	// be observed rather than assumed.
 	readerDone chan struct{}
+
+	// closed is set by Close and says the session is over. Every entry point
+	// that would touch the terminal has to know that, because the terminal was
+	// given up while its settings live on: raw mode is set on a descriptor Close
+	// never touches, so entering it again succeeds and leaves nobody to restore
+	// it. It is read from another goroutine -- Close while a Run waits for a key
+	// is a supported order -- so it is atomic.
+	closed atomic.Bool
 }
 
 // readResult is one rune from the shared input reader.
@@ -593,6 +602,13 @@ func (p *Prompt) Run() (string, error) {
 //	}
 //	fmt.Printf("Input: %s\n", input)
 func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
+	// A closed prompt has no input left to read, which is what ErrEOF says. It
+	// is answered here rather than by the read, because the read is reached
+	// through raw mode: entering it on a terminal the session has given up
+	// leaves it raw with nothing left to restore it.
+	if p.closed.Load() {
+		return "", ErrEOF
+	}
 	if err := p.enterRawMode(); err != nil {
 		return "", fmt.Errorf("failed to enter raw mode: %w", err)
 	}
@@ -640,7 +656,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			return "", err
 		}
 		if err != nil {
-			if errors.Is(err, io.EOF) {
+			if p.endOfInput(err) {
 				// Input reached EOF; the session is over, so restore the terminal
 				// even in persistent mode (the deferred cleanup skips it there).
 				p.restoreOnExit()
@@ -656,7 +672,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 		case r == '\x1b':
 			seq, err := p.readEscapeSequence()
 			if err != nil {
-				if errors.Is(err, io.EOF) {
+				if p.endOfInput(err) {
 					p.restoreOnExit()
 					return "", ErrEOF
 				}
@@ -1011,6 +1027,11 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 //	// Use the prompt...
 //	result, err := p.Run()
 func (p *Prompt) Close() error {
+	// Say the session is over before anything is torn down, so a Run waiting for
+	// a key reports the ending it knows rather than the error the terminal gives
+	// up with.
+	p.closed.Store(true)
+
 	// Release the shared reader before the terminal: closing the terminal ends a
 	// read in progress, and this ends a goroutine waiting to hand over a rune
 	// nobody is collecting.
@@ -1601,6 +1622,14 @@ func (p *Prompt) readRuneContext(ctx context.Context) (rune, error) {
 		}
 		return res.r, nil
 	}
+}
+
+// endOfInput reports whether err ends this prompt's input rather than being a
+// failure to report. The terminal saying so is one way; the other is Close,
+// which ends the read it was waiting in -- from the reader's side that is an
+// error, and to the caller it is the same ending as EOF.
+func (p *Prompt) endOfInput(err error) bool {
+	return errors.Is(err, io.EOF) || p.closed.Load()
 }
 
 func (p *Prompt) readRune() (rune, error) {
