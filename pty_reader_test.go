@@ -440,7 +440,9 @@ func helperScenario(name string) {
 		case <-ctx.Done():
 			fmt.Printf("interrupted\r\n")
 		case <-time.After(10 * time.Second):
-			fmt.Printf("never-interrupted\r\n")
+			// Not "never-interrupted": the assertion looks for "interrupted",
+			// which that would contain, so a watch that saw nothing would pass.
+			fmt.Printf("watch-timed-out\r\n")
 		}
 		stop()
 		_ = p.Close()
