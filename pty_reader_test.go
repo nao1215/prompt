@@ -456,7 +456,9 @@ func helperScenario(name string) {
 		// A REPL that closed on one path and came round again. The second Run has
 		// to report that the session is over, and it must do so without touching
 		// the terminal, because in a persistent session the Close that would
-		// restore it has already run.
+		// restore it has already run. The prefix changes so that anything that
+		// Run draws is recognizable in the transcript: nothing may be.
+		p.SetPrefix("p2> ")
 		line, err = p.Run()
 		fmt.Printf("session2=%q err=%v errEOF=%v\r\n", line, err, errors.Is(err, ErrEOF))
 		fmt.Printf("restored=%v\r\n", sttySettings() == closed)
@@ -497,6 +499,9 @@ func TestPromptLifecycleOrdersUnderAPTY(t *testing.T) {
 		scenario string
 		steps    []ptyStep
 		want     []string
+		// absent is what the terminal must never have been shown, for a scenario
+		// whose point is that something was not drawn.
+		absent []string
 	}{
 		{
 			name:     "three sessions in a row, each handing the terminal to a child",
@@ -557,6 +562,7 @@ func TestPromptLifecycleOrdersUnderAPTY(t *testing.T) {
 			scenario: "runafterclose",
 			steps:    []ptyStep{{await: "p1> ", send: "one\r"}},
 			want:     []string{`session1="one"`, "errEOF=true", "restored=true"},
+			absent:   []string{"p2> "},
 		},
 		{
 			name:     "cancelling the context from another goroutine ends the read",
@@ -573,6 +579,11 @@ func TestPromptLifecycleOrdersUnderAPTY(t *testing.T) {
 			for _, want := range tt.want {
 				if !strings.Contains(out, want) {
 					t.Errorf("the transcript does not contain %s\n--- transcript ---\n%s", want, out)
+				}
+			}
+			for _, absent := range tt.absent {
+				if strings.Contains(out, absent) {
+					t.Errorf("the transcript contains %s, which nothing should have drawn\n--- transcript ---\n%s", absent, out)
 				}
 			}
 		})
