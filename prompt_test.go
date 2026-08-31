@@ -2770,7 +2770,7 @@ func TestPromptSuggestionScrolling(t *testing.T) {
 
 	// Create a completer that returns many suggestions
 	completer := func(_ Document) []Suggestion {
-		var suggestions []Suggestion
+		suggestions := make([]Suggestion, 0, 15)
 		for i := range 15 {
 			suggestions = append(suggestions, Suggestion{
 				Text:        fmt.Sprintf("command%d", i),
@@ -2979,10 +2979,6 @@ func TestPromptCompleterFunctionalityComprehensive(t *testing.T) {
 }
 
 func TestPromptTimeoutBehaviorComprehensive(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "" {
-		t.Skip("Skipping slow test in local development")
-	}
-
 	t.Parallel()
 
 	config := Config{
@@ -3067,10 +3063,6 @@ func TestNewFunctionAdditionalCoverage(t *testing.T) {
 	}
 
 	t.Run("WithHistoryFile", func(t *testing.T) {
-		if os.Getenv("GITHUB_ACTIONS") == "" {
-			t.Skip("Skipping slow test in local development")
-		}
-
 		// NewForTesting doesn't load from file, so test manual loading
 		tmpDir := t.TempDir()
 		historyFile := filepath.Join(tmpDir, "test_history")
@@ -3214,10 +3206,6 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("ContextTimeout", func(t *testing.T) {
-		if os.Getenv("GITHUB_ACTIONS") == "" {
-			t.Skip("Skipping slow test in local development")
-		}
-
 		config := Config{
 			Prefix: "test> ",
 		}
