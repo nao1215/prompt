@@ -64,15 +64,27 @@
 //
 // Choosing What a Suggestion Replaces:
 //
-// By default the prompt keeps only the suggestions that the word before the
-// cursor is a case-sensitive prefix of, and replaces that word. A completer
-// matching by another rule sets Suggestion.Replace to the span it stands for,
-// counted in runes like Document.CursorPosition, and the prompt applies that
-// span literally instead:
+// By default the prompt decides what a suggestion replaces: it takes the word
+// before the cursor and keeps a suggestion only when the word is a
+// case-sensitive prefix of it. A completer that matches by another rule sets
+// Suggestion.Replace to the span it stands for, counted in runes like
+// Document.CursorPosition, and the prompt applies that span literally instead:
 //
-//	prompt.Suggestion{
-//		Text:    "SELECT",
-//		Replace: &prompt.Range{Start: d.CursorPosition - 3, End: d.CursorPosition},
+//	func completer(d prompt.Document) []prompt.Suggestion {
+//		word := d.GetWordBeforeCursor()
+//		start := d.CursorPosition - len([]rune(word))
+//
+//		var out []prompt.Suggestion
+//		for _, kw := range []string{"SELECT", "INSERT", "UPDATE"} {
+//			// Match case-insensitively, which the built-in filter cannot do.
+//			if strings.HasPrefix(strings.ToLower(kw), strings.ToLower(word)) {
+//				out = append(out, prompt.Suggestion{
+//					Text:    kw,
+//					Replace: &prompt.Range{Start: start, End: d.CursorPosition},
+//				})
+//			}
+//		}
+//		return out
 //	}
 //
 // Key Bindings:
