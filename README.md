@@ -384,15 +384,24 @@ afterwards:
 if err := p.Close(); err != nil {
     return err
 }
+
 cmd := exec.Command(os.Getenv("EDITOR"), path)
 cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-runErr := cmd.Run()
+if err := cmd.Run(); err != nil {
+    return err
+}
 
-p, err = prompt.New("$ ", opts...) // a fresh session takes the terminal back
+p, err := prompt.New("$ ", opts...) // a fresh session takes the terminal back
+if err != nil {
+    return err
+}
 ```
 
-`Close` ends the goroutine reading the terminal before it returns, so the child
-process and the next prompt get the input typed into them.
+On Unix, `Close` ends the goroutine reading the terminal before it returns, so
+the child process and the next prompt get the input typed into them. On Windows
+input is read through go-tty, whose read cannot be interrupted, so `Close` does
+not wait for it: a prompt opened there while an earlier reader is still blocked
+may lose keystrokes to it.
 
 ### Interrupting work between prompts
 

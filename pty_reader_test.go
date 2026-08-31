@@ -71,7 +71,8 @@ func helperMain() {
 		stop()
 	}
 	if err := p.Close(); err != nil {
-		fmt.Printf("close: %v\r\n", err)
+		fmt.Printf("close1: %v\r\n", err)
+		os.Exit(1)
 	}
 
 	if child {
@@ -85,7 +86,10 @@ func helperMain() {
 	p2 := open(2)
 	line, err = p2.Run()
 	fmt.Printf("session2=%q err=%v\r\n", line, err)
-	_ = p2.Close()
+	if err := p2.Close(); err != nil {
+		fmt.Printf("close2: %v\r\n", err)
+		os.Exit(1)
+	}
 }
 
 // TestPromptReopensAfterCloseUnderAPTY drives the scenario against a real
@@ -183,7 +187,10 @@ func runHelperUnderPTY(t *testing.T, watch, child bool) string {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			t.Errorf("the program exited with %v\n--- transcript ---\n%s", err, transcript())
+		}
 	case <-time.After(30 * time.Second):
 		kill(t, cmd)
 		t.Fatalf("the program never finished; a session read nothing\n--- transcript ---\n%s", transcript())

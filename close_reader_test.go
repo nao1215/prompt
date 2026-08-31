@@ -120,8 +120,12 @@ func TestCloseDoesNotWaitOnATerminalItCannotInterrupt(t *testing.T) {
 // progress. It is skipped where there is no terminal to open, which is most CI
 // runners without a pty.
 func TestRealTerminalInterruptsReads(t *testing.T) {
-	if _, err := os.OpenFile("/dev/tty", os.O_RDONLY, 0); err != nil {
+	probe, err := os.OpenFile("/dev/tty", os.O_RDONLY, 0)
+	if err != nil {
 		t.Skipf("no controlling terminal: %v", err)
+	}
+	if err := probe.Close(); err != nil {
+		t.Fatalf("closing the probe descriptor: %v", err)
 	}
 
 	terminal, err := newRealTerminal()
@@ -129,12 +133,27 @@ func TestRealTerminalInterruptsReads(t *testing.T) {
 		t.Skipf("cannot open a terminal here: %v", err)
 	}
 
+	// started says the goroutine has reached the read; done carries what the
+	// read returned. Both are needed: a read that returns before Close proves
+	// nothing about Close, and a fixed sleep cannot tell the two apart. A read
+	// that gives up on its own -- EAGAIN surfacing instead of being waited on,
+	// which is what an unpollable terminal used to do -- is a failure here.
+	started := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
+		close(started)
 		_, _, err := terminal.ReadRune()
 		done <- err
 	}()
-	time.Sleep(200 * time.Millisecond)
+
+	<-started
+	// Nothing is typed into this terminal, so a read that has not returned
+	// within this window is waiting rather than racing the goroutine's start.
+	select {
+	case err := <-done:
+		t.Fatalf("the read returned on its own before Close, with %v; it was never waiting for a key", err)
+	case <-time.After(500 * time.Millisecond):
+	}
 
 	if err := terminal.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
