@@ -3348,15 +3348,20 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 			Prefix: "test> ",
 		}
 
-		// Type some content, then Ctrl+D
-		input := "hello\x04"
+		// Ctrl+D ends the session only on an empty line, so the line survives it
+		// and is submitted by the Enter after it. Leaving the Enter out cannot
+		// tell "Ctrl+D was ignored" from "the input ran out", which both end the
+		// call the same way.
+		input := "hello\x04\r"
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		_, err := p.RunWithContext(context.Background())
-		// Should not return EOF when buffer has content
-		if errors.Is(err, io.EOF) {
-			t.Error("Should not return EOF when buffer has content")
+		result, err := p.RunWithContext(context.Background())
+		if err != nil {
+			t.Fatalf("RunWithContext() error = %v", err)
+		}
+		if result != "hello" {
+			t.Errorf("RunWithContext() = %q, want %q", result, "hello")
 		}
 	})
 
@@ -4408,5 +4413,47 @@ func TestHistoryDownRestoresTheLineBeingTyped(t *testing.T) {
 				t.Errorf("Run() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestCtrlDReportsErrEOF pins the value a REPL matches on. Ctrl+D on an empty
+// line returned io.EOF while every other end of input returned ErrEOF, so the
+// loop this package's README shows -- break on errors.Is(err, prompt.ErrEOF) --
+// never ended: it took the error branch and drew the prompt again, forever.
+func TestCtrlDReportsErrEOF(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		script string
+	}{
+		{name: "ctrl+d on an empty line", script: "\x04"},
+		{name: "the terminal reaching end of input", script: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newTestPrompt(newMockTerminal(tt.script))
+			_, err := p.Run()
+			if !errors.Is(err, ErrEOF) {
+				t.Errorf("Run() error = %v, want it to match ErrEOF", err)
+			}
+			// Matching io.EOF is what the one application using this library
+			// does, so both endings have to keep answering to it.
+			if !errors.Is(err, io.EOF) {
+				t.Errorf("Run() error = %v, want it to match io.EOF too", err)
+			}
+		})
+	}
+}
+
+// TestErrEOFKeepsItsMessage pins what the error prints, which callers log.
+func TestErrEOFKeepsItsMessage(t *testing.T) {
+	t.Parallel()
+
+	if got := ErrEOF.Error(); got != "EOF" {
+		t.Errorf("ErrEOF.Error() = %q, want %q", got, "EOF")
 	}
 }

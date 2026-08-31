@@ -547,7 +547,7 @@ concurrency.
 
 `Run` and `RunWithContext` return specific errors:
 
-- `prompt.ErrEOF`: Ctrl+D on an empty buffer
+- `prompt.ErrEOF`: Ctrl+D on an empty buffer, or the input reaching its end. It matches `io.EOF` as well as itself
 - `prompt.ErrInterrupted`: Ctrl+C
 - `context.DeadlineExceeded`: the context deadline passed (with `RunWithContext`)
 - `context.Canceled`: the context was canceled
