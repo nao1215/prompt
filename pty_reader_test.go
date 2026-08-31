@@ -4,6 +4,7 @@ package prompt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"golang.org/x/term"
 )
 
 // The scenario that produced this test, from github.com/nao1215/prompt/issues/47.
@@ -407,6 +409,52 @@ func helperScenario(name string) {
 		line, err = p.Run()
 		fmt.Printf("session2=%q err=%v\r\n", line, err)
 		_ = p.Close()
+	case "watchdefault":
+		// The same watch as "typeahead", in the mode a caller gets without
+		// asking for anything: Run gives raw mode back when it returns, so the
+		// terminal is cooked while the watch runs and Ctrl+C arrives as SIGINT
+		// rather than as the byte the watcher reads.
+		p, err := New("p1> ")
+		if err != nil {
+			fmt.Printf("new: %v\r\n", err)
+			os.Exit(1)
+		}
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		ctx, stop := p.WatchInterrupt(context.Background())
+		fmt.Printf("watching\r\n")
+		select {
+		case <-ctx.Done():
+			fmt.Printf("interrupted\r\n")
+		case <-time.After(10 * time.Second):
+			fmt.Printf("never-interrupted\r\n")
+		}
+		stop()
+		_ = p.Close()
+	case "runafterclose":
+		before, stateErr := term.GetState(int(os.Stdin.Fd()))
+		if stateErr != nil {
+			fmt.Printf("state: %v\r\n", stateErr)
+			os.Exit(1)
+		}
+		p := open(1)
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		if err := p.Close(); err != nil {
+			fmt.Printf("close: %v\r\n", err)
+		}
+		// A REPL that closed on one path and came round again. The read has to
+		// fail -- the terminal is gone -- but nothing on the way to failing may
+		// touch the terminal, because in a persistent session the Close that
+		// would restore it has already run.
+		line, err = p.Run()
+		fmt.Printf("session2=%q err=%v errEOF=%v\r\n", line, err, errors.Is(err, ErrEOF))
+		after, stateErr := term.GetState(int(os.Stdin.Fd()))
+		if stateErr != nil {
+			fmt.Printf("state: %v\r\n", stateErr)
+			os.Exit(1)
+		}
+		fmt.Printf("restored=%v\r\n", *before == *after)
 	case "childinput":
 		p := open(1)
 		line, err := p.Run()
@@ -488,6 +536,18 @@ func TestPromptLifecycleOrdersUnderAPTY(t *testing.T) {
 			scenario: "typeahead",
 			steps:    []ptyStep{{await: "p1> ", send: "one\r"}, {await: "watching", send: "ahead\x03"}, {await: "interrupted", send: "\r"}},
 			want:     []string{`session1="one"`, `session2="ahead"`},
+		},
+		{
+			name:     "a watch in the default mode sees the interrupt",
+			scenario: "watchdefault",
+			steps:    []ptyStep{{await: "p1> ", send: "one\r"}, {await: "watching", send: "\x03"}},
+			want:     []string{`session1="one"`, "interrupted"},
+		},
+		{
+			name:     "a Run on a closed prompt gives the terminal back as it found it",
+			scenario: "runafterclose",
+			steps:    []ptyStep{{await: "p1> ", send: "one\r"}},
+			want:     []string{`session1="one"`, "errEOF=true", "restored=true"},
 		},
 		{
 			name:     "cancelling the context from another goroutine ends the read",

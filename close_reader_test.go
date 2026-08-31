@@ -338,3 +338,45 @@ func TestCloseLeavesNoGoroutineBehind(t *testing.T) {
 		t.Errorf("after 50 cancelled runs there are %d goroutines, started at %d", got, base)
 	}
 }
+
+// TestCloseWhileRunWaitsReportsEOF covers the other way a session ends under a
+// Run: another goroutine closes the prompt while the read is waiting for a key.
+// The read ends, which is what Close is for, and what the caller is told has to
+// be the ending it knows -- a REPL loop leaves on ErrEOF, and the unexported
+// terminal error it used to get matched nothing, so the loop drew the prompt
+// again on a terminal that had been given up.
+func TestCloseWhileRunWaitsReportsEOF(t *testing.T) {
+	t.Parallel()
+
+	terminal := newBlockingTerminal(true)
+	p := newTestPromptOn(terminal)
+
+	type result struct {
+		line string
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		line, err := p.RunWithContext(context.Background())
+		done <- result{line, err}
+	}()
+
+	if !waitFor(func() bool { return terminal.readers.Load() > 0 }) {
+		t.Fatal("Run never reached the terminal, so Close would have nothing to interrupt")
+	}
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	select {
+	case got := <-done:
+		if !errors.Is(got.err, ErrEOF) {
+			t.Errorf("Run interrupted by Close returned %v, want ErrEOF", got.err)
+		}
+		if got.line != "" {
+			t.Errorf("Run returned line %q, want empty", got.line)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after the prompt was closed")
+	}
+}
