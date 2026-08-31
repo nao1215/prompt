@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A history configured with `Enabled: false` stays empty (PR [#91](https://github.com/nao1215/prompt/pull/91), [28e8de1](https://github.com/nao1215/prompt/commit/28e8de1), [#90](https://github.com/nao1215/prompt/issues/90)). `SetHistory` fell into the branch meant for a prompt with no history manager at all, so the entries landed in the list the arrow keys walk while `GetHistory` reported none: pressing Up brought back an entry the getter said was not there. A disabled manager is now given nothing, the way `AddHistory` already treated it.
+
 ## [0.0.25] - 2026-09-01
 
 ### Fixed
