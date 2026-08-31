@@ -3,6 +3,7 @@ package prompt
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/mattn/go-runewidth"
@@ -74,6 +75,9 @@ func layout(s string, width int) (rows, col int) {
 // visual output and handles complex scenarios like suggestion menus and
 // multi-line editing with proper text wrapping.
 type renderer struct {
+	// highlighter colours runs of the input as it is drawn. Nil draws the whole
+	// input in the scheme's colour.
+	highlighter       func(string) []StyleSpan
 	output            io.Writer         // Target output writer (typically stdout or colorable wrapper)
 	colorScheme       *ColorScheme      // Color configuration for themed rendering
 	lastLines         int               // Track number of lines rendered for efficient cleanup
@@ -111,6 +115,13 @@ func newRenderer(output io.Writer, colorScheme *ColorScheme, terminal terminalIn
 
 // setContinuationPrefix sets the string drawn in front of every line after the
 // first. It is applied on the next render.
+// setHighlighter sets what colours the input on the next render. A nil one
+// draws the whole input in the scheme's colour, which is what a prompt without
+// WithHighlighter does.
+func (r *renderer) setHighlighter(highlighter func(string) []StyleSpan) {
+	r.highlighter = highlighter
+}
+
 func (r *renderer) setContinuationPrefix(prefix string) {
 	r.continuationPrefix = prefix
 }
@@ -211,6 +222,8 @@ func (r *renderer) renderLines(prefix, input string) error {
 
 	// Split input into lines
 	lines := r.splitIntoLines(input)
+	spans := r.spansFor(input)
+	lineStart := 0 // the first rune of the current line, in the whole input
 
 	// Render each line
 	for lineIndex, line := range lines {
@@ -240,13 +253,7 @@ func (r *renderer) renderLines(prefix, input string) error {
 		}
 
 		// Render line content with color
-		if _, err := fmt.Fprint(r.output, r.colorScheme.Input.ToANSI()); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprint(r.output, line); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprint(r.output, Reset()); err != nil {
+		if err := r.renderLineContent(line, lineStart, spans); err != nil {
 			return err
 		}
 
@@ -256,9 +263,97 @@ func (r *renderer) renderLines(prefix, input string) error {
 				return err
 			}
 		}
+		// The next line starts after this one and the newline between them.
+		lineStart += len([]rune(line)) + 1
 	}
 
 	return nil
+}
+
+// renderLineContent writes one line, colouring the runs the highlighter named.
+// lineStart is the line's first rune offset in the whole input, because that is
+// what the spans are measured in.
+//
+// Only what is written changes here. The prompt measures its layout from the
+// plain text, so the escape sequences added between runs cost no columns and
+// cannot move the cursor away from the character under it.
+func (r *renderer) renderLineContent(line string, lineStart int, spans []StyleSpan) error {
+	runes := []rune(line)
+	base := r.colorScheme.Input.ToANSI()
+
+	write := func(color, text string) error {
+		if _, err := fmt.Fprint(r.output, color, text, Reset()); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	pos := 0 // the first rune of this line not yet written
+	for _, span := range spans {
+		start, end := span.Start-lineStart, span.End-lineStart
+		if end <= pos {
+			continue // entirely behind us, on an earlier line
+		}
+		if start >= len(runes) {
+			break // and the rest are on later lines, because spans are ordered
+		}
+		start = max(start, pos)
+		end = min(end, len(runes))
+		if start > pos {
+			if err := write(base, string(runes[pos:start])); err != nil {
+				return err
+			}
+		}
+		if err := write(span.Color.ToANSI(), string(runes[start:end])); err != nil {
+			return err
+		}
+		pos = end
+	}
+	// The tail, and the whole of a line no span touched. An empty line still
+	// writes its colour, which is what it did before spans existed.
+	return write(base, string(runes[pos:]))
+}
+
+// spansFor asks the highlighter about input and returns what it said in the
+// order and shape the renderer can walk: sorted by start, clamped to the input,
+// with empty runs dropped and overlaps trimmed so the earlier run keeps what it
+// claimed.
+//
+// A highlighter is application code deciding a decoration. It is normalized
+// rather than trusted, and never rejected, because getting a colour wrong must
+// not cost the user the line they are typing.
+func (r *renderer) spansFor(input string) []StyleSpan {
+	if r.highlighter == nil {
+		return nil
+	}
+	reported := r.highlighter(input)
+	if len(reported) == 0 {
+		return nil
+	}
+
+	limit := len([]rune(input))
+	spans := make([]StyleSpan, 0, len(reported))
+	for _, span := range reported {
+		span.Start = min(max(span.Start, 0), limit)
+		span.End = min(max(span.End, 0), limit)
+		if span.Start >= span.End {
+			continue // empty, or inverted and therefore meaningless
+		}
+		spans = append(spans, span)
+	}
+	sort.SliceStable(spans, func(i, j int) bool { return spans[i].Start < spans[j].Start })
+
+	out := spans[:0]
+	end := 0
+	for _, span := range spans {
+		span.Start = max(span.Start, end)
+		if span.Start >= span.End {
+			continue // wholly covered by the run before it
+		}
+		out = append(out, span)
+		end = span.End
+	}
+	return out
 }
 
 // renderSuggestionsWithOffset renders the completion suggestions with scrolling

@@ -389,12 +389,33 @@ p, err := prompt.New("sql> ",
         // Keep the indentation of the line being continued.
         line := before[strings.LastIndex(before, "\n")+1:]
         return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+### Colouring the input
+
+`WithHighlighter` is given the whole input and returns the runs to draw in a
+colour of their own, as rune offsets into that input:
+
+```go
+p, err := prompt.New("sql> ",
+    prompt.WithHighlighter(func(input string) []prompt.StyleSpan {
+        var spans []prompt.StyleSpan
+        for _, kw := range keywordRuns(input) { // your lexer
+            spans = append(spans, prompt.StyleSpan{
+                Start: kw.start, End: kw.end,
+                Color: prompt.Color{R: 198, G: 120, B: 221, Bold: true},
+            })
+        }
+        return spans
     }),
 )
 ```
 
 What it returns is part of the input, so it is submitted and recorded in history
 like anything else typed.
+Everything no run covers keeps the scheme's input colour. The highlighter
+decides colours and nothing else: the input is drawn exactly as it is, and the
+prompt measures its layout from that text, so highlighting cannot move the
+cursor or wrap a line early. It is called on every render, so it should be cheap
+over a line's worth of text.
 
 ### Handing the terminal to another program
 
