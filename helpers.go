@@ -168,9 +168,11 @@ type fuzzyMatcher struct {
 //
 // It does not read the filesystem, know anything about the shape of a command,
 // or narrow the list by where in the line the cursor is: the candidates are the
-// list given here, matched against the input before the cursor. A completer that
-// needs to answer differently in different parts of a line is a function of your
-// own, and Document says where the cursor is.
+// list given here, matched against the input before the cursor. Nor does it stop
+// at a line break -- in a multiline entry the input before the cursor takes in
+// the earlier lines, and a candidate that matches it replaces them. A completer
+// that needs to answer differently in different parts of an entry is a function
+// of your own, and Document says where the cursor is.
 //
 // Example:
 //
