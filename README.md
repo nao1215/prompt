@@ -514,7 +514,7 @@ nothing tells it apart from the key.
 | Ctrl+K | Delete from cursor to end of line |
 | Ctrl+U | Delete entire line |
 | Ctrl+W | Delete word backwards |
-| Ctrl+R | Reverse history search; Tab and ↑/↓ move through the matches, Enter accepts, Esc cancels |
+| Ctrl+R | Reverse history search; Tab and ↑/↓ move through the matches, Enter accepts the one the search names, Esc cancels |
 | Tab | Auto-completion |
 | Backspace | Delete character backwards |
 | Delete | Delete character forwards |

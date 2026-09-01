@@ -104,11 +104,36 @@ type Prompt struct {
 //
 // The implementation follows XDG Base Directory Specification when possible.
 type HistoryConfig struct {
-	Enabled     bool   // Enable/disable history functionality
-	MaxEntries  int    // Maximum number of entries to keep in memory (default: 1000)
-	File        string // File path for history persistence (empty = memory only)
-	MaxFileSize int64  // Maximum file size in bytes before rotation (default: 1MB)
-	MaxBackups  int    // Maximum number of backup files to keep (default: 3)
+	// Enabled turns history on. A disabled history holds nothing: it is not
+	// loaded, not added to, and not saved.
+	Enabled bool
+	// MaxEntries is how many entries the session keeps and the arrow keys walk.
+	// Zero means 1000, because a history of no entries is not a setting anyone
+	// wants.
+	//
+	// It bounds the file as well, since a save writes what the session holds.
+	// What it leaves out is not deleted: a save that would write fewer entries
+	// than the file already holds moves the file aside as a backup first.
+	MaxEntries int
+	// File is where the history is kept between sessions. Empty keeps it in
+	// memory for the life of the process. The file is created readable by its
+	// owner alone, because it holds what the user typed.
+	File string
+	// MaxFileSize is how many bytes of encoded entries a save writes before the
+	// oldest are left out and the file is rotated. Zero means 1MB. The newest
+	// entry is written whatever it costs, because a limit that saved nothing
+	// would be worse than a file slightly over it.
+	MaxFileSize int64
+	// MaxBackups is how many generations of the history file are kept beside it,
+	// as File.1 through File.MaxBackups.
+	//
+	// Zero keeps none, and is a setting rather than an omission: what the
+	// history file holds is what the user typed, and an application may not want
+	// copies of it left on disk. A HistoryConfig built with this field left out
+	// therefore keeps no backups; passing no HistoryConfig at all is the case
+	// that takes the defaults, backups included, and WithFileHistory asks for
+	// three.
+	MaxBackups int
 }
 
 // Config holds the configuration for a prompt.
@@ -476,20 +501,10 @@ func New(prefix string, options ...Option) (*Prompt, error) {
 }
 
 func newFromConfig(config Config) (*Prompt, error) {
-	// Set defaults for history config
 	if config.HistoryConfig == nil {
 		config.HistoryConfig = defaultHistoryConfig()
 	} else {
-		// Set defaults for incomplete history config
-		if config.HistoryConfig.MaxEntries <= 0 {
-			config.HistoryConfig.MaxEntries = 1000
-		}
-		if config.HistoryConfig.MaxFileSize <= 0 {
-			config.HistoryConfig.MaxFileSize = 1024 * 1024 // 1MB
-		}
-		if config.HistoryConfig.MaxBackups <= 0 {
-			config.HistoryConfig.MaxBackups = 3
-		}
+		normalizeHistoryConfig(config.HistoryConfig)
 	}
 	// Handle Theme alias
 	if config.Theme != nil && config.ColorScheme == nil {

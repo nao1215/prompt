@@ -102,7 +102,9 @@
 //   - Ctrl+U: Delete entire line
 //   - Ctrl+W: Delete word backwards
 //   - Ctrl+R: Reverse history search (like bash). Tab and the arrow keys move
-//     through the matches, Enter accepts one, Escape cancels.
+//     through the matches, Enter accepts the one the search names, Escape
+//     cancels. A query that matches nothing has nothing to accept, so Enter
+//     leaves the line as the search found it.
 //   - Tab: Auto-completion
 //   - Backspace: Delete character backwards
 //   - Delete: Delete character forwards

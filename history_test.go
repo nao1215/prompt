@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"math/rand"
@@ -770,9 +771,11 @@ func TestHistorySearch(t *testing.T) {
 			t.Fatalf("searchHistory failed: %v", err)
 		}
 
-		// Should return the search query itself
-		if result != "zzznomatch" {
-			t.Errorf("Expected result to be 'zzznomatch', got %q", result)
+		// Nothing matched, so Enter has nothing to accept and the caller leaves
+		// the line as the search found it. Returning the query put text typed
+		// into a search onto the command line, a keystroke away from being run.
+		if result != "" {
+			t.Errorf("Expected the search to accept nothing, got %q", result)
 		}
 	})
 
@@ -2059,6 +2062,169 @@ func TestTruncateToRows(t *testing.T) {
 			}
 			if rows := rowsOf(got, tt.width); tt.rows > 0 && rows > tt.rows {
 				t.Errorf("truncateToRows(%q, %d, %d) = %q, which is %d rows", tt.text, tt.width, tt.rows, got, rows)
+			}
+		})
+	}
+}
+
+// TestSavingDoesNotDeleteWhatTheFileHeldWithoutABackup writes a history file
+// with more entries than MaxEntries, loads it, and saves, which is what an
+// application does by starting up and quitting without typing anything.
+//
+// MaxEntries is documented as a limit on what is kept in memory, and the load
+// applies it before any save is considered -- so the entries past it are not in
+// the list the save writes, and the rotation that keeps what a save drops is
+// asked only whether MaxFileSize had to cut. It had not: the file here is a few
+// kilobytes against a megabyte limit. Every entry the file held has to still be
+// on disk somewhere afterwards.
+func TestSavingDoesNotDeleteWhatTheFileHeldWithoutABackup(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	file := filepath.Join(dir, "history")
+
+	const entries = 500
+	var written strings.Builder
+	for i := range entries {
+		fmt.Fprintf(&written, "command %d\n", i)
+	}
+	if err := os.WriteFile(file, []byte(written.String()), 0o600); err != nil {
+		t.Fatalf("writing the history file: %v", err)
+	}
+
+	hm := newHistoryManager(&HistoryConfig{
+		Enabled: true, MaxEntries: 100, File: file, MaxFileSize: 1024 * 1024, MaxBackups: 3,
+	})
+	if err := hm.loadHistory(); err != nil {
+		t.Fatalf("loadHistory() error = %v", err)
+	}
+	if err := hm.saveHistory(); err != nil {
+		t.Fatalf("saveHistory() error = %v", err)
+	}
+
+	onDisk := map[string]bool{}
+	names, err := filepath.Glob(file + "*")
+	if err != nil {
+		t.Fatalf("looking for the history file and its backups: %v", err)
+	}
+	for _, name := range names {
+		content, err := os.ReadFile(name) //nolint:gosec // a file this test just wrote
+		if err != nil {
+			t.Fatalf("reading %s: %v", name, err)
+		}
+		for _, line := range strings.Split(strings.TrimSuffix(string(content), "\n"), "\n") {
+			onDisk[line] = true
+		}
+	}
+
+	var lost []string
+	for i := range entries {
+		entry := fmt.Sprintf("command %d", i)
+		if !onDisk[entry] {
+			lost = append(lost, entry)
+		}
+	}
+	if len(lost) > 0 {
+		t.Errorf("%d of %d entries are on no file after one load and one save, the oldest being %q; the files are %v",
+			len(lost), entries, lost[0], names)
+	}
+}
+
+// TestNormalizeHistoryConfigKeepsAValueTheCallerMeant covers the one field
+// whose zero is a setting rather than an omission. Zero entries and a zero-byte
+// file are not settings anyone wants, so zero there reads as "unset"; zero
+// backups is what a caller says when they do not want copies of what the user
+// typed left beside the history file.
+//
+// A caller who passes no HistoryConfig at all is a different case and takes
+// defaultHistoryConfig, backups included: this is about a literal somebody
+// wrote, where a field left out was left out on purpose.
+func TestNormalizeHistoryConfigKeepsAValueTheCallerMeant(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		in   HistoryConfig
+		want HistoryConfig
+	}{
+		"the counts whose zero is not a setting take their defaults": {
+			in:   HistoryConfig{Enabled: true},
+			want: HistoryConfig{Enabled: true, MaxEntries: 1000, MaxFileSize: 1024 * 1024, MaxBackups: 0},
+		},
+		"no backups is kept": {
+			in:   HistoryConfig{Enabled: true, MaxEntries: 10, MaxFileSize: 20, MaxBackups: 0},
+			want: HistoryConfig{Enabled: true, MaxEntries: 10, MaxFileSize: 20, MaxBackups: 0},
+		},
+		"a negative count is not a setting": {
+			in:   HistoryConfig{Enabled: true, MaxEntries: -1, MaxFileSize: -1, MaxBackups: -1},
+			want: HistoryConfig{Enabled: true, MaxEntries: 1000, MaxFileSize: 1024 * 1024, MaxBackups: 3},
+		},
+		"values the caller set are left alone": {
+			in:   HistoryConfig{Enabled: true, MaxEntries: 7, MaxFileSize: 11, MaxBackups: 2},
+			want: HistoryConfig{Enabled: true, MaxEntries: 7, MaxFileSize: 11, MaxBackups: 2},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got := tt.in
+			normalizeHistoryConfig(&got)
+			if got != tt.want {
+				t.Errorf("normalizeHistoryConfig(%+v) left %+v, want %+v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestReverseSearchThatMatchedNothingLeavesTheLineAlone presses Enter on a
+// search showing no matches. The block names the entry Enter would take, and
+// with no matches it names none, so Enter has nothing to take: it must leave
+// the line as the search found it rather than handing back the query, which the
+// user typed into a search and not onto the command line.
+func TestReverseSearchThatMatchedNothingLeavesTheLineAlone(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		history []string
+		// script is Ctrl+R, the query, Enter to accept, Enter to submit.
+		script string
+		want   string
+	}{
+		"a query nothing matches": {
+			history: []string{"select * from users"},
+			script:  "\x12zzz\r\r",
+			want:    "",
+		},
+		"an empty history matches nothing at all": {
+			history: nil,
+			script:  "\x12zzz\r\r",
+			want:    "",
+		},
+		"a query that does match is still accepted": {
+			history: []string{"select * from users"},
+			script:  "\x12sel\r\r",
+			want:    "select * from users",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := newMockTerminal(tt.script)
+			p := newTestPrompt(mock, WithMemoryHistory(10))
+			var out bytes.Buffer
+			p.output = &out
+			p.renderer = newRenderer(&out, ThemeDefault, mock)
+			p.SetHistory(tt.history)
+
+			got, err := p.RunWithContext(context.Background())
+			if err != nil {
+				t.Fatalf("RunWithContext() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("the search left %q on the line, want %q", got, tt.want)
 			}
 		})
 	}
