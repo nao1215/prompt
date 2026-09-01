@@ -55,20 +55,24 @@ func TestWordBoundaryFunctions(t *testing.T) {
 	p := newForTestingWithConfig(t, config, "")
 	defer p.Close()
 
-	// Test findWordBoundary
+	// Forward ends at the word ahead and backward starts at the word behind,
+	// which is what readline does and what Ctrl+W deletes back to. The comment
+	// here used to name position 11 the start of "test"; it is the end of
+	// "world", and a reader who believed the comment would have "fixed" the code
+	// to move a word further.
 	p.buffer = []rune("hello world test")
-	p.cursor = 6 // Position after "hello "
+	p.cursor = 6 // the "w" of "world"
 
-	// Test moving forward (Ctrl+Right)
+	// Ctrl+Right
 	newPos := p.findWordBoundary(1)
-	if newPos != 11 { // Should move to start of "test"
+	if newPos != 11 { // the end of "world", where the space before "test" is
 		t.Errorf("Expected cursor at position 11, got %d", newPos)
 	}
 
-	// Test moving backward (Ctrl+Left)
+	// Ctrl+Left
 	p.cursor = 11
 	newPos = p.findWordBoundary(-1)
-	if newPos != 6 { // Should move to start of "world"
+	if newPos != 6 { // the start of "world"
 		t.Errorf("Expected cursor at position 6, got %d", newPos)
 	}
 }
