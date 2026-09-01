@@ -43,21 +43,29 @@ func calculateFuzzyScore(input, candidate string) int {
 	// one yields bytes, so comparing the two tested a byte of a UTF-8 sequence
 	// against the character it belongs to. Nothing outside ASCII could match,
 	// and every candidate written in another alphabet scored zero here.
+	//
+	// A match is the whole input or nothing. The walk used to return whatever it
+	// had accumulated when the candidate ran out, which is how far the input got
+	// rather than whether it arrived, and every caller reads a score above zero
+	// as a match: an entry sharing the first character of a six-character query
+	// was offered as one.
 	score := 0
 	candidateRunes := []rune(searchCandidate)
 	candidateIdx := 0
 
 	for _, inputChar := range searchInput {
+		found := false
 		for candidateIdx < len(candidateRunes) {
 			if candidateRunes[candidateIdx] == inputChar {
 				score += 10
 				candidateIdx++
+				found = true
 				break
 			}
 			candidateIdx++
 		}
-		if candidateIdx >= len(candidateRunes) {
-			break
+		if !found {
+			return 0
 		}
 	}
 
@@ -175,8 +183,21 @@ func NewFuzzyCompleter(candidates []string) func(Document) []Suggestion {
 	return fm.completionFunc
 }
 
-// completionFunc returns fuzzy-matched suggestions for the given document context
+// completionFunc returns fuzzy-matched suggestions for the given document context.
+//
+// Every suggestion names the span it stands for: the whole input before the
+// cursor, which is what was matched against. Saying so is what makes fuzzy
+// matching reach the line. Without it the prompt filters the answer down to the
+// candidates that start with the word before the cursor, case-sensitively, and
+// that is none of the three things this completer does that a prefix completer
+// does not -- match the whole line, ignore case, match a subsequence. Typing
+// "git st" and pressing Tab left the prompt asking whether "git status" starts
+// with "st", and the key did nothing at all.
 func (f *fuzzyMatcher) completionFunc(d Document) []Suggestion {
+	// The span is in runes, because that is what the prompt's buffer is indexed
+	// in and what CursorPosition counts.
+	replace := &Range{Start: 0, End: max(d.CursorPosition, 0)}
+
 	input := d.TextBeforeCursor()
 	if input == "" {
 		// Return all items if no input
@@ -185,6 +206,7 @@ func (f *fuzzyMatcher) completionFunc(d Document) []Suggestion {
 			suggestions[i] = Suggestion{
 				Text:        item,
 				Description: "",
+				Replace:     replace,
 			}
 		}
 		return suggestions
@@ -197,6 +219,7 @@ func (f *fuzzyMatcher) completionFunc(d Document) []Suggestion {
 		suggestions[i] = Suggestion{
 			Text:        match.text,
 			Description: fmt.Sprintf("score: %d", match.score),
+			Replace:     replace,
 		}
 	}
 	return suggestions
