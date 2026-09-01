@@ -75,9 +75,6 @@ func TestRendererClearScreen(t *testing.T) {
 	if renderer.lastLines != 1 {
 		t.Errorf("lastLines = %d after clearScreen, want 1", renderer.lastLines)
 	}
-	if renderer.suggestionsActive {
-		t.Error("suggestionsActive should be reset to false after clearScreen")
-	}
 }
 
 func TestRendererRenderWithSuggestions(t *testing.T) {
@@ -529,11 +526,6 @@ func TestRendererSuggestionClearing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify suggestions are active
-	if !renderer.suggestionsActive {
-		t.Error("Expected suggestionsActive to be true after showing suggestions")
-	}
-
 	// Second render - simulate selection (no suggestions)
 	output.Reset()
 	err = renderer.renderWithSuggestionsOffset("app> ", "help", 4, nil, -1, 0)
@@ -542,11 +534,6 @@ func TestRendererSuggestionClearing(t *testing.T) {
 	}
 
 	result := output.String()
-
-	// Verify suggestions are cleared
-	if renderer.suggestionsActive {
-		t.Error("Expected suggestionsActive to be false after clearing suggestions")
-	}
 
 	// Should not contain suggestion text
 	if strings.Contains(result, "Show help information") {
@@ -724,12 +711,6 @@ func TestRendererRealWorldCompletionBug(t *testing.T) {
 		}
 	}
 
-	// Verify renderer internal state
-	if renderer.suggestionsActive {
-		t.Error("BUG DETECTED: suggestionsActive should be false after completion")
-		foundBuggyContent = true
-	}
-
 	// Count remaining suggestion lines
 	suggestionCount := countSuggestionLines(finalOutput)
 	if suggestionCount > 0 {
@@ -877,11 +858,6 @@ func TestRendererArrowKeyNavigationDuplication(t *testing.T) {
 	if renderer.lastLines != len(suggestions)+1 { // +1 for input line
 		t.Logf("Renderer lastLines = %d, expected around %d (this helps with clearing logic)",
 			renderer.lastLines, len(suggestions)+1)
-	}
-
-	// Test that suggestionsActive is properly managed
-	if !renderer.suggestionsActive {
-		t.Error("Expected suggestionsActive to be true when suggestions are displayed")
 	}
 }
 

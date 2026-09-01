@@ -85,12 +85,11 @@ func layout(s string, width int) (rows, col int) {
 type renderer struct {
 	// highlighter colors runs of the input as it is drawn. Nil draws the whole
 	// input in the scheme's color.
-	highlighter       func(string) []StyleSpan
-	output            io.Writer         // Target output writer (typically stdout or colorable wrapper)
-	colorScheme       *ColorScheme      // Color configuration for themed rendering
-	lastLines         int               // Track number of lines rendered for efficient cleanup
-	suggestionsActive bool              // Track if suggestions are currently displayed
-	terminal          terminalInterface // Terminal interface for getting size information
+	highlighter func(string) []StyleSpan
+	output      io.Writer         // Target output writer (typically stdout or colorable wrapper)
+	colorScheme *ColorScheme      // Color configuration for themed rendering
+	lastLines   int               // Track number of lines rendered for efficient cleanup
+	terminal    terminalInterface // Terminal interface for getting size information
 	// lastCursorRow is the row, counted from the first row of the last rendered
 	// block, where that render left the terminal cursor. The next render erases
 	// from there, so it has to be remembered rather than assumed: a cursor moved
@@ -117,11 +116,10 @@ type renderer struct {
 // newRenderer creates a new renderer with the given output and color scheme.
 func newRenderer(output io.Writer, colorScheme *ColorScheme, terminal terminalInterface) *renderer {
 	return &renderer{
-		output:            output,
-		colorScheme:       colorScheme,
-		lastLines:         1, // Initialize with 1 to handle initial clear correctly
-		suggestionsActive: false,
-		terminal:          terminal,
+		output:      output,
+		colorScheme: colorScheme,
+		lastLines:   1, // Initialize with 1 to handle initial clear correctly
+		terminal:    terminal,
 	}
 }
 
@@ -189,7 +187,6 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 		// the suggestions it holds: a suggestion wider than the terminal wraps onto
 		// more than one, and counting entries left those rows out of the erase.
 		r.lastLines = inputLines + suggestionRows
-		r.suggestionsActive = true
 		// The cursor is left wherever the last suggestion ended, on the block's
 		// last row.
 		r.lastCursorRow = r.lastLines - 1
@@ -208,7 +205,6 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 		// Update lastLines to match the actual number of lines rendered
 		r.lastLines = inputLines
 		r.lastCursorRow = cursorRow
-		r.suggestionsActive = false
 	}
 
 	return nil
@@ -553,7 +549,6 @@ func (r *renderer) clearScreen() {
 func (r *renderer) forgetBlock() {
 	r.lastLines = 1
 	r.lastCursorRow = 0
-	r.suggestionsActive = false
 }
 
 func (r *renderer) clearPreviousLines() {
