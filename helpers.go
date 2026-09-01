@@ -151,14 +151,23 @@ type fuzzyMatcher struct {
 
 // NewFuzzyCompleter creates a new fuzzy completer with the given candidates.
 //
-// The fuzzy completer provides intelligent auto-completion by matching
-// user input against a list of candidates using fuzzy string matching.
-// It supports partial matches, substring matches, and character-by-character
-// fuzzy matching with scoring.
+// It matches the whole input before the cursor, not the word before it, and
+// ignores case. A candidate matches when the input is a prefix of it, a
+// substring of it, or a subsequence of it -- its characters in order, with
+// anything between -- so "dckrbld" finds "docker build". Candidates are ordered
+// by how they matched, an exact match first and a subsequence last. A candidate
+// the input is not a subsequence of does not match at all.
 //
-// This is a convenience function that returns a completer function that can be
-// used directly in Config.Completer. The returned function implements fuzzy
-// matching and scoring automatically.
+// Each suggestion replaces the whole input before the cursor, which is what was
+// matched against. That is why a candidate holding a space completes: the prompt
+// applies a suggestion that names its span literally and does not filter it
+// against the word before the cursor. See Suggestion.Replace.
+//
+// It does not read the filesystem, know anything about the shape of a command,
+// or narrow the list by where in the line the cursor is: the candidates are the
+// list given here, matched against everything typed so far. A completer that
+// needs to answer differently in different parts of a line is a function of your
+// own, and Document says where the cursor is.
 //
 // Example:
 //

@@ -235,6 +235,11 @@ p, err := prompt.New("$ ",
 )
 ```
 
+It matches the whole line typed so far rather than the word before the cursor,
+ignores case, and accepts a subsequence, so `git st` finds `git status`,
+`GIT PU` finds `git push`, and `dckrbld` finds `docker build`. Accepting a
+candidate replaces the line up to the cursor.
+
 ### Completing a span of your own choosing
 
 By default the prompt decides what a suggestion replaces: it takes the word
