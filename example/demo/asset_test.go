@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -39,7 +40,20 @@ const (
 )
 
 // lockedFiles is what the lock covers, in the order it lists them.
-var lockedFiles = []string{tapeFile, progFile, gifFile}
+//
+// The two text files are hashed with their line endings normalized, because a
+// checkout is allowed to rewrite them: a Windows runner with git's autocrlf
+// turned on hands the test CRLF for files that were committed with LF, and the
+// digest of a file that nobody edited would not match. The GIF is hashed as it
+// is -- git leaves binary files alone, and normalizing one would corrupt it.
+var lockedFiles = []struct {
+	name string
+	text bool
+}{
+	{tapeFile, true},
+	{progFile, true},
+	{gifFile, false},
+}
 
 var update = flag.Bool("update", false, "rewrite demo.lock from the files on disk, after regenerating the animation")
 
@@ -57,21 +71,21 @@ func TestDemoGIFIsCurrent(t *testing.T) {
 		t.Fatalf("reading %s: %v", lockFile, err)
 	}
 
-	for _, name := range lockedFiles {
-		want, ok := locked[name]
+	for _, file := range lockedFiles {
+		want, ok := locked[file.name]
 		if !ok {
-			t.Errorf("%s does not cover %s; run `make demo`", lockFile, name)
+			t.Errorf("%s does not cover %s; run `make demo`", lockFile, file.name)
 			continue
 		}
-		got, err := digest(name)
+		got, err := digest(file.name, file.text)
 		if err != nil {
-			t.Errorf("hashing %s: %v", name, err)
+			t.Errorf("hashing %s: %v", file.name, err)
 			continue
 		}
 		if got != want {
 			t.Errorf("%s has changed since the animation was recorded (%s is %s, %s says %s).\n"+
 				"The animation in the README no longer shows what this program does. Regenerate it with `make demo`.",
-				name, name, got[:12], lockFile, want[:12])
+				file.name, file.name, got[:12], lockFile, want[:12])
 		}
 	}
 }
@@ -126,6 +140,49 @@ func TestReadmeShowsTheAnimation(t *testing.T) {
 	}
 }
 
+// TestDigestIgnoresTheLineEndingsACheckoutChose covers the reason the text
+// files are normalized before they are hashed: a Windows checkout with git's
+// autocrlf turned on rewrites them, and a digest taken over the bytes on disk
+// would report a file nobody edited as changed. A binary file is hashed as it
+// is, because git does not rewrite one and normalizing it would corrupt it.
+func TestDigestIgnoresTheLineEndingsACheckoutChose(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	unix := filepath.Join(dir, "unix")
+	windows := filepath.Join(dir, "windows")
+	if err := os.WriteFile(unix, []byte("Set Width 1100\nSet Height 720\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(windows, []byte("Set Width 1100\r\nSet Height 720\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	asText := func(name string) string {
+		t.Helper()
+		sum, err := digest(name, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sum
+	}
+	if asText(unix) != asText(windows) {
+		t.Error("the same text hashes differently depending on the line endings the checkout chose")
+	}
+
+	asBytes := func(name string) string {
+		t.Helper()
+		sum, err := digest(name, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sum
+	}
+	if asBytes(unix) == asBytes(windows) {
+		t.Error("a file hashed as binary is being normalized")
+	}
+}
+
 // tapeSize returns the width and height the tape sets.
 func tapeSize() (width, height int, err error) {
 	content, err := os.ReadFile(tapeFile)
@@ -150,10 +207,13 @@ func tapeSize() (width, height int, err error) {
 	return width, height, nil
 }
 
-func digest(name string) (string, error) {
+func digest(name string, text bool) (string, error) {
 	content, err := os.ReadFile(filepath.Clean(name))
 	if err != nil {
 		return "", err
+	}
+	if text {
+		content = bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
 	}
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:]), nil
@@ -184,12 +244,12 @@ func writeLock() error {
 	b.WriteString("# Written by `make demo`. Do not edit by hand.\n")
 	b.WriteString("# The digests of the animation in the README and of the tape and program it\n")
 	b.WriteString("# was recorded from. TestDemoGIFIsCurrent fails when they no longer agree.\n")
-	for _, name := range lockedFiles {
-		sum, err := digest(name)
+	for _, file := range lockedFiles {
+		sum, err := digest(file.name, file.text)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(&b, "%s %s\n", name, sum)
+		fmt.Fprintf(&b, "%s %s\n", file.name, sum)
 	}
 	return os.WriteFile(lockFile, []byte(b.String()), 0o600)
 }
