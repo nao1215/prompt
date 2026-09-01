@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- The caret is drawn in front of the character it is in front of when that character is the one that took the wrap (PR [#125](https://github.com/nao1215/prompt/pull/125), [b911f6a](https://github.com/nao1215/prompt/commit/b911f6a), [#122](https://github.com/nao1215/prompt/issues/122)). A row the text has filled leaves a terminal holding the cursor on the last cell with the wrap owed rather than taken, and the renderer reported that cell whatever followed it. With the line continuing, the character at the cursor had already been drawn on the next row, so the caret was drawn on top of the last character of the row above and the position before it was drawn in the same cell: pressing Left or Right across a wrap boundary moved nothing the user could see. The filled row is still reported at the end of a line, where nothing has been drawn past it and reporting the row below left the next erase one row too high.
+
+- A completion menu with room for fewer than ten candidates scrolls to its last one (PR [#125](https://github.com/nao1215/prompt/pull/125), [b911f6a](https://github.com/nao1215/prompt/commit/b911f6a), [#123](https://github.com/nao1215/prompt/issues/123)). The scroll offset was capped at the last position ten candidates could be listed from, but ten is only the ceiling on the menu: under a short terminal or a wrapped input it lists fewer, and the cap then refused the offsets that would have brought the last candidates into view. Holding Down through fourteen candidates on an eight-row terminal froze the list after the eleventh while the selection went on advancing, marked on no row, and Enter accepted a candidate that had never been shown. The cap is now the offset of the window that ends on the last candidate.
+
 ## [0.0.28] - 2026-09-01
 
 ### Added
