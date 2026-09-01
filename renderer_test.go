@@ -2533,3 +2533,171 @@ func TestMenuRowHoldingAC1ControlIsFlattened(t *testing.T) {
 		}
 	}
 }
+
+// TestRendererPutsTheCaretOnTheCharacterItIsInFrontOf renders a line whose
+// cursor sits exactly on a wrap boundary and asks a terminal where the caret
+// ended up.
+//
+// A row the text has filled leaves the terminal holding the cursor on its last
+// cell with the wrap owed. Whether the caret belongs there depends on what
+// follows: at the end of the line nothing has been drawn past it and that cell
+// is where the next character goes, but with the line continuing, the character
+// the cursor is in front of is already on the next row and the caret belongs in
+// front of it. Reporting the filled row for both drew two consecutive cursor
+// positions in the same cell.
+func TestRendererPutsTheCaretOnTheCharacterItIsInFrontOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		width  int
+		prefix string
+		input  string
+		cursor int
+		want   string // the character the caret has to be on
+		wantAt [2]int // and where it is drawn
+	}{
+		{
+			name:  "the first character of a wrapped row",
+			width: 10, input: strings.Repeat("a", 25), cursor: 10,
+			want: "a", wantAt: [2]int{1, 0},
+		},
+		{
+			name:  "the first character of the second wrapped row",
+			width: 10, input: strings.Repeat("a", 25), cursor: 20,
+			want: "a", wantAt: [2]int{2, 0},
+		},
+		{
+			name:  "the character after a row the prefix helped fill",
+			width: 6, prefix: "> ", input: "hello world again", cursor: 4,
+			want: "o", wantAt: [2]int{1, 0},
+		},
+		{
+			name:  "a character in the middle of a row",
+			width: 10, input: strings.Repeat("a", 25), cursor: 3,
+			want: "a", wantAt: [2]int{0, 3},
+		},
+		{
+			name:  "the last character of a row",
+			width: 10, input: strings.Repeat("a", 25), cursor: 9,
+			want: "a", wantAt: [2]int{0, 9},
+		},
+		{
+			// The cell a wide glyph left over is where the next character
+			// typed goes, so the caret stays on the filled row rather than
+			// following the glyph that moved off it.
+			name:  "the cell a wide glyph was too wide for",
+			width: 9, prefix: "> ", input: "あいうえお", cursor: 3,
+			want: " ", wantAt: [2]int{0, 8},
+		},
+		{
+			// A combining mark joins the cell already written rather than
+			// starting a row, so it leaves the wrap owed exactly as the end of a
+			// line does and the caret stays where the terminal parked it.
+			name:  "a combining mark on a filled row",
+			width: 10, input: strings.Repeat("a", 10) + "\u0301" + "bbb", cursor: 10,
+			want: "a", wantAt: [2]int{0, 9},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			terminal := &sizedMockTerminal{width: tt.width}
+			renderer := newRenderer(&out, ThemeDefault, terminal)
+			if err := renderer.render(tt.prefix, tt.input, tt.cursor); err != nil {
+				t.Fatalf("render: %v", err)
+			}
+			drawn := newScreenModel(tt.width)
+			drawn.feed(out.String())
+			if drawn.row != tt.wantAt[0] || drawn.col != tt.wantAt[1] {
+				t.Errorf("the caret is at (%d,%d), the character it is in front of is at (%d,%d)\n%q",
+					drawn.row, drawn.col, tt.wantAt[0], tt.wantAt[1], drawn.rows())
+			}
+			if got := cellUnder(drawn); got != tt.want {
+				t.Errorf("the caret is on %q, the buffer is in front of %q\n%q", got, tt.want, drawn.rows())
+			}
+		})
+	}
+}
+
+// cellUnder returns the character on the cell the cursor is on. The trailing
+// cells of a wide glyph hold nothing, so they read back as the glyph itself.
+func cellUnder(s *screenModel) string {
+	for col := s.col; col >= 0; col-- {
+		if s.cells[s.row][col] != 0 {
+			return string(s.cells[s.row][col])
+		}
+	}
+	return ""
+}
+
+// TestRendererGivesEveryCursorPositionItsOwnCell walks the cursor through a
+// wrapped line and asks that no two positions be drawn in the same cell. Two
+// that share one are a Left or a Right the user pressed and did not see.
+func TestRendererGivesEveryCursorPositionItsOwnCell(t *testing.T) {
+	t.Parallel()
+
+	const width = 10
+	input := strings.Repeat("a", 25)
+	seen := map[[2]int]int{}
+	for cursor := range len(input) {
+		var out bytes.Buffer
+		renderer := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: width})
+		if err := renderer.render("", input, cursor); err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		drawn := newScreenModel(width)
+		drawn.feed(out.String())
+		at := [2]int{drawn.row, drawn.col}
+		if before, ok := seen[at]; ok {
+			t.Errorf("cursor %d and cursor %d are both drawn at (%d,%d)", before, cursor, at[0], at[1])
+		}
+		seen[at] = cursor
+	}
+}
+
+// stripANSI removes the escape sequences from what the renderer wrote, leaving
+// the characters a terminal would draw.
+var ansiSequence = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
+
+func stripANSI(s string) string { return ansiSequence.ReplaceAllString(s, "") }
+
+// TestMenuScrollsToItsLastCandidateOnAShortTerminal holds Down through a list
+// longer than the menu's ten-entry cap on a terminal that has room for fewer
+// than ten, which is the pair of conditions the offset clamp gets wrong.
+func TestMenuScrollsToItsLastCandidateOnAShortTerminal(t *testing.T) {
+	t.Parallel()
+
+	const candidates = 14
+	suggestions := make([]Suggestion, candidates)
+	for i := range suggestions {
+		suggestions[i] = Suggestion{Text: fmt.Sprintf("cand%02d", i)}
+	}
+
+	var out bytes.Buffer
+	// Eight rows: one for the input, seven for the menu, which is fewer than the
+	// ten the clamp used to assume.
+	terminal := &sizedMockTerminal{width: 40, height: 8}
+	renderer := newRenderer(&out, ThemeDefault, terminal)
+	prompt := &Prompt{config: Config{Prefix: "> "}, output: &out, terminal: terminal, renderer: renderer}
+	prompt.buffer = []rune("c")
+
+	offset := 0
+	for selected := range candidates {
+		offset = prompt.scrollToSelection(suggestions, selected, offset)
+		out.Reset()
+		if err := renderer.renderWithSuggestionsOffset("> ", "c", 1, suggestions, selected, offset); err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		drawn := stripANSI(out.String())
+		if !strings.Contains(drawn, fmt.Sprintf("cand%02d", selected)) {
+			t.Fatalf("candidate %d is selected but not listed (offset %d): %q", selected, offset, drawn)
+		}
+		if !strings.Contains(drawn, menuSelectedIndicator+fmt.Sprintf("cand%02d", selected)) {
+			t.Fatalf("candidate %d is selected but not marked as such (offset %d): %q", selected, offset, drawn)
+		}
+	}
+}

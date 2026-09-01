@@ -175,7 +175,7 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 	// fills the terminal, and a list under it would push the line being
 	// completed off the top of the screen. The prompt is rendered the way it is
 	// without one, cursor and all, so the user keeps what they are typing.
-	if len(suggestions) > 0 && r.suggestionWindowAt(prefix, input, suggestions, clampMenuOffset(offset, len(suggestions))) == 0 {
+	if len(suggestions) > 0 && r.suggestionWindowAt(prefix, input, suggestions, r.clampMenuOffset(prefix, input, suggestions, offset)) == 0 {
 		suggestions = nil
 	}
 
@@ -391,11 +391,40 @@ func (r *renderer) spansFor(input string) []StyleSpan {
 const maxMenuEntries = 10
 
 // clampMenuOffset brings a scroll offset into the range the menu can be drawn
-// from. The cap is the ten-entry one, so a caller that scrolled past the end
-// starts from a window that still has entries in it rather than from the empty
-// tail of the list.
-func clampMenuOffset(offset, suggestions int) int {
-	return max(0, min(offset, max(0, suggestions-maxMenuEntries)))
+// from, so a caller that scrolled past the end starts from a window that still
+// has entries in it rather than from the empty tail of the list.
+//
+// The cap is lastMenuOffset rather than the ten-entry one. Ten is the ceiling
+// on the window, not the window: under a short terminal or a wrapped input the
+// menu lists fewer, and capping at len(suggestions)-maxMenuEntries then refused
+// the very offsets that would have brought the last candidates into view. The
+// list froze while the selection went on advancing, marked on no row, and Enter
+// accepted a candidate the user had never been shown.
+func (r *renderer) clampMenuOffset(prefix, input string, suggestions []Suggestion, offset int) int {
+	return max(0, min(offset, r.lastMenuOffset(prefix, input, suggestions)))
+}
+
+// lastMenuOffset returns the offset of the window that ends on the last
+// candidate, which is the furthest the menu is worth scrolling: past it the
+// list only grows shorter without showing anything new.
+//
+// It is found by taking candidates from the end of the list while they fit
+// under the input block, the same way suggestionWindowAt takes them from an
+// offset forward, so the two agree on where the list ends.
+func (r *renderer) lastMenuOffset(prefix, input string, suggestions []Suggestion) int {
+	available := r.terminalHeight() - r.calculateRenderedLines(prefix, input)
+	used, offset := 0, len(suggestions)
+	for i := len(suggestions) - 1; i >= 0 && len(suggestions)-i <= maxMenuEntries; i-- {
+		rows := r.suggestionEntryRows(suggestions[i])
+		if used+rows > available {
+			break
+		}
+		used += rows
+		offset = i
+	}
+	// A menu with room for nothing is not drawn at all, and the offset it would
+	// have been drawn from is still kept inside the list.
+	return min(offset, max(0, len(suggestions)-1))
 }
 
 // menuIndicator is drawn in front of a candidate the menu is not on, and
@@ -469,7 +498,7 @@ func (r *renderer) renderSuggestionsWithOffset(prefix, input string, _ int, sugg
 		return 0, err
 	}
 
-	offset = clampMenuOffset(offset, len(suggestions))
+	offset = r.clampMenuOffset(prefix, input, suggestions, offset)
 
 	// The window is what fits under the input, so a menu never grows the block
 	// past the terminal's last row.
@@ -751,12 +780,32 @@ func (r *renderer) cursorRowCol(lines []string, cursorLine, cursorCol int, prefi
 	if cursorCol > len(lineRunes) {
 		cursorCol = len(lineRunes)
 	}
-	rows, col := layout(r.linePrefix(cursorLine, prefix)+string(lineRunes[:cursorCol]), width)
+	before := r.linePrefix(cursorLine, prefix) + string(lineRunes[:cursorCol])
+	rows, col := layout(before, width)
 	if col >= width {
 		// The row is full, and the terminal is holding the cursor on its last
-		// cell. Reporting the row below it — which the text has not reached —
+		// cell with the wrap owed rather than taken. Whether the caret belongs
+		// there depends on what follows.
+		//
+		// Nothing on this line does: that cell is where the next character typed
+		// goes, and reporting the row below it — which the text has not reached —
 		// left the next redraw erasing one row too high, taking the line above
 		// the prompt with it.
+		//
+		// A character does: the terminal took the wrap when it drew that
+		// character, so it is already on the next row and the caret belongs in
+		// front of it there. Leaving the caret on the filled row drew it on top
+		// of the last character of that row, and drew the position before it in
+		// the same cell, so a Left or a Right across the wrap moved nothing the
+		// user could see. Which row the character landed on is asked of layout
+		// rather than assumed, so a combining mark — which joins the cell already
+		// written and starts no row — keeps the caret where the terminal parked
+		// it.
+		if cursorCol < len(lineRunes) {
+			if withCharacter, _ := layout(before+string(lineRunes[cursorCol]), width); withCharacter > rows {
+				return row + withCharacter, 0
+			}
+		}
 		col = width - 1
 	}
 	return row + rows, col
