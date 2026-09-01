@@ -1925,3 +1925,85 @@ func TestDisabledHistoryStaysEmpty(t *testing.T) {
 		}
 	})
 }
+
+// TestReverseSearchFitsTheTerminal covers the block Ctrl+R draws against the
+// room the terminal has for it. Every block this package draws is erased by a
+// relative cursor move, so one drawn taller than the terminal scrolls its own
+// first row off the screen and the erase that follows starts from the top of the
+// screen instead: it clears rows the prompt never wrote and leaves rows it did.
+//
+// The block is a header and up to five matches, each as long as the entry it
+// names, and an entry has no bound -- a pasted statement is one line of history.
+// A split pane, or a history of long statements on an ordinary terminal, is
+// enough to overflow it.
+func TestReverseSearchFitsTheTerminal(t *testing.T) {
+	t.Parallel()
+
+	long := func(prefix string, cells int) string {
+		return prefix + strings.Repeat("x", cells-len(prefix))
+	}
+
+	tests := []struct {
+		name    string
+		width   int
+		height  int
+		query   string
+		results []string
+	}{
+		{
+			name:    "five statements of the length a pasted query reaches",
+			width:   80,
+			height:  10,
+			query:   "select",
+			results: []string{long("select a", 100), long("select b", 100), long("select c", 100), long("select d", 100), long("select e", 100)},
+		},
+		{
+			name:    "long statements on a terminal of the usual size",
+			width:   80,
+			height:  24,
+			query:   "select",
+			results: []string{long("select a", 320), long("select b", 320), long("select c", 320), long("select d", 320), long("select e", 320)},
+		},
+		{
+			name:    "a split pane",
+			width:   40,
+			height:  4,
+			query:   "s",
+			results: []string{"select 1", "select 2", "select 3", "select 4", "select 5"},
+		},
+		{
+			name:    "a header that fills the terminal on its own",
+			width:   20,
+			height:  3,
+			query:   "s",
+			results: []string{long("select a", 200)},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			p := newTestPromptOn(&sizedMockTerminal{width: tt.width, height: tt.height})
+			p.output = &out
+
+			rows, err := p.renderHistorySearch(tt.query, tt.results, 0)
+			if err != nil {
+				t.Fatalf("renderHistorySearch() error = %v", err)
+			}
+			if rows > tt.height {
+				t.Errorf("renderHistorySearch() reported %d rows on a terminal of %d: the erase moves up past the top of the screen", rows, tt.height)
+			}
+
+			screen := newScreenModel(tt.width)
+			screen.feed(out.String())
+			if drawn := len(screen.rows()); drawn > tt.height {
+				t.Errorf("renderHistorySearch() drew %d rows on a terminal of %d: the terminal scrolls and takes the prompt with it", drawn, tt.height)
+			}
+			if drawn := len(screen.rows()); drawn != rows {
+				t.Errorf("renderHistorySearch() drew %d rows and reported %d: the erase covers what was reported", drawn, rows)
+			}
+		})
+	}
+}

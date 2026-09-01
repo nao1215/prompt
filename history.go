@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/mattn/go-runewidth"
 )
 
 // defaultHistoryConfig returns a default history configuration following XDG Base Directory Specification
@@ -553,32 +555,7 @@ func moveSearchSelection(selected, step, count int) int {
 // renderHistorySearch renders the history search interface and returns how many
 // terminal rows it occupies, which is what the next render has to erase.
 func (p *Prompt) renderHistorySearch(query string, results []string, selected int) (int, error) {
-	// Every line of the block is one terminal row, so what is drawn is flattened
-	// to one: a history entry can hold newlines -- a statement entered across
-	// several lines is stored as one entry, which is what the file's escaping is
-	// for -- and drawing one raw took rows the block never counted, leaving them
-	// on screen when the search closed.
-	header := "reverse-i-search: " + singleLine(query)
-	if selected < len(results) && len(results) > 0 {
-		header += " -> " + singleLine(results[selected])
-	}
-
-	// Show top 5 results. The header names the selection even when Tab has
-	// cycled past what is listed, so it is built before this cut.
-	const maxResults = 5
-	if len(results) > maxResults {
-		results = results[:maxResults]
-	}
-
-	lines := make([]string, 0, len(results)+1)
-	lines = append(lines, header)
-	for i, result := range results {
-		if i == selected {
-			lines = append(lines, "  > "+singleLine(result))
-			continue
-		}
-		lines = append(lines, "    "+singleLine(result))
-	}
+	lines := p.searchLines(query, results, selected)
 
 	if _, err := fmt.Fprint(p.output, "\r\x1b[K"); err != nil {
 		return 0, err
@@ -592,6 +569,80 @@ func (p *Prompt) renderHistorySearch(query string, results []string, selected in
 		}
 	}
 	return p.searchBlockRows(lines), nil
+}
+
+// searchLines returns the rows of the reverse-search block: a header naming the
+// query and the selection, then the matches that fit under it.
+//
+// The block is erased by a relative cursor move, so it must never be taller than
+// the terminal. One that is scrolls its own first row off the screen, and the
+// move up that follows stops at the top of the screen instead of reaching the
+// row the block began on: the erase clears rows the prompt never wrote and
+// leaves the ones it did. Five matches of a length nothing bounds -- a pasted
+// statement is one line of history -- reach that on an ordinary terminal, and
+// any history at all reaches it in a split pane.
+//
+// The header stays whatever the room, because a search with nothing to show for
+// it is a search the user cannot steer; it is cut to the rows there are. What
+// the height costs is matches, down to none.
+func (p *Prompt) searchLines(query string, results []string, selected int) []string {
+	width, height := p.searchTerminalSize()
+
+	// Every line of the block is one logical line, so what is drawn is flattened
+	// to one: a history entry can hold newlines -- a statement entered across
+	// several lines is stored as one entry, which is what the file's escaping is
+	// for -- and drawing one raw took rows the block never counted, leaving them
+	// on screen when the search closed.
+	header := "reverse-i-search: " + singleLine(query)
+	if selected < len(results) && len(results) > 0 {
+		header += " -> " + singleLine(results[selected])
+	}
+	header = truncateToRows(header, width, height)
+
+	// Show top 5 results. The header names the selection even when Tab has
+	// cycled past what is listed, so it is built before this cut.
+	const maxResults = 5
+	if len(results) > maxResults {
+		results = results[:maxResults]
+	}
+
+	lines := make([]string, 0, len(results)+1)
+	lines = append(lines, header)
+	used := rowsOf(header, width)
+	for i, result := range results {
+		line := "    " + singleLine(result)
+		if i == selected {
+			line = "  > " + singleLine(result)
+		}
+		rows := rowsOf(line, width)
+		if used+rows > height {
+			break
+		}
+		lines = append(lines, line)
+		used += rows
+	}
+	return lines
+}
+
+// searchTerminalSize reports the terminal the search block is measured against,
+// falling back the way the renderer does when the terminal has not been asked
+// yet or could not say.
+func (p *Prompt) searchTerminalSize() (width, height int) {
+	width, height = defaultTerminalWidth, fallbackHeight
+	if p.terminal == nil {
+		return width, height
+	}
+	w, h, err := p.terminal.Size()
+	if err != nil {
+		return width, height
+	}
+	if w > 0 {
+		width = w
+	}
+	if h > 0 {
+		height = h
+	}
+	return width, height
 }
 
 // clearHistorySearch erases the rows a previous search render left on screen and
@@ -610,19 +661,50 @@ func (p *Prompt) clearHistorySearch(rows int) error {
 // history entry can be longer than the terminal is wide, and a wrapped line is
 // two rows to erase rather than one.
 func (p *Prompt) searchBlockRows(lines []string) int {
-	width := defaultTerminalWidth
-	if p.terminal != nil {
-		if w, _, err := p.terminal.Size(); err == nil && w > 0 {
-			width = w
-		}
-	}
+	width, _ := p.searchTerminalSize()
 
 	rows := 0
 	for _, line := range lines {
-		wrapped, _ := layout(line, width)
-		rows += wrapped + 1
+		rows += rowsOf(line, width)
 	}
 	return rows
+}
+
+// rowsOf returns how many terminal rows one line occupies at the given width.
+func rowsOf(line string, width int) int {
+	wrapped, _ := layout(line, width)
+	return wrapped + 1
+}
+
+// truncateToRows returns the longest prefix of s that a terminal width columns
+// wide draws in rows rows or fewer. It steps the way layout measures, tab stops
+// included, so the answer is in the same terms as every other height here.
+func truncateToRows(s string, width, rows int) string {
+	if rows <= 0 {
+		return ""
+	}
+	used, col := 0, 0
+	for i, r := range s {
+		nextUsed, nextCol := used, col
+		if r == '\t' {
+			if nextCol >= width {
+				nextUsed++
+				nextCol = 0
+			}
+			nextCol = min(nextCol+tabWidth-nextCol%tabWidth, width-1)
+		} else if w := runewidth.RuneWidth(r); w > 0 {
+			if nextCol+w > width && nextCol > 0 {
+				nextUsed++
+				nextCol = 0
+			}
+			nextCol += w
+		}
+		if nextUsed >= rows {
+			return s[:i]
+		}
+		used, col = nextUsed, nextCol
+	}
+	return s
 }
 
 // syncHistoryAfterAdd synchronizes in-memory history with history manager after adding an entry.
