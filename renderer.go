@@ -396,8 +396,7 @@ func (r *renderer) suggestionEntryRows(s Suggestion) int {
 // nowhere, while Enter still accepts it.
 //
 // Zero is an answer: an input that already fills the terminal leaves no room for
-// a list, and a list drawn anyway would push the line being completed off the
-// top of the screen, which is the one thing the user is looking at.
+// a list at all.
 func (r *renderer) suggestionWindow(prefix, input string, suggestions []Suggestion, offset int) int {
 	r.measureTerminal()
 	return r.suggestionWindowAt(prefix, input, suggestions, offset)
@@ -428,9 +427,9 @@ func (r *renderer) renderSuggestionsWithOffset(prefix, input string, _ int, sugg
 		return 0, err
 	}
 
-	// Clamp offset to valid range for all suggestion counts. The last window
-	// starts maxMenuEntries from the end, so a caller that scrolled past it is
-	// shown a full list rather than the tail of one.
+	// Clamp the offset to the ten-entry cap, so a caller that scrolled past the
+	// end starts from a window that still has entries in it rather than from the
+	// empty tail of the list.
 	offset = max(0, min(offset, max(0, len(suggestions)-maxMenuEntries)))
 
 	// The window is what fits under the input, so a menu never grows the block

@@ -110,9 +110,9 @@
 //
 // A completion menu stands for the word before the cursor, so editing the line
 // or moving the cursor off that word ends it and the next Tab asks again. It
-// lists at most ten candidates and only as many as the terminal has rows for
-// under the line being typed, which is what keeps that line on screen; Up and
-// Down scroll a longer list.
+// lists at most ten candidates, and fewer when the terminal has fewer rows to
+// spare under the line being typed -- none at all when it has none, which is
+// what keeps that line on screen; Up and Down scroll a longer list.
 //
 // While an application runs work between prompts (a query, an import), no one is
 // reading the terminal, so Ctrl+C either waits in the buffer as a byte or, once

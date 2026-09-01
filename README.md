@@ -523,9 +523,10 @@ off the word ends the completion, and the next Tab asks the completer again.
 The menu lists at most ten candidates, and fewer when ten would not fit: it takes
 only the rows the terminal has left under the line being typed, so that line
 stays on screen. Up and Down scroll the list when it is longer than the window.
-A candidate wider than the terminal wraps, and costs the rows it wraps onto. On a
-terminal with no room at all -- an input that already fills the screen -- no menu
-is drawn, and Tab still completes.
+A candidate wider than the terminal wraps onto more than one row, so fewer of
+them fit. On a terminal with no room at all -- an input that already fills the
+screen -- no menu is drawn. A single match still completes on Tab; with several
+matches, the next Tab accepts a candidate you cannot see.
 
 ## Color themes
 

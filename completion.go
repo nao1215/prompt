@@ -4,17 +4,17 @@ import "strings"
 
 // This file holds what a completion is once the completer has answered: the word
 // a suggestion stands for, how one is applied to the buffer, and how far the
-// menu scrolls. Which candidates the menu can show is the renderer's to decide,
-// because the answer depends on the room the terminal has left.
+// menu scrolls. The renderer decides which candidates the menu can show, because
+// that depends on the room the terminal has left.
 
 // scrollToSelection returns the scroll offset that puts the selected suggestion
 // inside the window the renderer will draw.
 //
 // The window is however many candidates fit under the input block, which depends
 // on the terminal's height, on how far the input wraps, and on how far the
-// candidates themselves wrap -- so it is asked for rather than assumed. Asking
-// again after moving the offset is what makes the answer stable: the candidates
-// a later window holds are different ones, and they can be taller.
+// candidates themselves wrap -- so the count is measured rather than assumed. It
+// is measured again after each move of the offset, because a later window holds
+// different candidates, which may take more rows than the ones they replaced.
 func (p *Prompt) scrollToSelection(suggestions []Suggestion, selected, offset int) int {
 	// Bounded by the list: every pass moves the offset toward the selection.
 	for range suggestions {

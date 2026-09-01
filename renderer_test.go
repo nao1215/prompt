@@ -2165,9 +2165,8 @@ func FuzzSpansForNormalizes(f *testing.F) {
 	})
 }
 
-// TestRendererKeepsTheCompletionMenuInsideTheTerminal pins the invariant the
-// menu had no idea about: what the prompt draws has to fit the terminal it is
-// drawn on.
+// TestRendererKeepsTheCompletionMenuInsideTheTerminal pins the invariant the menu
+// never enforced: what the prompt draws has to fit the terminal it is drawn on.
 //
 // The menu's size was a count of entries, ten, and its height in rows was
 // whatever those ten happened to occupy -- a candidate wider than the terminal
@@ -2249,11 +2248,37 @@ func TestRendererKeepsTheCompletionMenuInsideTheTerminal(t *testing.T) {
 			if r.lastLines > tt.height {
 				t.Errorf("the render recorded a block of %d rows on a terminal of %d, so the next erase moves up past the top of the screen", r.lastLines, tt.height)
 			}
-			// The menu is worth drawing only if a candidate is on screen, and the
-			// selected one is the candidate the user is looking for.
+			// A menu is worth drawing only if it has a row on screen, and the
+			// selected row is the one the window must always contain.
 			if !strings.Contains(out.String(), "▶ ") {
 				t.Errorf("the render drew no selected candidate:\n%q", out.String())
 			}
 		})
+	}
+}
+
+// TestRendererDrawsNoMenuWithNoRoomForOne pins the other end of the same rule.
+// Where the input already fills the terminal there is no row a candidate could
+// be drawn on, and drawing one anyway would push the line being typed off the
+// top of the screen. The prompt is rendered as it is without a menu, cursor and
+// all, so the user keeps sight of what they are completing.
+func TestRendererDrawsNoMenuWithNoRoomForOne(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 20, 3
+
+	var out bytes.Buffer
+	terminal := &sizedMockTerminal{width: width, height: height}
+	r := newRenderer(&out, ThemeDefault, terminal)
+	input := strings.Repeat("a", width*height) // three rows of input on a three-row terminal
+	if err := r.renderWithSuggestionsOffset("$ ", input, len([]rune(input)), []Suggestion{{Text: "candidate"}}, 0, 0); err != nil {
+		t.Fatalf("renderWithSuggestionsOffset: %v", err)
+	}
+
+	if strings.Contains(out.String(), "candidate") {
+		t.Errorf("the render drew a candidate with no row to draw it on:\n%q", out.String())
+	}
+	if !strings.Contains(out.String(), showCursorSequence) {
+		t.Errorf("the render left the cursor hidden, which is what a menu does:\n%q", out.String())
 	}
 }
