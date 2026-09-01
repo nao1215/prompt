@@ -151,21 +151,24 @@ type fuzzyMatcher struct {
 
 // NewFuzzyCompleter creates a new fuzzy completer with the given candidates.
 //
-// It matches the whole input before the cursor, not the word before it, and
-// ignores case. A candidate matches when the input is a prefix of it, a
-// substring of it, or a subsequence of it -- its characters in order, with
-// anything between -- so "dckrbld" finds "docker build". Candidates are ordered
-// by how they matched, an exact match first and a subsequence last. A candidate
-// the input is not a subsequence of does not match at all.
+// It matches the input before the cursor, not the word before it, and ignores
+// case. A candidate matches when the input is a prefix of it, a substring of it,
+// or a subsequence of it -- its characters in order, with anything between, so
+// "dckrbld" finds "docker build" -- and nothing else matches. Candidates are
+// ordered by how they matched, an exact match first and a subsequence last. An
+// empty input matches every candidate.
 //
-// Each suggestion replaces the whole input before the cursor, which is what was
+// Each suggestion replaces the input before the cursor, which is what was
 // matched against. That is why a candidate holding a space completes: the prompt
 // applies a suggestion that names its span literally and does not filter it
 // against the word before the cursor. See Suggestion.Replace.
 //
+// Each suggestion's Description holds the score it matched with, which the menu
+// draws beside the candidate.
+//
 // It does not read the filesystem, know anything about the shape of a command,
 // or narrow the list by where in the line the cursor is: the candidates are the
-// list given here, matched against everything typed so far. A completer that
+// list given here, matched against the input before the cursor. A completer that
 // needs to answer differently in different parts of a line is a function of your
 // own, and Document says where the cursor is.
 //
@@ -194,17 +197,17 @@ func NewFuzzyCompleter(candidates []string) func(Document) []Suggestion {
 
 // completionFunc returns fuzzy-matched suggestions for the given document context.
 //
-// Every suggestion names the span it stands for: the whole input before the
-// cursor, which is what was matched against. Saying so is what makes fuzzy
-// matching reach the line. Without it the prompt filters the answer down to the
-// candidates that start with the word before the cursor, case-sensitively, and
-// that is none of the three things this completer does that a prefix completer
-// does not -- match the whole line, ignore case, match a subsequence. Typing
-// "git st" and pressing Tab left the prompt asking whether "git status" starts
-// with "st", and the key did nothing at all.
+// Every suggestion names the span it stands for: the input before the cursor,
+// which is what was matched against. Without it the prompt keeps only the
+// candidates that start with the word before the cursor, case-sensitively, which
+// does none of the three things that set this completer apart from a prefix
+// completer -- match the input rather than the word, ignore case, match a
+// subsequence -- so it threw this completer's answer away.
 func (f *fuzzyMatcher) completionFunc(d Document) []Suggestion {
 	// The span is in runes, because that is what the prompt's buffer is indexed
-	// in and what CursorPosition counts.
+	// in and what CursorPosition counts. A Document is whatever the caller built,
+	// so the start is clamped rather than trusted; the prompt clamps the span
+	// again when it applies it.
 	replace := &Range{Start: 0, End: max(d.CursorPosition, 0)}
 
 	input := d.TextBeforeCursor()

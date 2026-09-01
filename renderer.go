@@ -388,23 +388,25 @@ func clampMenuOffset(offset, suggestions int) int {
 // menuIndicator is drawn in front of a candidate the menu is not on, and
 // menuSelectedIndicator in front of the one it is.
 //
-// Both are ASCII and both are two cells, because the menu's height is measured
-// with the first and drawn with either. A black right-pointing triangle read
-// better and cost the guarantee: Unicode calls it East Asian Ambiguous, so
-// go-runewidth reports it as two cells under a CJK locale and one elsewhere,
-// which made the selected row a cell wider than it was counted as and left the
-// menu one row taller than the terminal had room for. A terminal makes its own
-// choice about an ambiguous glyph as well, so no measurement could have been
-// right; the width of what the prompt draws should not be something it guesses.
-// The selected row is still told apart by the scheme's Selected color.
+// Both are ASCII and both are two cells. The menu's height is measured with the
+// first, and the menu is drawn with either, so an indicator whose width depends
+// on anything is an indicator that can make a row taller than it was counted as.
+// A black right-pointing triangle read better and broke that: Unicode calls it
+// East Asian Ambiguous, so go-runewidth reports it as two cells under a CJK
+// locale and one elsewhere, which made the selected row a cell wider than it was
+// counted as and left the menu a row taller than the terminal had room for. A
+// terminal makes its own choice about an ambiguous glyph as well, so no
+// measurement could have been right; the width of what the prompt draws should
+// not be something it guesses. The selected row is still told apart by the
+// scheme's Selected color.
 const (
 	menuIndicator         = "  "
 	menuSelectedIndicator = "> "
 )
 
 // suggestionEntryRows returns how many terminal rows one menu entry occupies.
-// The indicator is the same width whether or not the entry is the selected one,
-// so an entry occupies the same number of rows either way.
+// The indicator is two cells either way (see menuIndicator), so an entry
+// occupies the same rows whether or not it is the selected one.
 func (r *renderer) suggestionEntryRows(s Suggestion) int {
 	wrapped, _ := layout(suggestionCells(menuIndicator, s), r.terminalWidth())
 	return wrapped + 1

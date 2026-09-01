@@ -11,12 +11,12 @@ import (
 // where the current line begins and ends, where the next word boundary is, what
 // a vertical move lands on.
 //
-// It is separate from the read loop because the two answer to different things.
+// It is separate from the read loop because the two are about different things.
 // The loop owns the terminal, the history and the completion menu; this owns a
-// []rune and an index into it, and every function here is answerable by looking
+// []rune and an index into it, and every function here can be written by looking
 // at those two alone. The buffer is runes rather than bytes throughout: a
-// position that means anything else has been the cause of more than one bug
-// here, most of them only reachable in a line not written in ASCII.
+// position measured in bytes has caused more than one bug here, most of them
+// reachable only in a line not written in ASCII.
 
 func (p *Prompt) insertRune(r rune) {
 	p.buffer = append(p.buffer[:p.cursor], append([]rune{r}, p.buffer[p.cursor:]...)...)
@@ -72,25 +72,14 @@ func (p *Prompt) setBuffer(text string) {
 	p.cursor = len(p.buffer)
 }
 
-// findWordBoundary finds the next word boundary in the given direction for word-based navigation.
+// findWordBoundary returns where Ctrl+Right (direction above zero) or Ctrl+Left
+// (below) puts the cursor: the end of the word ahead, or the start of the word
+// behind. Ctrl+W deletes back to the same place Ctrl+Left would move to, which
+// is why one function answers for all three.
 //
-// This function implements word-based cursor movement similar to text editors:
-//
-//	direction > 0 (Ctrl+Right): Moves to the start of the next word
-//	  1. Skip any non-word characters from current position
-//	  2. Skip through the current word to find its end
-//	  3. Return position at the start of the next word
-//
-//	direction < 0 (Ctrl+Left): Moves to the start of the previous word
-//	  1. Move back one position from cursor
-//	  2. Skip any trailing non-word characters
-//	  3. Skip back through the previous word
-//	  4. Return position at the start of that word
-//
-// Word boundaries are defined by isWordChar() - alphanumeric characters and
-// underscores are considered part of words, everything else is a separator.
-//
-// Used for implementing Ctrl+Left/Right navigation and Ctrl+W word deletion.
+// A run of separators is crossed before the word is, in both directions, so a
+// cursor sitting between words moves over a word rather than stopping on the gap
+// and having to be pressed again. What counts as a separator is isWordChar.
 func (p *Prompt) findWordBoundary(direction int) int {
 	if direction > 0 {
 		// Find next word start (Ctrl+Right)
@@ -117,26 +106,18 @@ func (p *Prompt) findWordBoundary(direction int) int {
 	return pos
 }
 
-// isWordChar determines if a character is part of a word for navigation and editing operations.
-//
-// This function defines word boundaries for word-based navigation (Ctrl+Left/Right)
-// and word deletion operations (Ctrl+W). The implementation follows common text
-// editor conventions:
-//
-//   - Letters: Always considered part of a word
-//   - Digits: Always considered part of a word
-//   - Underscore (_): Considered part of a word (programming convention)
-//   - All other characters: Considered word separators (spaces, punctuation, etc.)
-//
-// This character classification enables intuitive text navigation in programming
-// contexts where identifiers commonly contain underscores.
+// isWordChar reports whether r is part of a word for the purpose of moving and
+// deleting by words. A letter, a digit and an underscore are; everything else,
+// punctuation and whitespace alike, separates. The underscore is there because
+// what a user of this library types is mostly identifiers.
 //
 // A letter is a letter in any script. Testing for a-z alone made every other
 // alphabet a separator, so word navigation walked over a word written in
-// Japanese as if it were whitespace and carried on into the word before it,
-// and a letter with a diacritic split its own word in two.
+// Japanese as if it were whitespace and carried on into the word before it, and
+// a letter with a diacritic split its own word in two.
 //
-// Used by findWordBoundary() for word-based cursor movement operations.
+// Completion decides what a word is by its own rule, which this is not. See
+// Document.GetWordBeforeCursor.
 func isWordChar(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }

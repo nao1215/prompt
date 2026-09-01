@@ -338,11 +338,11 @@ func TestHistorySearcher(t *testing.T) {
 	}
 }
 
-// TestFuzzyScoreRequiresEveryCharacter covers what the subsequence pass answers.
-// It added ten per character it found and returned whatever it had when the
-// candidate ran out, so a query that got one character in scored above zero and
-// every caller reads a score above zero as a match: reverse search for "sql"
-// listed an entry holding no "q".
+// TestFuzzyScoreRequiresEveryCharacter pins the subsequence pass to an
+// all-or-nothing answer. It added ten per character it found and returned
+// whatever it had when the candidate ran out, so a query that got one character
+// in scored above zero, and every caller reads a score above zero as a match:
+// reverse search for "sql" listed an entry holding no "q".
 func TestFuzzyScoreRequiresEveryCharacter(t *testing.T) {
 	t.Parallel()
 
@@ -387,7 +387,7 @@ func TestFuzzySearchListsOnlyWhatMatches(t *testing.T) {
 		query string
 		want  []string
 	}{
-		{name: "a subsequence of one entry", query: "sql", want: nil},
+		{name: "not a subsequence of any entry", query: "sql", want: nil},
 		{name: "a prefix", query: "select", want: []string{"select * from users"}},
 		{name: "a substring", query: "table", want: []string{"drop table t"}},
 		{name: "a real subsequence", query: "dtt", want: []string{"drop table t"}},

@@ -2292,8 +2292,8 @@ func TestRendererDrawsNoMenuWithNoRoomForOne(t *testing.T) {
 // The selected indicator used to be a black right-pointing triangle, which
 // Unicode calls East Asian Ambiguous: go-runewidth reports it as two cells under
 // a CJK locale and one everywhere else, so the menu's geometry depended on the
-// environment the application was started in. Both conditions are checked here
-// because a test run under an ASCII locale cannot tell the two apart.
+// environment the application was started in. Both runewidth conditions are
+// checked here because a test run under an ASCII locale cannot tell them apart.
 func TestMenuIndicatorsAreTheSameWidth(t *testing.T) {
 	t.Parallel()
 
@@ -2310,8 +2310,8 @@ func TestMenuIndicatorsAreTheSameWidth(t *testing.T) {
 	}
 }
 
-// TestMenuFitsTheTerminalWhateverIsSelected covers the row the window is
-// measured for against the row that is drawn. The window counts every candidate
+// TestMenuFitsTheTerminalWhateverIsSelected compares the row the window is
+// measured for with the row that is drawn. The window counts every candidate
 // with the unselected indicator, so a candidate whose row ends within a cell of
 // the right margin fits when counted and wraps when it is the one selected.
 func TestMenuFitsTheTerminalWhateverIsSelected(t *testing.T) {

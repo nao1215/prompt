@@ -574,33 +574,44 @@ func (p *Prompt) renderHistorySearch(query string, results []string, selected in
 // searchLines returns the rows of the reverse-search block: a header naming the
 // query and the selection, then the matches that fit under it.
 //
-// The block is erased by a relative cursor move, so it must never be taller than
-// the terminal. One that is scrolls its own first row off the screen, and the
-// move up that follows stops at the top of the screen instead of reaching the
-// row the block began on: the erase clears rows the prompt never wrote and
-// leaves the ones it did. Five matches of a length nothing bounds -- a pasted
-// statement is one line of history -- reach that on an ordinary terminal, and
-// any history at all reaches it in a split pane.
+// The block is redrawn on every keystroke and erased by a cursor move back up
+// its own height, so it has to leave the row that move starts from on screen.
+// Each line is written with a line break after it, which puts the cursor one row
+// below the block, so the room for it is a row less than the terminal's height.
+// A block that takes more than that never gets its first row back: every redraw
+// starts a row lower than the last and pushes that many rows of the session off
+// the top, and the header -- which is what names the entry Enter would take --
+// is the first thing gone, so the user is steering a search they cannot see. On
+// an 80x10 terminal a twelve-row block costs three rows of the screen per
+// keystroke. Five matches of a length nothing bounds -- a pasted statement is
+// one line of history -- reach that on a terminal of the usual size, and any
+// history at all reaches it in a split pane.
 //
-// The header stays whatever the room, because a search with nothing to show for
-// it is a search the user cannot steer; it is cut to the rows there are. What
-// the height costs is matches, down to none.
+// The header is always drawn, however little room there is, because a search
+// that shows nothing is a search the user cannot steer; it is cut to the rows
+// available. What the height costs is matches, down to none.
 func (p *Prompt) searchLines(query string, results []string, selected int) []string {
 	width, height := p.searchTerminalSize()
+	// One row is the cursor's, below the block. At least one row is the
+	// header's, because a terminal too short for even that is not a terminal
+	// this can be right on.
+	budget := max(height-1, 1)
 
-	// Every line of the block is one logical line, so what is drawn is flattened
-	// to one: a history entry can hold newlines -- a statement entered across
-	// several lines is stored as one entry, which is what the file's escaping is
-	// for -- and drawing one raw took rows the block never counted, leaving them
-	// on screen when the search closed.
+	// A history entry can hold newlines -- a statement entered across several
+	// lines is stored as one entry, which is what the file's escaping is for --
+	// so every line is flattened to one row. Drawing one raw took rows the block
+	// never counted and left them on screen when the search closed.
 	header := "reverse-i-search: " + singleLine(query)
 	if selected < len(results) && len(results) > 0 {
 		header += " -> " + singleLine(results[selected])
 	}
-	header = truncateToRows(header, width, height)
+	header = truncateToRows(header, width, budget)
 
-	// Show top 5 results. The header names the selection even when Tab has
-	// cycled past what is listed, so it is built before this cut.
+	// At most five matches whatever the room. A taller terminal is not a reason
+	// to list the whole history: the point of the block is the few best matches
+	// and the query being typed, and past five the eye has to search the search.
+	// The header names the selection even when Tab has cycled past what is
+	// listed, so it is built before this cut.
 	const maxResults = 5
 	if len(results) > maxResults {
 		results = results[:maxResults]
@@ -615,7 +626,7 @@ func (p *Prompt) searchLines(query string, results []string, selected int) []str
 			line = "  > " + singleLine(result)
 		}
 		rows := rowsOf(line, width)
-		if used+rows > height {
+		if used+rows > budget {
 			break
 		}
 		lines = append(lines, line)
@@ -624,9 +635,9 @@ func (p *Prompt) searchLines(query string, results []string, selected int) []str
 	return lines
 }
 
-// searchTerminalSize reports the terminal the search block is measured against,
-// falling back the way the renderer does when the terminal has not been asked
-// yet or could not say.
+// searchTerminalSize reports the size the search block is measured against,
+// falling back the way the renderer does when there is no terminal or it could
+// not say.
 func (p *Prompt) searchTerminalSize() (width, height int) {
 	width, height = defaultTerminalWidth, fallbackHeight
 	if p.terminal == nil {
@@ -677,8 +688,9 @@ func rowsOf(line string, width int) int {
 }
 
 // truncateToRows returns the longest prefix of s that a terminal width columns
-// wide draws in rows rows or fewer. It steps the way layout measures, tab stops
-// included, so the answer is in the same terms as every other height here.
+// wide draws in at most the given number of rows. It steps the way layout
+// measures, tab stops included, so the answer is in the same terms as every
+// other height here.
 func truncateToRows(s string, width, rows int) string {
 	if rows <= 0 {
 		return ""

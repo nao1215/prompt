@@ -781,13 +781,13 @@ func TestMenuScrollsWithTheWindowItIsDrawnIn(t *testing.T) {
 }
 
 // TestFuzzyCompleterCompletesWhatItMatched drives the candidate list from
-// NewFuzzyCompleter's own documentation. The completer matches against the whole
-// input before the cursor, ignoring case, and accepts a subsequence; the read
-// loop then kept only the candidates that start with the word before the cursor,
-// case-sensitively, which is none of the three. Tab did nothing at all.
+// NewFuzzyCompleter's own documentation. The completer matches the input before
+// the cursor, ignores case, and accepts a subsequence; the read loop then kept
+// only the candidates that started with the word before the cursor,
+// case-sensitively, which does none of the three. Tab did nothing at all.
 //
-// It has to go through Run. Calling the completer directly passes today: the
-// suggestions are right, and they are discarded a layer above it.
+// It has to go through Run. A test that calls the completer directly passes
+// today: the suggestions are right, and they are discarded a layer above it.
 func TestFuzzyCompleterCompletesWhatItMatched(t *testing.T) {
 	t.Parallel()
 

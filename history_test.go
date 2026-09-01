@@ -1926,16 +1926,18 @@ func TestDisabledHistoryStaysEmpty(t *testing.T) {
 	})
 }
 
-// TestReverseSearchFitsTheTerminal covers the block Ctrl+R draws against the
-// room the terminal has for it. Every block this package draws is erased by a
-// relative cursor move, so one drawn taller than the terminal scrolls its own
-// first row off the screen and the erase that follows starts from the top of the
-// screen instead: it clears rows the prompt never wrote and leaves rows it did.
+// TestReverseSearchFitsTheTerminal compares the block Ctrl+R draws with the room
+// the terminal has for it. The block is erased by a cursor move back up its own
+// height from the row below it, so it has to leave that row on screen: the room
+// is a row less than the terminal's height. A block that takes more never gets
+// its first row back, so every redraw starts a row lower than the last and
+// pushes that many rows of the session off the top, with the header -- which
+// names the entry Enter would take -- gone first.
 //
 // The block is a header and up to five matches, each as long as the entry it
-// names, and an entry has no bound -- a pasted statement is one line of history.
-// A split pane, or a history of long statements on an ordinary terminal, is
-// enough to overflow it.
+// names, and an entry has no bound: a pasted statement is one line of history.
+// A split pane, or a history of long statements on a terminal of the usual size,
+// is enough to overflow it.
 func TestReverseSearchFitsTheTerminal(t *testing.T) {
 	t.Parallel()
 
@@ -1978,6 +1980,13 @@ func TestReverseSearchFitsTheTerminal(t *testing.T) {
 			query:   "s",
 			results: []string{long("select a", 200)},
 		},
+		{
+			name:    "a terminal with one row under the cursor's",
+			width:   40,
+			height:  2,
+			query:   "s",
+			results: []string{"select 1", "select 2"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1992,14 +2001,17 @@ func TestReverseSearchFitsTheTerminal(t *testing.T) {
 			if err != nil {
 				t.Fatalf("renderHistorySearch() error = %v", err)
 			}
-			if rows > tt.height {
-				t.Errorf("renderHistorySearch() reported %d rows on a terminal of %d: the erase moves up past the top of the screen", rows, tt.height)
+			// One row below the block is the cursor's, so the block itself has
+			// the terminal's height less one.
+			room := tt.height - 1
+			if rows > room {
+				t.Errorf("renderHistorySearch() reported %d rows where there is room for %d on a terminal of %d: the erase never reaches the block's first row again", rows, room, tt.height)
 			}
 
 			screen := newScreenModel(tt.width)
 			screen.feed(out.String())
-			if drawn := len(screen.rows()); drawn > tt.height {
-				t.Errorf("renderHistorySearch() drew %d rows on a terminal of %d: the terminal scrolls and takes the prompt with it", drawn, tt.height)
+			if drawn := len(screen.rows()); drawn > room {
+				t.Errorf("renderHistorySearch() drew %d rows where there is room for %d on a terminal of %d", drawn, room, tt.height)
 			}
 			if drawn := len(screen.rows()); drawn != rows {
 				t.Errorf("renderHistorySearch() drew %d rows and reported %d: the erase covers what was reported", drawn, rows)

@@ -235,10 +235,10 @@ p, err := prompt.New("$ ",
 )
 ```
 
-It matches the whole line typed so far rather than the word before the cursor,
-ignores case, and accepts a subsequence, so `git st` finds `git status`,
-`GIT PU` finds `git push`, and `dckrbld` finds `docker build`. Accepting a
-candidate replaces the line up to the cursor.
+`NewFuzzyCompleter` matches the input before the cursor rather than the word
+before it, ignores case, and accepts a subsequence, so `git st` finds
+`git status`, `GIT PU` finds `git push`, and `dckrbld` finds `docker build`.
+Accepting a candidate replaces the input before the cursor.
 
 ### Completing a span of your own choosing
 
