@@ -385,11 +385,28 @@ func clampMenuOffset(offset, suggestions int) int {
 	return max(0, min(offset, max(0, suggestions-maxMenuEntries)))
 }
 
+// menuIndicator is drawn in front of a candidate the menu is not on, and
+// menuSelectedIndicator in front of the one it is.
+//
+// Both are ASCII and both are two cells, because the menu's height is measured
+// with the first and drawn with either. A black right-pointing triangle read
+// better and cost the guarantee: Unicode calls it East Asian Ambiguous, so
+// go-runewidth reports it as two cells under a CJK locale and one elsewhere,
+// which made the selected row a cell wider than it was counted as and left the
+// menu one row taller than the terminal had room for. A terminal makes its own
+// choice about an ambiguous glyph as well, so no measurement could have been
+// right; the width of what the prompt draws should not be something it guesses.
+// The selected row is still told apart by the scheme's Selected color.
+const (
+	menuIndicator         = "  "
+	menuSelectedIndicator = "> "
+)
+
 // suggestionEntryRows returns how many terminal rows one menu entry occupies.
-// The indicator is two cells whether or not the entry is the selected one, so an
-// entry occupies the same number of rows either way.
+// The indicator is the same width whether or not the entry is the selected one,
+// so an entry occupies the same number of rows either way.
 func (r *renderer) suggestionEntryRows(s Suggestion) int {
-	wrapped, _ := layout(suggestionCells("  ", s), r.terminalWidth())
+	wrapped, _ := layout(suggestionCells(menuIndicator, s), r.terminalWidth())
 	return wrapped + 1
 }
 
@@ -454,10 +471,10 @@ func (r *renderer) renderSuggestionsWithOffset(prefix, input string, _ int, sugg
 			return 0, err
 		}
 
-		indicator := "  "
+		indicator := menuIndicator
 		textColor := r.colorScheme.Suggestion.Text.ToANSI()
 		if i == visibleSelected {
-			indicator = "\u25b6 "
+			indicator = menuSelectedIndicator
 			textColor = r.colorScheme.Selected.ToANSI()
 		}
 		if _, err := fmt.Fprint(r.output, textColor, indicator, singleLine(suggestion.Text), ansiReset()); err != nil {

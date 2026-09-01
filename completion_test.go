@@ -771,11 +771,59 @@ func TestMenuScrollsWithTheWindowItIsDrawnIn(t *testing.T) {
 	}
 	var selected string
 	for _, row := range rows {
-		if strings.HasPrefix(row, "▶ ") {
+		if strings.HasPrefix(row, menuSelectedIndicator) {
 			selected = row
 		}
 	}
-	if selected != "▶ suggestion-13" {
+	if selected != menuSelectedIndicator+"suggestion-13" {
 		t.Errorf("the screen highlights %q, want the thirteenth candidate: twelve Downs from the first\n%q", selected, rows)
+	}
+}
+
+// TestFuzzyCompleterCompletesWhatItMatched drives the candidate list from
+// NewFuzzyCompleter's own documentation. The completer matches against the whole
+// input before the cursor, ignoring case, and accepts a subsequence; the read
+// loop then kept only the candidates that start with the word before the cursor,
+// case-sensitively, which is none of the three. Tab did nothing at all.
+//
+// It has to go through Run. Calling the completer directly passes today: the
+// suggestions are right, and they are discarded a layer above it.
+func TestFuzzyCompleterCompletesWhatItMatched(t *testing.T) {
+	t.Parallel()
+
+	candidates := []string{
+		"git status", "git commit", "git push", "git pull",
+		"docker run", "docker build", "docker ps",
+		"kubectl get", "kubectl apply", "kubectl delete",
+	}
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "a prefix of the first word", input: "docker ru\t\r", want: "docker run"},
+		{name: "past the space", input: "git st\t\r", want: "git status"},
+		{name: "past the space, another command", input: "kubectl a\t\r", want: "kubectl apply"},
+		// Two candidates match, so Tab opens the menu and Enter takes the one
+		// it is on.
+		{name: "typed in another case", input: "GIT PU\t\r\r", want: "git push"},
+		{name: "a subsequence rather than a prefix", input: "dckrbld\t\r", want: "docker build"},
+		{name: "one word, which always worked", input: "kubectl\t\r\r", want: "kubectl get"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newTestPrompt(newMockTerminal(tt.input), WithCompleter(NewFuzzyCompleter(candidates)))
+			got, err := p.Run()
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("Run() = %q, want %q: the completer answered and the read loop threw the answer away", got, tt.want)
+			}
+		})
 	}
 }

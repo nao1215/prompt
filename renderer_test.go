@@ -367,7 +367,7 @@ func TestRendererSuggestionScrolling(t *testing.T) {
 				visibleCount++
 
 				// Check if this line has the selected indicator
-				if strings.Contains(line, "▶ ") {
+				if strings.Contains(line, menuSelectedIndicator) {
 					selectedFound = true
 				}
 			}
@@ -580,9 +580,9 @@ func countSuggestionLines(output string) int {
 		cleaned = strings.TrimRight(cleaned, " \t\r\n") // Only trim right side
 
 		// Count lines that contain suggestion text patterns
-		// Look for lines with suggestion format: either "▶ " or "  " followed by text and " - "
+		// Look for lines with suggestion format: either indicator followed by text and " - "
 		if strings.Contains(cleaned, " - ") &&
-			(strings.Contains(cleaned, "▶ ") || strings.HasPrefix(cleaned, "  ")) {
+			(strings.Contains(cleaned, menuSelectedIndicator) || strings.HasPrefix(cleaned, menuIndicator)) {
 			count++
 		}
 	}
@@ -2250,7 +2250,7 @@ func TestRendererKeepsTheCompletionMenuInsideTheTerminal(t *testing.T) {
 			}
 			// A menu is worth drawing only if it has a row on screen, and the
 			// selected row is the one the window must always contain.
-			if !strings.Contains(out.String(), "▶ ") {
+			if !strings.Contains(out.String(), menuSelectedIndicator) {
 				t.Errorf("the render drew no selected candidate:\n%q", out.String())
 			}
 		})
@@ -2280,5 +2280,70 @@ func TestRendererDrawsNoMenuWithNoRoomForOne(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), showCursorSequence) {
 		t.Errorf("the render left the cursor hidden, which is what a menu does:\n%q", out.String())
+	}
+}
+
+// TestMenuIndicatorsAreTheSameWidth pins the assumption the menu's height rests
+// on. Every entry is measured with the indicator drawn in front of an unselected
+// candidate, and the selected one is drawn with a different string, so the two
+// have to occupy the same number of cells or the selected row is drawn taller
+// than it was counted and the menu runs past the terminal's last row.
+//
+// The selected indicator used to be a black right-pointing triangle, which
+// Unicode calls East Asian Ambiguous: go-runewidth reports it as two cells under
+// a CJK locale and one everywhere else, so the menu's geometry depended on the
+// environment the application was started in. Both conditions are checked here
+// because a test run under an ASCII locale cannot tell the two apart.
+func TestMenuIndicatorsAreTheSameWidth(t *testing.T) {
+	t.Parallel()
+
+	for _, eastAsian := range []bool{false, true} {
+		condition := runewidth.NewCondition()
+		condition.EastAsianWidth = eastAsian
+
+		plain := condition.StringWidth(menuIndicator)
+		selected := condition.StringWidth(menuSelectedIndicator)
+		if plain != selected {
+			t.Errorf("with EastAsianWidth=%v the unselected indicator %q is %d cells and the selected one %q is %d: a candidate that fills its row wraps when it is selected, and the menu grows past the terminal",
+				eastAsian, menuIndicator, plain, menuSelectedIndicator, selected)
+		}
+	}
+}
+
+// TestMenuFitsTheTerminalWhateverIsSelected covers the row the window is
+// measured for against the row that is drawn. The window counts every candidate
+// with the unselected indicator, so a candidate whose row ends within a cell of
+// the right margin fits when counted and wraps when it is the one selected.
+func TestMenuFitsTheTerminalWhateverIsSelected(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 20, 4
+	// Each candidate is exactly the width of a row once the indicator is in
+	// front of it, which is where one cell more starts costing a second row.
+	suggestions := []Suggestion{
+		{Text: strings.Repeat("a", width-2)},
+		{Text: strings.Repeat("b", width-2)},
+		{Text: strings.Repeat("c", width-2)},
+	}
+
+	for selected := range suggestions {
+		t.Run(fmt.Sprintf("candidate %d selected", selected), func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: width, height: height})
+			if err := r.renderWithSuggestionsOffset("> ", "", 0, suggestions, selected, 0); err != nil {
+				t.Fatalf("renderWithSuggestionsOffset() error = %v", err)
+			}
+
+			screen := newScreenModel(width)
+			screen.feed(out.String())
+			if drawn := len(screen.rows()); drawn > height {
+				t.Errorf("the render drew %d rows on a terminal of %d: the terminal scrolls, and the line being completed goes first", drawn, height)
+			}
+			if r.lastLines > height {
+				t.Errorf("the render recorded a block of %d rows on a terminal of %d, so the next erase moves up past the top of the screen", r.lastLines, height)
+			}
+		})
 	}
 }
