@@ -98,10 +98,6 @@ func TestFuzzyScoreWalksTheCandidateByRune(t *testing.T) {
 		{name: "japanese scattered", input: "日語", candidate: "日本語テキスト", want: true},
 		{name: "japanese across a word", input: "名テ", candidate: "名前テーブル", want: true},
 		{name: "an accented letter", input: "éo", candidate: "école", want: true},
-		// A query whose characters are out of order still scores for the ones
-		// found before the walk runs out, which is what it does in ASCII too.
-		{name: "out of order scores partially", input: "語日", candidate: "日本語", want: true},
-		{name: "out of order scores partially in ascii", input: "ca", candidate: "abc", want: true},
 		{name: "a character that is not there scores nothing", input: "猫", candidate: "日本語", want: false},
 		{name: "a character that is not there scores nothing in ascii", input: "z", candidate: "abc", want: false},
 	}
@@ -188,7 +184,7 @@ func TestFuzzyCompleter(t *testing.T) {
 		{
 			name:     "git prefix",
 			input:    "git",
-			expected: 4, // fuzzy matches multiple candidates with g-i-t pattern
+			expected: 3, // the three candidates starting with it; nothing else holds g-i-t in order
 		},
 		{
 			name:     "docker prefix",
@@ -198,7 +194,7 @@ func TestFuzzyCompleter(t *testing.T) {
 		{
 			name:     "fuzzy match",
 			input:    "gst",
-			expected: 4, // fuzzy matches multiple candidates with g-s-t pattern
+			expected: 1, // only "git status" holds g, then s, then t
 		},
 		{
 			name:     "no matches",
@@ -311,12 +307,12 @@ func TestHistorySearcher(t *testing.T) {
 		{
 			name:     "git query",
 			query:    "git",
-			expected: 4, // fuzzy matches include "kubectl get pods" for g-i-t pattern
+			expected: 3, // the three entries starting with it; "kubectl get pods" has no i after its g
 		},
 		{
 			name:     "docker query",
 			query:    "docker",
-			expected: 2, // fuzzy matches may include additional entries with d-o-c-k-e-r pattern
+			expected: 1, // the one entry starting with it
 		},
 		{
 			name:     "no matches",
@@ -326,7 +322,7 @@ func TestHistorySearcher(t *testing.T) {
 		{
 			name:     "fuzzy match",
 			query:    "gst",
-			expected: 4, // fuzzy matches multiple history entries with g-s-t pattern
+			expected: 1, // only "git status" holds g, then s, then t
 		},
 	}
 
@@ -337,6 +333,120 @@ func TestHistorySearcher(t *testing.T) {
 			if len(results) != tt.expected {
 				t.Errorf("Search(%q) returned %d results, want %d",
 					tt.query, len(results), tt.expected)
+			}
+		})
+	}
+}
+
+// TestFuzzyScoreRequiresEveryCharacter pins the subsequence pass to an
+// all-or-nothing answer. It added ten per character it found and returned
+// whatever it had when the candidate ran out, so a query that got one character
+// in scored above zero, and every caller reads a score above zero as a match:
+// reverse search for "sql" listed an entry holding no "q".
+func TestFuzzyScoreRequiresEveryCharacter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		input     string
+		candidate string
+		want      bool
+	}{
+		{name: "every character, in order", input: "gst", candidate: "git status", want: true},
+		{name: "the first character only", input: "sql", candidate: "select * from users", want: false},
+		{name: "some of the characters", input: "git st", candidate: "kubectl get", want: false},
+		{name: "in the wrong order", input: "ts", candidate: "set", want: false},
+		{name: "out of order, outside ascii", input: "語日", candidate: "日本語", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := calculateFuzzyScore(tt.input, tt.candidate) > 0
+			if got != tt.want {
+				t.Errorf("calculateFuzzyScore(%q, %q) > 0 = %v, want %v", tt.input, tt.candidate, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFuzzySearchListsOnlyWhatMatches is the same rule where the user meets it:
+// reverse search and NewFuzzyCompleter both read this list.
+func TestFuzzySearchListsOnlyWhatMatches(t *testing.T) {
+	t.Parallel()
+
+	matcher := &fuzzyMatcher{items: []string{
+		"select * from users",
+		"drop table t",
+		"insert into t values (1)",
+	}}
+
+	tests := []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{name: "not a subsequence of any entry", query: "sql", want: nil},
+		{name: "a prefix", query: "select", want: []string{"select * from users"}},
+		{name: "a substring", query: "table", want: []string{"drop table t"}},
+		{name: "a real subsequence", query: "dtt", want: []string{"drop table t"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := matcher.searchFunc(tt.query)
+			if len(got) != len(tt.want) {
+				t.Fatalf("searchFunc(%q) = %q, want %q", tt.query, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("searchFunc(%q) = %q, want %q", tt.query, got, tt.want)
+					break
+				}
+			}
+		})
+	}
+}
+
+// TestFuzzyCompleterSpanFollowsTheTextItMatched covers a Document built by hand
+// rather than by the prompt. TextBeforeCursor answers a position outside the
+// text with the whole text, so the span the suggestion names has to say the same
+// thing: a span ending at zero would have inserted the candidate in front of
+// what it was matched against instead of replacing it.
+func TestFuzzyCompleterSpanFollowsTheTextItMatched(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		candidates []string
+		doc        Document
+		wantEnd    int
+	}{
+		{name: "the cursor inside the text", candidates: []string{"select"}, doc: Document{Text: "select", CursorPosition: 3}, wantEnd: 3},
+		{name: "the cursor at the end", candidates: []string{"select"}, doc: Document{Text: "select", CursorPosition: 6}, wantEnd: 6},
+		{name: "a negative cursor", candidates: []string{"select"}, doc: Document{Text: "select", CursorPosition: -1}, wantEnd: 6},
+		{name: "a cursor past the end", candidates: []string{"select"}, doc: Document{Text: "select", CursorPosition: 99}, wantEnd: 6},
+		{name: "counted in runes", candidates: []string{"選択する"}, doc: Document{Text: "選択", CursorPosition: 99}, wantEnd: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			suggestions := NewFuzzyCompleter(tt.candidates)(tt.doc)
+			if len(suggestions) == 0 {
+				t.Fatalf("completer(%+v) returned nothing", tt.doc)
+			}
+			for _, s := range suggestions {
+				if s.Replace == nil {
+					t.Fatalf("suggestion %q names no span, so the prompt filters it against the word before the cursor", s.Text)
+				}
+				if s.Replace.Start != 0 || s.Replace.End != tt.wantEnd {
+					t.Errorf("suggestion %q replaces %+v, want {Start:0 End:%d}", s.Text, *s.Replace, tt.wantEnd)
+				}
 			}
 		})
 	}

@@ -1925,3 +1925,141 @@ func TestDisabledHistoryStaysEmpty(t *testing.T) {
 		}
 	})
 }
+
+// TestReverseSearchFitsTheTerminal compares the block Ctrl+R draws with the room
+// the terminal has for it. The block is erased by a cursor move back up its own
+// height from the row below it, so it has to leave that row on screen: the room
+// is a row less than the terminal's height. A block that takes more never gets
+// its first row back, so every redraw starts a row lower than the last and
+// pushes that many rows of the session off the top, with the header -- which
+// names the entry Enter would take -- gone first.
+//
+// The block is a header and up to five matches, each as long as the entry it
+// names, and an entry has no bound: a pasted statement is one line of history.
+// A split pane, or a history of long statements on a terminal of the usual size,
+// is enough to overflow it.
+func TestReverseSearchFitsTheTerminal(t *testing.T) {
+	t.Parallel()
+
+	long := func(prefix string, cells int) string {
+		return prefix + strings.Repeat("x", cells-len(prefix))
+	}
+
+	tests := []struct {
+		name    string
+		width   int
+		height  int
+		query   string
+		results []string
+	}{
+		{
+			name:    "five statements of the length a pasted query reaches",
+			width:   80,
+			height:  10,
+			query:   "select",
+			results: []string{long("select a", 100), long("select b", 100), long("select c", 100), long("select d", 100), long("select e", 100)},
+		},
+		{
+			name:    "long statements on a terminal of the usual size",
+			width:   80,
+			height:  24,
+			query:   "select",
+			results: []string{long("select a", 320), long("select b", 320), long("select c", 320), long("select d", 320), long("select e", 320)},
+		},
+		{
+			name:    "a split pane",
+			width:   40,
+			height:  4,
+			query:   "s",
+			results: []string{"select 1", "select 2", "select 3", "select 4", "select 5"},
+		},
+		{
+			name:    "a header that fills the terminal on its own",
+			width:   20,
+			height:  3,
+			query:   "s",
+			results: []string{long("select a", 200)},
+		},
+		{
+			name:    "a terminal with one row under the cursor's",
+			width:   40,
+			height:  2,
+			query:   "s",
+			results: []string{"select 1", "select 2"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			p := newTestPromptOn(&sizedMockTerminal{width: tt.width, height: tt.height})
+			p.output = &out
+
+			rows, err := p.renderHistorySearch(tt.query, tt.results, 0)
+			if err != nil {
+				t.Fatalf("renderHistorySearch() error = %v", err)
+			}
+			// One row below the block is the cursor's, so the block itself has
+			// the terminal's height less one.
+			room := tt.height - 1
+			if rows > room {
+				t.Errorf("renderHistorySearch() reported %d rows where there is room for %d on a terminal of %d: the erase never reaches the block's first row again", rows, room, tt.height)
+			}
+
+			screen := newScreenModel(tt.width)
+			screen.feed(out.String())
+			if drawn := len(screen.rows()); drawn > room {
+				t.Errorf("renderHistorySearch() drew %d rows where there is room for %d on a terminal of %d", drawn, room, tt.height)
+			}
+			if drawn := len(screen.rows()); drawn != rows {
+				t.Errorf("renderHistorySearch() drew %d rows and reported %d: the erase covers what was reported", drawn, rows)
+			}
+		})
+	}
+}
+
+// TestTruncateToRows covers the cut the search header is made with. It walks the
+// way layout measures rather than by counting runes or bytes, because the answer
+// has to be in the same terms as the height it is cut to: a wide glyph is two
+// cells and moves whole to the next row, a tab goes to the next tab stop and no
+// further than the last column, and a combining mark occupies nothing.
+func TestTruncateToRows(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		text  string
+		width int
+		rows  int
+		want  string
+	}{
+		{name: "no room at all", text: "select", width: 10, rows: 0, want: ""},
+		{name: "shorter than the row", text: "select", width: 10, rows: 1, want: "select"},
+		{name: "exactly the row", text: "0123456789", width: 10, rows: 1, want: "0123456789"},
+		{name: "one cell over", text: "0123456789a", width: 10, rows: 1, want: "0123456789"},
+		{name: "two rows of three", text: "0123456789abcdefghij0", width: 10, rows: 2, want: "0123456789abcdefghij"},
+		{name: "a wide glyph that does not fit the rest of the row", text: "0123456789あ", width: 11, rows: 1, want: "0123456789"},
+		{name: "a wide glyph counted as two cells", text: "あいうえお", width: 6, rows: 1, want: "あいう"},
+		{name: "a combining mark occupies nothing", text: "012345678e\u0301x", width: 10, rows: 1, want: "012345678e\u0301"},
+		{name: "a tab reaches the next stop", text: "ab\tcdefgh", width: 10, rows: 1, want: "ab\tcd"},
+		{name: "a tab on a row with room left stops at the last column", text: "012345678\tx", width: 10, rows: 1, want: "012345678\tx"},
+		{name: "a tab on a full row wraps first", text: "0123456789\tx", width: 10, rows: 1, want: "0123456789"},
+		{name: "a rune wider than the row stays", text: "あ", width: 1, rows: 1, want: "あ"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := truncateToRows(tt.text, tt.width, tt.rows)
+			if got != tt.want {
+				t.Errorf("truncateToRows(%q, %d, %d) = %q, want %q", tt.text, tt.width, tt.rows, got, tt.want)
+			}
+			if rows := rowsOf(got, tt.width); tt.rows > 0 && rows > tt.rows {
+				t.Errorf("truncateToRows(%q, %d, %d) = %q, which is %d rows", tt.text, tt.width, tt.rows, got, rows)
+			}
+		})
+	}
+}

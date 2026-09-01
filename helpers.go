@@ -43,21 +43,29 @@ func calculateFuzzyScore(input, candidate string) int {
 	// one yields bytes, so comparing the two tested a byte of a UTF-8 sequence
 	// against the character it belongs to. Nothing outside ASCII could match,
 	// and every candidate written in another alphabet scored zero here.
+	//
+	// A match is the whole input or nothing. The walk used to return whatever it
+	// had accumulated when the candidate ran out, which is how far the input got
+	// rather than whether it arrived, and every caller reads a score above zero
+	// as a match: an entry sharing the first character of a six-character query
+	// was offered as one.
 	score := 0
 	candidateRunes := []rune(searchCandidate)
 	candidateIdx := 0
 
 	for _, inputChar := range searchInput {
+		found := false
 		for candidateIdx < len(candidateRunes) {
 			if candidateRunes[candidateIdx] == inputChar {
 				score += 10
 				candidateIdx++
+				found = true
 				break
 			}
 			candidateIdx++
 		}
-		if candidateIdx >= len(candidateRunes) {
-			break
+		if !found {
+			return 0
 		}
 	}
 
@@ -143,14 +151,28 @@ type fuzzyMatcher struct {
 
 // NewFuzzyCompleter creates a new fuzzy completer with the given candidates.
 //
-// The fuzzy completer provides intelligent auto-completion by matching
-// user input against a list of candidates using fuzzy string matching.
-// It supports partial matches, substring matches, and character-by-character
-// fuzzy matching with scoring.
+// It matches the input before the cursor, not the word before it, and ignores
+// case. A candidate matches when the input is a prefix of it, a substring of it,
+// or a subsequence of it -- its characters in order, with anything between, so
+// "dckrbld" finds "docker build" -- and nothing else matches. Candidates are
+// ordered by how they matched, an exact match first and a subsequence last. An
+// empty input matches every candidate.
 //
-// This is a convenience function that returns a completer function that can be
-// used directly in Config.Completer. The returned function implements fuzzy
-// matching and scoring automatically.
+// Each suggestion replaces the input before the cursor, which is what was
+// matched against. That is why a candidate holding a space completes: the prompt
+// applies a suggestion that names its span literally and does not filter it
+// against the word before the cursor. See Suggestion.Replace.
+//
+// Each suggestion's Description holds the score it matched with, which the menu
+// draws beside the candidate.
+//
+// It does not read the filesystem, know anything about the shape of a command,
+// or narrow the list by where in the line the cursor is: the candidates are the
+// list given here, matched against the input before the cursor. Nor does it stop
+// at a line break -- in a multiline entry the input before the cursor takes in
+// the earlier lines, and a candidate that matches it replaces them. A completer
+// that needs to answer differently in different parts of an entry is a function
+// of your own, and Document says where the cursor is.
 //
 // Example:
 //
@@ -175,8 +197,26 @@ func NewFuzzyCompleter(candidates []string) func(Document) []Suggestion {
 	return fm.completionFunc
 }
 
-// completionFunc returns fuzzy-matched suggestions for the given document context
+// completionFunc returns fuzzy-matched suggestions for the given document context.
+//
+// Every suggestion names the span it stands for: the input before the cursor,
+// which is what was matched against. Without it the prompt keeps only the
+// candidates that start with the word before the cursor, case-sensitively, which
+// does none of the three things that set this completer apart from a prefix
+// completer -- match the input rather than the word, ignore case, match a
+// subsequence -- so it threw this completer's answer away.
 func (f *fuzzyMatcher) completionFunc(d Document) []Suggestion {
+	// The span is in runes, because that is what the prompt's buffer is indexed
+	// in and what CursorPosition counts. A Document is whatever the caller built,
+	// so a position outside the text is answered the way TextBeforeCursor answers
+	// it -- with the whole text -- rather than with a span that would insert the
+	// candidate in front of what it matched.
+	end := d.CursorPosition
+	if runes := len([]rune(d.Text)); end < 0 || end > runes {
+		end = runes
+	}
+	replace := &Range{Start: 0, End: end}
+
 	input := d.TextBeforeCursor()
 	if input == "" {
 		// Return all items if no input
@@ -185,6 +225,7 @@ func (f *fuzzyMatcher) completionFunc(d Document) []Suggestion {
 			suggestions[i] = Suggestion{
 				Text:        item,
 				Description: "",
+				Replace:     replace,
 			}
 		}
 		return suggestions
@@ -197,6 +238,7 @@ func (f *fuzzyMatcher) completionFunc(d Document) []Suggestion {
 		suggestions[i] = Suggestion{
 			Text:        match.text,
 			Description: fmt.Sprintf("score: %d", match.score),
+			Replace:     replace,
 		}
 	}
 	return suggestions

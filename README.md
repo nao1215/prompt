@@ -235,6 +235,11 @@ p, err := prompt.New("$ ",
 )
 ```
 
+`NewFuzzyCompleter` matches the input before the cursor rather than the word
+before it, ignores case, and accepts a subsequence, so `git st` finds
+`git status`, `GIT PU` finds `git push`, and `dckrbld` finds `docker build`.
+Accepting a candidate replaces the input before the cursor.
+
 ### Completing a span of your own choosing
 
 By default the prompt decides what a suggestion replaces: it takes the word
