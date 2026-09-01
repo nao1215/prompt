@@ -366,8 +366,10 @@ func TestRendererSuggestionScrolling(t *testing.T) {
 				// This is a suggestion line - count it
 				visibleCount++
 
-				// Check if this line has the selected indicator
-				if strings.Contains(line, menuSelectedIndicator) {
+				// Check if this line starts with the selected indicator. The
+				// indicators are ASCII and a candidate can hold the same two
+				// characters, so only the start of the row says which row it is.
+				if strings.HasPrefix(removeANSICodes(line), menuSelectedIndicator) {
 					selectedFound = true
 				}
 			}
@@ -582,7 +584,7 @@ func countSuggestionLines(output string) int {
 		// Count lines that contain suggestion text patterns
 		// Look for lines with suggestion format: either indicator followed by text and " - "
 		if strings.Contains(cleaned, " - ") &&
-			(strings.Contains(cleaned, menuSelectedIndicator) || strings.HasPrefix(cleaned, menuIndicator)) {
+			(strings.HasPrefix(cleaned, menuSelectedIndicator) || strings.HasPrefix(cleaned, menuIndicator)) {
 			count++
 		}
 	}
@@ -2249,9 +2251,19 @@ func TestRendererKeepsTheCompletionMenuInsideTheTerminal(t *testing.T) {
 				t.Errorf("the render recorded a block of %d rows on a terminal of %d, so the next erase moves up past the top of the screen", r.lastLines, tt.height)
 			}
 			// A menu is worth drawing only if it has a row on screen, and the
-			// selected row is the one the window must always contain.
-			if !strings.Contains(out.String(), menuSelectedIndicator) {
-				t.Errorf("the render drew no selected candidate:\n%q", out.String())
+			// selected row is the one the window must always contain. It is
+			// looked for at the start of a row rather than anywhere in the
+			// output, because the indicators are ASCII and a candidate can hold
+			// the same two characters.
+			selectedDrawn := false
+			for _, row := range screen.rows() {
+				if strings.HasPrefix(row, menuSelectedIndicator) {
+					selectedDrawn = true
+					break
+				}
+			}
+			if !selectedDrawn {
+				t.Errorf("the render drew no selected candidate:\n%q", screen.rows())
 			}
 		})
 	}

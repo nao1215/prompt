@@ -206,9 +206,14 @@ func NewFuzzyCompleter(candidates []string) func(Document) []Suggestion {
 func (f *fuzzyMatcher) completionFunc(d Document) []Suggestion {
 	// The span is in runes, because that is what the prompt's buffer is indexed
 	// in and what CursorPosition counts. A Document is whatever the caller built,
-	// so the start is clamped rather than trusted; the prompt clamps the span
-	// again when it applies it.
-	replace := &Range{Start: 0, End: max(d.CursorPosition, 0)}
+	// so a position outside the text is answered the way TextBeforeCursor answers
+	// it -- with the whole text -- rather than with a span that would insert the
+	// candidate in front of what it matched.
+	end := d.CursorPosition
+	if runes := len([]rune(d.Text)); end < 0 || end > runes {
+		end = runes
+	}
+	replace := &Range{Start: 0, End: end}
 
 	input := d.TextBeforeCursor()
 	if input == "" {

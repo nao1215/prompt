@@ -478,3 +478,59 @@ func TestMultilineEdgeCases(t *testing.T) {
 		}
 	})
 }
+
+// TestWordBoundaryKeepsACombiningMarkWithItsLetter covers a word written in
+// decomposed form, where an accent is a rune of its own following the letter it
+// belongs to. A mark is not a letter, so it was a word separator: Ctrl+Right
+// stopped between the letter and its accent, which puts the cursor inside a
+// character. Backspace there deletes the accent and leaves the letter bare, and
+// the renderer draws the cursor on the letter's own cell, so the screen and the
+// buffer disagree about where the cursor is.
+//
+// macOS returns filenames in this form, so a pasted path carries it.
+func TestWordBoundaryKeepsACombiningMarkWithItsLetter(t *testing.T) {
+	t.Parallel()
+
+	const (
+		decomposed  = "caf\u0065\u0301" // e followed by a combining acute
+		precomposed = "caf\u00e9"       // one rune, and a letter
+	)
+
+	tests := []struct {
+		name string
+		word string
+	}{
+		{name: "decomposed", word: decomposed},
+		{name: "precomposed", word: precomposed},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			forward := &Prompt{buffer: []rune(tt.word + " au lait"), cursor: 0}
+			end := forward.findWordBoundary(1)
+			if got := string(forward.buffer[:end]); got != tt.word {
+				t.Errorf("findWordBoundary(1) from the start of the line ended at %d, leaving %q, want %q: the cursor is inside a character", end, got, tt.word)
+			}
+
+			backward := &Prompt{buffer: []rune("x " + tt.word)}
+			backward.cursor = len(backward.buffer)
+			start := backward.findWordBoundary(-1)
+			if got := string(backward.buffer[start:]); got != tt.word {
+				t.Errorf("findWordBoundary(-1) from the end of the line started at %d, leaving %q, want %q", start, got, tt.word)
+			}
+		})
+	}
+
+	t.Run("a mark does not make a word out of what is not one", func(t *testing.T) {
+		t.Parallel()
+
+		// A mark only ever follows the character it belongs to, so counting one as
+		// part of a word cannot join two words that were separate.
+		p := &Prompt{buffer: []rune("a\u0301 b\u0301"), cursor: 0}
+		if end := p.findWordBoundary(1); end != 2 {
+			t.Errorf("findWordBoundary(1) ended at %d, want 2: the space still separates", end)
+		}
+	})
+}

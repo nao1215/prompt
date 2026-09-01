@@ -107,19 +107,28 @@ func (p *Prompt) findWordBoundary(direction int) int {
 }
 
 // isWordChar reports whether r is part of a word for the purpose of moving and
-// deleting by words. A letter, a digit and an underscore are; everything else,
-// punctuation and whitespace alike, separates. The underscore is there because
-// what a user of this library types is mostly identifiers.
+// deleting by words. A letter, a digit, a combining mark and an underscore are;
+// everything else, punctuation and whitespace alike, separates. The underscore
+// is there because what a user of this library types is mostly identifiers.
 //
 // A letter is a letter in any script. Testing for a-z alone made every other
 // alphabet a separator, so word navigation walked over a word written in
 // Japanese as if it were whitespace and carried on into the word before it, and
 // a letter with a diacritic split its own word in two.
 //
+// A mark is part of a word because it is part of the letter in front of it. In
+// decomposed text -- which is what macOS hands back for a filename, so a pasted
+// path carries it -- an accent is a rune of its own, and a mark that separated
+// words stopped the cursor between a letter and its accent: Backspace there took
+// the accent off a letter the user meant to keep, and the renderer, which
+// measures a mark as no cells at all, drew the cursor on the letter's own cell.
+// A mark only ever follows what it belongs to, so this cannot join two words
+// that were separate.
+//
 // Completion decides what a word is by its own rule, which this is not. See
 // Document.GetWordBeforeCursor.
 func isWordChar(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r) || r == '_'
 }
 
 // isShiftEnter detects if we should add a newline instead of submitting

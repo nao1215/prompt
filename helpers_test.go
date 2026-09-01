@@ -410,3 +410,44 @@ func TestFuzzySearchListsOnlyWhatMatches(t *testing.T) {
 		})
 	}
 }
+
+// TestFuzzyCompleterSpanFollowsTheTextItMatched covers a Document built by hand
+// rather than by the prompt. TextBeforeCursor answers a position outside the
+// text with the whole text, so the span the suggestion names has to say the same
+// thing: a span ending at zero would have inserted the candidate in front of
+// what it was matched against instead of replacing it.
+func TestFuzzyCompleterSpanFollowsTheTextItMatched(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		candidates []string
+		doc        Document
+		wantEnd    int
+	}{
+		{name: "the cursor inside the text", candidates: []string{"select"}, doc: Document{Text: "select", CursorPosition: 3}, wantEnd: 3},
+		{name: "the cursor at the end", candidates: []string{"select"}, doc: Document{Text: "select", CursorPosition: 6}, wantEnd: 6},
+		{name: "a negative cursor", candidates: []string{"select"}, doc: Document{Text: "select", CursorPosition: -1}, wantEnd: 6},
+		{name: "a cursor past the end", candidates: []string{"select"}, doc: Document{Text: "select", CursorPosition: 99}, wantEnd: 6},
+		{name: "counted in runes", candidates: []string{"選択する"}, doc: Document{Text: "選択", CursorPosition: 99}, wantEnd: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			suggestions := NewFuzzyCompleter(tt.candidates)(tt.doc)
+			if len(suggestions) == 0 {
+				t.Fatalf("completer(%+v) returned nothing", tt.doc)
+			}
+			for _, s := range suggestions {
+				if s.Replace == nil {
+					t.Fatalf("suggestion %q names no span, so the prompt filters it against the word before the cursor", s.Text)
+				}
+				if s.Replace.Start != 0 || s.Replace.End != tt.wantEnd {
+					t.Errorf("suggestion %q replaces %+v, want {Start:0 End:%d}", s.Text, *s.Replace, tt.wantEnd)
+				}
+			}
+		})
+	}
+}

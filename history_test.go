@@ -2019,3 +2019,47 @@ func TestReverseSearchFitsTheTerminal(t *testing.T) {
 		})
 	}
 }
+
+// TestTruncateToRows covers the cut the search header is made with. It walks the
+// way layout measures rather than by counting runes or bytes, because the answer
+// has to be in the same terms as the height it is cut to: a wide glyph is two
+// cells and moves whole to the next row, a tab goes to the next tab stop and no
+// further than the last column, and a combining mark occupies nothing.
+func TestTruncateToRows(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		text  string
+		width int
+		rows  int
+		want  string
+	}{
+		{name: "no room at all", text: "select", width: 10, rows: 0, want: ""},
+		{name: "shorter than the row", text: "select", width: 10, rows: 1, want: "select"},
+		{name: "exactly the row", text: "0123456789", width: 10, rows: 1, want: "0123456789"},
+		{name: "one cell over", text: "0123456789a", width: 10, rows: 1, want: "0123456789"},
+		{name: "two rows of three", text: "0123456789abcdefghij0", width: 10, rows: 2, want: "0123456789abcdefghij"},
+		{name: "a wide glyph that does not fit the rest of the row", text: "0123456789あ", width: 11, rows: 1, want: "0123456789"},
+		{name: "a wide glyph counted as two cells", text: "あいうえお", width: 6, rows: 1, want: "あいう"},
+		{name: "a combining mark occupies nothing", text: "012345678e\u0301x", width: 10, rows: 1, want: "012345678e\u0301"},
+		{name: "a tab reaches the next stop", text: "ab\tcdefgh", width: 10, rows: 1, want: "ab\tcd"},
+		{name: "a tab on a row with room left stops at the last column", text: "012345678\tx", width: 10, rows: 1, want: "012345678\tx"},
+		{name: "a tab on a full row wraps first", text: "0123456789\tx", width: 10, rows: 1, want: "0123456789"},
+		{name: "a rune wider than the row stays", text: "あ", width: 1, rows: 1, want: "あ"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := truncateToRows(tt.text, tt.width, tt.rows)
+			if got != tt.want {
+				t.Errorf("truncateToRows(%q, %d, %d) = %q, want %q", tt.text, tt.width, tt.rows, got, tt.want)
+			}
+			if rows := rowsOf(got, tt.width); tt.rows > 0 && rows > tt.rows {
+				t.Errorf("truncateToRows(%q, %d, %d) = %q, which is %d rows", tt.text, tt.width, tt.rows, got, rows)
+			}
+		})
+	}
+}
