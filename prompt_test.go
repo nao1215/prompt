@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -3618,7 +3619,7 @@ func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 	t.Parallel()
 
 	keys := []string{
-		"a", "b", "z", "0", " ", "あ", "日", "é", "😀", "_", "-",
+		"a", "b", "z", "0", " ", "あ", "日", "é", "e\u0301", "😀", "_", "-",
 		"\x01", "\x05", "\x02", "\x06", "\x7f", "\x0b", "\x15", "\x17", "\x0c",
 		"\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D", "\x1b[H", "\x1b[F", "\x1b[3~",
 		"\x1bb", "\x1bf", "\t",
@@ -3705,18 +3706,20 @@ func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 			} else {
 				atCursor.startRow()
 			}
-			runes := []rune(text)
-			cutHere := i == cursorLine && cursorCol < len(runes)
-			if cutHere {
-				runes = runes[:cursorCol]
+			runes := []rune(singleLine(text))
+			var atCaret rune
+			if i == cursorLine && cursorCol < len(runes) {
+				atCaret, runes = runes[cursorCol], runes[:cursorCol]
 			}
-			atCursor.writeString(singleLine(string(runes)))
-			if cutHere {
-				// The text before the cursor may have filled its row, which
-				// leaves a terminal holding the cursor on the last cell with the
-				// wrap owed. A character follows here, so the terminal took that
-				// wrap when it drew it, and the caret belongs in front of it on
-				// the next row rather than on top of the row it filled.
+			atCursor.writeString(string(runes))
+			// The text before the cursor may have filled its row, which leaves a
+			// terminal holding the cursor on the last cell with the wrap owed.
+			// The character the cursor is in front of is what takes that wrap, so
+			// the caret belongs in front of it on the next row rather than on top
+			// of the row it filled -- but only if that character moves the cursor
+			// at all. A combining mark joins the cell already written and leaves
+			// the wrap owed, which is where cursorRowCol leaves the caret too.
+			if atCaret == '\t' || runewidth.RuneWidth(atCaret) > 0 {
 				atCursor.resolvePending()
 			}
 		}

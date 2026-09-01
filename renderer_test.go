@@ -2590,6 +2590,14 @@ func TestRendererPutsTheCaretOnTheCharacterItIsInFrontOf(t *testing.T) {
 			width: 9, prefix: "> ", input: "あいうえお", cursor: 3,
 			want: " ", wantAt: [2]int{0, 8},
 		},
+		{
+			// A combining mark joins the cell already written rather than
+			// starting a row, so it leaves the wrap owed exactly as the end of a
+			// line does and the caret stays where the terminal parked it.
+			name:  "a combining mark on a filled row",
+			width: 10, input: strings.Repeat("a", 10) + "\u0301" + "bbb", cursor: 10,
+			want: "a", wantAt: [2]int{0, 9},
+		},
 	}
 
 	for _, tt := range tests {
