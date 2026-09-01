@@ -476,20 +476,10 @@ func New(prefix string, options ...Option) (*Prompt, error) {
 }
 
 func newFromConfig(config Config) (*Prompt, error) {
-	// Set defaults for history config
 	if config.HistoryConfig == nil {
 		config.HistoryConfig = defaultHistoryConfig()
 	} else {
-		// Set defaults for incomplete history config
-		if config.HistoryConfig.MaxEntries <= 0 {
-			config.HistoryConfig.MaxEntries = 1000
-		}
-		if config.HistoryConfig.MaxFileSize <= 0 {
-			config.HistoryConfig.MaxFileSize = 1024 * 1024 // 1MB
-		}
-		if config.HistoryConfig.MaxBackups <= 0 {
-			config.HistoryConfig.MaxBackups = 3
-		}
+		normalizeHistoryConfig(config.HistoryConfig)
 	}
 	// Handle Theme alias
 	if config.Theme != nil && config.ColorScheme == nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -42,6 +43,30 @@ func GetDefaultHistoryFile() string {
 // sets no limit.
 const defaultMaxHistoryEntries = 1000
 
+// defaultMaxHistoryFileSize is how large the history file may grow before it is
+// rotated, and defaultHistoryBackups how many generations are kept.
+const (
+	defaultMaxHistoryFileSize = 1024 * 1024
+	defaultHistoryBackups     = 3
+)
+
+// normalizeHistoryConfig fills in the defaults for the fields a caller left at
+// their zero value.
+func normalizeHistoryConfig(config *HistoryConfig) {
+	if config.MaxEntries <= 0 {
+		config.MaxEntries = defaultMaxHistoryEntries
+	}
+	if config.MaxFileSize <= 0 {
+		config.MaxFileSize = defaultMaxHistoryFileSize
+	}
+	// Only a negative count is an omission. Zero backups is what a caller says
+	// when they do not want copies of what the user typed left beside the
+	// history file, and rotateHistoryFile implements it.
+	if config.MaxBackups < 0 {
+		config.MaxBackups = defaultHistoryBackups
+	}
+}
+
 // historyManager manages command history persistence and rotation
 type historyManager struct {
 	config  *HistoryConfig
@@ -57,12 +82,7 @@ func newHistoryManager(config *HistoryConfig) *historyManager {
 	if config == nil {
 		config = defaultHistoryConfig()
 	}
-	if config.MaxFileSize <= 0 {
-		config.MaxFileSize = 1024 * 1024 // 1MB default
-	}
-	if config.MaxBackups < 0 {
-		config.MaxBackups = 3
-	}
+	normalizeHistoryConfig(config)
 
 	// Expand and convert file path to absolute path if specified
 	if config.File != "" {
@@ -88,27 +108,41 @@ func (hm *historyManager) loadHistory() error {
 		return nil
 	}
 
-	file, err := os.Open(hm.config.File)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // File doesn't exist yet, that's ok
-		}
-		return fmt.Errorf("failed to open history file: %w", err)
-	}
-	defer file.Close()
-
 	// The file's contents replace what the manager holds rather than being added
 	// to it. A load answers "what is in the file", and because it appended,
 	// asking a second time -- after another shell wrote to the file, after the
-	// user edited it -- returned every entry twice. The entries are collected
-	// separately so a read that fails partway leaves the existing history alone.
-	// Read with a bufio.Reader rather than a bufio.Scanner, which refuses a line
-	// over 64KB. An entry has no length limit -- a paste is content, and what
-	// the user submits is whatever they typed -- so the writer could produce a
-	// file the reader rejected. The load then failed, took the whole history
-	// with it, and New returns that error: one long paste left the application
-	// unable to start until the file was deleted by hand.
-	loaded := make([]string, 0, len(hm.history))
+	// user edited it -- returned every entry twice. A read that fails partway
+	// leaves the existing history alone, because readHistoryFile collects the
+	// entries before any of them are handed over.
+	loaded, err := readHistoryFile(hm.config.File)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil // File doesn't exist yet, that's ok
+		}
+		return err
+	}
+
+	hm.history = hm.trim(loaded)
+	return nil
+}
+
+// readHistoryFile returns the entries the file at path holds, in the order they
+// were written.
+//
+// It reads with a bufio.Reader rather than a bufio.Scanner, which refuses a line
+// over 64KB. An entry has no length limit -- a paste is content, and what the
+// user submits is whatever they typed -- so the writer could produce a file the
+// reader rejected. The load then failed, took the whole history with it, and New
+// returns that error: one long paste left the application unable to start until
+// the file was deleted by hand.
+func readHistoryFile(path string) ([]string, error) {
+	file, err := os.Open(path) //nolint:gosec // the path is the caller's own configuration
+	if err != nil {
+		return nil, fmt.Errorf("failed to open history file: %w", err)
+	}
+	defer file.Close()
+
+	entries := make([]string, 0, 64)
 	reader := bufio.NewReader(file)
 	for {
 		line, readErr := reader.ReadString('\n')
@@ -118,19 +152,29 @@ func (hm *historyManager) loadHistory() error {
 			// last line without a newline is an entry too.
 			line = strings.TrimSuffix(line, "\n")
 			if entry, ok := decodeHistoryLine(strings.TrimSuffix(line, "\r")); ok {
-				loaded = append(loaded, entry)
+				entries = append(entries, entry)
 			}
 		}
 		if readErr != nil {
 			if !errors.Is(readErr, io.EOF) {
-				return fmt.Errorf("failed to read history file: %w", readErr)
+				return nil, fmt.Errorf("failed to read history file: %w", readErr)
 			}
-			break
+			return entries, nil
 		}
 	}
+}
 
-	hm.history = hm.trim(loaded)
-	return nil
+// entriesOnDisk reports how many entries the history file holds now, which is
+// what a save is about to write over. A file that is not there holds none.
+func (hm *historyManager) entriesOnDisk() (int, error) {
+	entries, err := readHistoryFile(hm.config.File)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return len(entries), nil
 }
 
 // SaveHistory saves the current history to the configured file
@@ -139,13 +183,28 @@ func (hm *historyManager) saveHistory() (err error) {
 		return nil
 	}
 
-	// What fits, and whether anything had to be left out.
+	// What fits, and whether this save loses anything.
+	//
+	// A save writes over the file, so every entry the file holds and this save
+	// does not write is destroyed. There are two ways for that to happen and
+	// only one of them used to be asked about. MaxFileSize cuts what is written,
+	// which is the overflow below; MaxEntries cuts what is held, and it does it
+	// at load, before any save is considered -- so the entries it dropped are
+	// not in hm.history and cannot make the overflow true. A history file with
+	// more entries than MaxEntries was therefore cut down to MaxEntries on the
+	// next save with no backup taken, however much room MaxFileSize had left.
+	// Counting what is on disk asks the one question that covers both: is this
+	// save writing fewer entries than the file already holds?
 	writable := hm.writable()
-	overflow := len(writable) < len(hm.history)
-	if err := hm.rotateIfNeeded(overflow); err != nil {
+	held, err := hm.entriesOnDisk()
+	if err != nil {
+		return fmt.Errorf("failed to read the history file before writing it: %w", err)
+	}
+	dropping := len(writable) < len(hm.history) || held > len(writable)
+	if err := hm.rotateIfNeeded(dropping); err != nil {
 		return fmt.Errorf("failed to rotate history file: %w", err)
 	}
-	hm.overflowed = overflow
+	hm.overflowed = dropping
 
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(hm.config.File)
@@ -492,7 +551,13 @@ func (p *Prompt) searchHistory() (_ string, err error) {
 			if selectedIndex < len(searchResults) {
 				return searchResults[selectedIndex], nil
 			}
-			return string(searchBuffer), nil
+			// Nothing matched, so there is nothing to accept. The block names
+			// the entry Enter would take and with no matches it names none;
+			// handing back the query would put text the user typed into a
+			// search onto the command line, a keystroke away from being run.
+			// An empty result is what Escape and Ctrl+C return, and the caller
+			// leaves the line as the search found it.
+			return "", nil
 
 		case '\x03': // Ctrl+C - cancel search
 			return "", nil
