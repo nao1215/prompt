@@ -2197,3 +2197,96 @@ func FuzzSpansForNormalizes(f *testing.F) {
 		}
 	})
 }
+
+// TestRendererKeepsTheCompletionMenuInsideTheTerminal pins the invariant the
+// menu had no idea about: what the prompt draws has to fit the terminal it is
+// drawn on.
+//
+// The menu's size was a count of entries, ten, and its height in rows was
+// whatever those ten happened to occupy -- a candidate wider than the terminal
+// is drawn, and counted, as the rows it wraps onto. A block taller than the
+// screen scrolls it, and the first rows to go are the prompt and the line being
+// completed, so pressing Tab left the user reading candidates with no sight of
+// what they were completing, and took the application's output off the screen
+// with it.
+func TestRendererKeepsTheCompletionMenuInsideTheTerminal(t *testing.T) {
+	t.Parallel()
+
+	shortCandidates := func(n int) []Suggestion {
+		out := make([]Suggestion, 0, n)
+		for i := range n {
+			out = append(out, Suggestion{Text: fmt.Sprintf("suggestion-%02d", i+1)})
+		}
+		return out
+	}
+	wideCandidates := func(n, cells int) []Suggestion {
+		out := make([]Suggestion, 0, n)
+		for i := range n {
+			out = append(out, Suggestion{Text: fmt.Sprintf("s%02d-", i+1) + strings.Repeat("x", cells)})
+		}
+		return out
+	}
+
+	tests := []struct {
+		name        string
+		width       int
+		height      int
+		input       string
+		suggestions []Suggestion
+	}{
+		{
+			name:        "ten candidates on a ten-row terminal",
+			width:       80,
+			height:      10,
+			input:       "s",
+			suggestions: shortCandidates(10),
+		},
+		{
+			name:        "ten candidates that wrap, on a terminal of the usual size",
+			width:       80,
+			height:      24,
+			input:       "s",
+			suggestions: wideCandidates(10, 200),
+		},
+		{
+			name:        "an input that wraps, leaving fewer rows for the menu",
+			width:       20,
+			height:      8,
+			input:       strings.Repeat("a", 50),
+			suggestions: shortCandidates(10),
+		},
+		{
+			name:        "one row to spare",
+			width:       80,
+			height:      3,
+			input:       "s",
+			suggestions: shortCandidates(10),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: tt.width, height: tt.height})
+			if err := r.renderWithSuggestionsOffset("$ ", tt.input, len([]rune(tt.input)), tt.suggestions, 0, 0); err != nil {
+				t.Fatalf("renderWithSuggestionsOffset: %v", err)
+			}
+
+			screen := newScreenModel(tt.width)
+			screen.feed(out.String())
+			if drawn := len(screen.rows()); drawn > tt.height {
+				t.Errorf("the render drew %d rows on a terminal of %d: the terminal scrolls, and the line being completed goes first", drawn, tt.height)
+			}
+			if r.lastLines > tt.height {
+				t.Errorf("the render recorded a block of %d rows on a terminal of %d, so the next erase moves up past the top of the screen", r.lastLines, tt.height)
+			}
+			// The menu is worth drawing only if a candidate is on screen, and the
+			// selected one is the candidate the user is looking for.
+			if !strings.Contains(out.String(), "▶ ") {
+				t.Errorf("the render drew no selected candidate:\n%q", out.String())
+			}
+		})
+	}
+}
