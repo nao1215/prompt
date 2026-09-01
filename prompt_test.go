@@ -3706,10 +3706,19 @@ func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 				atCursor.startRow()
 			}
 			runes := []rune(text)
-			if i == cursorLine && cursorCol < len(runes) {
+			cutHere := i == cursorLine && cursorCol < len(runes)
+			if cutHere {
 				runes = runes[:cursorCol]
 			}
 			atCursor.writeString(singleLine(string(runes)))
+			if cutHere {
+				// The text before the cursor may have filled its row, which
+				// leaves a terminal holding the cursor on the last cell with the
+				// wrap owed. A character follows here, so the terminal took that
+				// wrap when it drew it, and the caret belongs in front of it on
+				// the next row rather than on top of the row it filled.
+				atCursor.resolvePending()
+			}
 		}
 
 		if got, want := drawn.rows(), expected.rows(); strings.Join(got, "|") != strings.Join(want, "|") {
