@@ -4060,9 +4060,17 @@ func TestNewKeepsTheTerminalWhenItSucceeds(t *testing.T) {
 type sizedMockTerminal struct {
 	mockTerminal
 	width int
+	// height is the terminal's height in rows, and zero means the usual 24: a
+	// test that says nothing about the height is not asking about it.
+	height int
 }
 
-func (s *sizedMockTerminal) Size() (width, height int, err error) { return s.width, 24, nil }
+func (s *sizedMockTerminal) Size() (width, height int, err error) {
+	if s.height > 0 {
+		return s.width, s.height, nil
+	}
+	return s.width, 24, nil
+}
 
 // TestRunLeavesTheScreenAgreeingWithTheLineItReturns drives whole sessions of
 // random keystrokes and checks the one property that ties the read loop to the

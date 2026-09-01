@@ -3,6 +3,7 @@ package prompt
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -728,5 +729,53 @@ func TestMenuIsNotDrawnOverALineItDoesNotDescribe(t *testing.T) {
 	screen.feed(out.String())
 	if rows := screen.rows(); len(rows) != 1 {
 		t.Errorf("the screen shows %q, want the prompt alone: Ctrl+U emptied the line", rows)
+	}
+}
+
+// TestMenuScrollsWithTheWindowItIsDrawnIn pins the agreement between the two
+// places that decide what the menu shows. The read loop keeps the scroll offset,
+// and the renderer decides how many candidates fit; when the terminal has fewer
+// rows than the loop assumed, a selection past the end of the drawn window is
+// highlighted nowhere while Enter still accepts it, so the user walks the list
+// with nothing on screen moving.
+func TestMenuScrollsWithTheWindowItIsDrawnIn(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width  = 40
+		height = 10
+	)
+
+	var out bytes.Buffer
+	// Tab opens the menu, then Down walks past what a short terminal can show.
+	terminal := &sizedMockTerminal{width: width, height: height}
+	terminal.mockTerminal = *newMockTerminal("s\t" + strings.Repeat("\x1b[B", 12))
+	p := newTestPromptOn(terminal, WithCompleter(func(Document) []Suggestion {
+		out := make([]Suggestion, 0, 20)
+		for i := range 20 {
+			out = append(out, Suggestion{Text: fmt.Sprintf("suggestion-%02d", i+1)})
+		}
+		return out
+	}))
+	p.output = &out
+	p.renderer = newRenderer(&out, ThemeDefault, terminal)
+	if _, err := p.Run(); !errors.Is(err, ErrEOF) {
+		t.Fatalf("Run() error = %v, want the input to have ended", err)
+	}
+
+	screen := newScreenModel(width)
+	screen.feed(out.String())
+	rows := screen.rows()
+	if len(rows) > height {
+		t.Errorf("the menu drew %d rows on a terminal of %d:\n%q", len(rows), height, rows)
+	}
+	var selected string
+	for _, row := range rows {
+		if strings.HasPrefix(row, "▶ ") {
+			selected = row
+		}
+	}
+	if selected != "▶ suggestion-13" {
+		t.Errorf("the screen highlights %q, want the thirteenth candidate: twelve Downs from the first\n%q", selected, rows)
 	}
 }

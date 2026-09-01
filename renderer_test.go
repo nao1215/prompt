@@ -75,9 +75,6 @@ func TestRendererClearScreen(t *testing.T) {
 	if renderer.lastLines != 1 {
 		t.Errorf("lastLines = %d after clearScreen, want 1", renderer.lastLines)
 	}
-	if renderer.suggestionsActive {
-		t.Error("suggestionsActive should be reset to false after clearScreen")
-	}
 }
 
 func TestRendererRenderWithSuggestions(t *testing.T) {
@@ -529,11 +526,6 @@ func TestRendererSuggestionClearing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify suggestions are active
-	if !renderer.suggestionsActive {
-		t.Error("Expected suggestionsActive to be true after showing suggestions")
-	}
-
 	// Second render - simulate selection (no suggestions)
 	output.Reset()
 	err = renderer.renderWithSuggestionsOffset("app> ", "help", 4, nil, -1, 0)
@@ -542,11 +534,6 @@ func TestRendererSuggestionClearing(t *testing.T) {
 	}
 
 	result := output.String()
-
-	// Verify suggestions are cleared
-	if renderer.suggestionsActive {
-		t.Error("Expected suggestionsActive to be false after clearing suggestions")
-	}
 
 	// Should not contain suggestion text
 	if strings.Contains(result, "Show help information") {
@@ -724,12 +711,6 @@ func TestRendererRealWorldCompletionBug(t *testing.T) {
 		}
 	}
 
-	// Verify renderer internal state
-	if renderer.suggestionsActive {
-		t.Error("BUG DETECTED: suggestionsActive should be false after completion")
-		foundBuggyContent = true
-	}
-
 	// Count remaining suggestion lines
 	suggestionCount := countSuggestionLines(finalOutput)
 	if suggestionCount > 0 {
@@ -877,11 +858,6 @@ func TestRendererArrowKeyNavigationDuplication(t *testing.T) {
 	if renderer.lastLines != len(suggestions)+1 { // +1 for input line
 		t.Logf("Renderer lastLines = %d, expected around %d (this helps with clearing logic)",
 			renderer.lastLines, len(suggestions)+1)
-	}
-
-	// Test that suggestionsActive is properly managed
-	if !renderer.suggestionsActive {
-		t.Error("Expected suggestionsActive to be true when suggestions are displayed")
 	}
 }
 
@@ -1869,15 +1845,6 @@ func (s *screenModel) rows() []string {
 	return out[:last+1]
 }
 
-// widthTerminal reports a fixed width, so a render can be measured against a
-// terminal narrower than the fallback.
-type widthTerminal struct {
-	mockTerminal
-	width int
-}
-
-func (w *widthTerminal) Size() (width, height int, err error) { return w.width, 24, nil }
-
 // TestRendererKeepsATabOnTheRowTheTerminalPutIt renders a line whose tab reaches
 // the right margin and compares the result against a terminal. A tab that stops
 // at the margin has not filled the last cell, so the character after it belongs
@@ -1890,7 +1857,7 @@ func TestRendererKeepsATabOnTheRowTheTerminalPutIt(t *testing.T) {
 	const input = "x\ty\tz"
 
 	var out bytes.Buffer
-	r := newRenderer(&out, ThemeDefault, &widthTerminal{width: width})
+	r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: width})
 	if err := r.render("> ", input, len([]rune(input))); err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -1924,7 +1891,7 @@ func TestRendererDoesNotEraseTheRowAboveAfterATab(t *testing.T) {
 	const width = 10
 
 	var out bytes.Buffer
-	r := newRenderer(&out, ThemeDefault, &widthTerminal{width: width})
+	r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: width})
 	if err := r.render("> ", "x\ty\tz", 5); err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -2023,7 +1990,7 @@ func TestRendererDrawsOneRowPerSuggestion(t *testing.T) {
 			const width = 40
 
 			var out bytes.Buffer
-			r := newRenderer(&out, ThemeDefault, &widthTerminal{width: width})
+			r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: width})
 			if err := r.renderWithSuggestionsOffset("> ", "a", 1, []Suggestion{tt.suggestion}, 0, 0); err != nil {
 				t.Fatalf("renderWithSuggestionsOffset: %v", err)
 			}
@@ -2196,4 +2163,122 @@ func FuzzSpansForNormalizes(f *testing.F) {
 			prev = s.End
 		}
 	})
+}
+
+// TestRendererKeepsTheCompletionMenuInsideTheTerminal pins the invariant the menu
+// never enforced: what the prompt draws has to fit the terminal it is drawn on.
+//
+// The menu's size was a count of entries, ten, and its height in rows was
+// whatever those ten happened to occupy -- a candidate wider than the terminal
+// is drawn, and counted, as the rows it wraps onto. A block taller than the
+// screen scrolls it, and the first rows to go are the prompt and the line being
+// completed, so pressing Tab left the user reading candidates with no sight of
+// what they were completing, and took the application's output off the screen
+// with it.
+func TestRendererKeepsTheCompletionMenuInsideTheTerminal(t *testing.T) {
+	t.Parallel()
+
+	shortCandidates := func(n int) []Suggestion {
+		out := make([]Suggestion, 0, n)
+		for i := range n {
+			out = append(out, Suggestion{Text: fmt.Sprintf("suggestion-%02d", i+1)})
+		}
+		return out
+	}
+	wideCandidates := func(n, cells int) []Suggestion {
+		out := make([]Suggestion, 0, n)
+		for i := range n {
+			out = append(out, Suggestion{Text: fmt.Sprintf("s%02d-", i+1) + strings.Repeat("x", cells)})
+		}
+		return out
+	}
+
+	tests := []struct {
+		name        string
+		width       int
+		height      int
+		input       string
+		suggestions []Suggestion
+	}{
+		{
+			name:        "ten candidates on a ten-row terminal",
+			width:       80,
+			height:      10,
+			input:       "s",
+			suggestions: shortCandidates(10),
+		},
+		{
+			name:        "ten candidates that wrap, on a terminal of the usual size",
+			width:       80,
+			height:      24,
+			input:       "s",
+			suggestions: wideCandidates(10, 200),
+		},
+		{
+			name:        "an input that wraps, leaving fewer rows for the menu",
+			width:       20,
+			height:      8,
+			input:       strings.Repeat("a", 50),
+			suggestions: shortCandidates(10),
+		},
+		{
+			name:        "one row to spare",
+			width:       80,
+			height:      3,
+			input:       "s",
+			suggestions: shortCandidates(10),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: tt.width, height: tt.height})
+			if err := r.renderWithSuggestionsOffset("$ ", tt.input, len([]rune(tt.input)), tt.suggestions, 0, 0); err != nil {
+				t.Fatalf("renderWithSuggestionsOffset: %v", err)
+			}
+
+			screen := newScreenModel(tt.width)
+			screen.feed(out.String())
+			if drawn := len(screen.rows()); drawn > tt.height {
+				t.Errorf("the render drew %d rows on a terminal of %d: the terminal scrolls, and the line being completed goes first", drawn, tt.height)
+			}
+			if r.lastLines > tt.height {
+				t.Errorf("the render recorded a block of %d rows on a terminal of %d, so the next erase moves up past the top of the screen", r.lastLines, tt.height)
+			}
+			// A menu is worth drawing only if it has a row on screen, and the
+			// selected row is the one the window must always contain.
+			if !strings.Contains(out.String(), "▶ ") {
+				t.Errorf("the render drew no selected candidate:\n%q", out.String())
+			}
+		})
+	}
+}
+
+// TestRendererDrawsNoMenuWithNoRoomForOne pins the other end of the same rule.
+// Where the input already fills the terminal there is no row a candidate could
+// be drawn on, and drawing one anyway would push the line being typed off the
+// top of the screen. The prompt is rendered as it is without a menu, cursor and
+// all, so the user keeps sight of what they are completing.
+func TestRendererDrawsNoMenuWithNoRoomForOne(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 20, 3
+
+	var out bytes.Buffer
+	terminal := &sizedMockTerminal{width: width, height: height}
+	r := newRenderer(&out, ThemeDefault, terminal)
+	input := strings.Repeat("a", width*height) // three rows of input on a three-row terminal
+	if err := r.renderWithSuggestionsOffset("$ ", input, len([]rune(input)), []Suggestion{{Text: "candidate"}}, 0, 0); err != nil {
+		t.Fatalf("renderWithSuggestionsOffset: %v", err)
+	}
+
+	if strings.Contains(out.String(), "candidate") {
+		t.Errorf("the render drew a candidate with no row to draw it on:\n%q", out.String())
+	}
+	if !strings.Contains(out.String(), showCursorSequence) {
+		t.Errorf("the render left the cursor hidden, which is what a menu does:\n%q", out.String())
+	}
 }

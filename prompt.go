@@ -799,14 +799,9 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 
 		case ActionMoveDown:
 			if len(suggestions) > 0 {
-				// Navigate suggestions with scrolling
-				maxDisplayed := 10 // Maximum suggestions to display at once
 				if selectedSuggestion < len(suggestions)-1 {
 					selectedSuggestion++
-					// Scroll down if needed
-					if selectedSuggestion >= suggestionOffset+maxDisplayed {
-						suggestionOffset = selectedSuggestion - maxDisplayed + 1
-					}
+					suggestionOffset = p.scrollToSelection(suggestions, selectedSuggestion, suggestionOffset)
 				}
 			} else if p.isMultiLine() {
 				// Navigate down within multi-line input
@@ -1127,102 +1122,6 @@ func (p *Prompt) insertText(text string) {
 func (p *Prompt) setBuffer(text string) {
 	p.buffer = []rune(text)
 	p.cursor = len(p.buffer)
-}
-
-// completionWord returns the word before the cursor used for completion matching
-// and acceptance. It honors backslash-escaped whitespace when WithWordEscape is
-// set so space-containing paths complete as one word.
-func (p *Prompt) completionWord(doc Document) string {
-	if p.config.WordEscape {
-		return doc.GetWordBeforeCursorEscaped()
-	}
-	return doc.GetWordBeforeCursor()
-}
-
-// hasReplaceRange reports whether any suggestion names the span it replaces,
-// which is how a completer says it owns matching for this set.
-func hasReplaceRange(suggestions []Suggestion) bool {
-	for _, s := range suggestions {
-		if s.Replace != nil {
-			return true
-		}
-	}
-	return false
-}
-
-func (p *Prompt) acceptSuggestion(suggestion Suggestion) {
-	// A suggestion that names the span it stands for is applied literally: the
-	// completer knows what it matched, and the word-boundary guesswork below
-	// cannot express a qualified name or a case-insensitive match.
-	if suggestion.Replace != nil {
-		p.replaceRange(*suggestion.Replace, suggestion.Text)
-		return
-	}
-
-	// Get current document state for context
-	doc := Document{
-		Text:           string(p.buffer),
-		CursorPosition: p.cursor,
-	}
-
-	// Determine how to apply the suggestion based on context
-	beforeCursor := doc.TextBeforeCursor()
-	currentWord := p.completionWord(doc)
-
-	if currentWord == "" {
-		// Cursor is at space or beginning, just insert the suggestion
-		p.insertText(suggestion.Text)
-	} else if strings.HasPrefix(suggestion.Text, currentWord) {
-		// Suggestion is a completion of current word (e.g., "cre" -> "create")
-		suffix := suggestion.Text[len(currentWord):]
-		p.insertText(suffix)
-	} else {
-		// Suggestion is a replacement or subcommand
-		// Check if we're at the end of a word (subcommand scenario)
-		if p.cursor == len(p.buffer) || !isWordChar(p.buffer[p.cursor]) {
-			// At end of word or at space, add space + suggestion
-			if beforeCursor != "" && !strings.HasSuffix(beforeCursor, " ") {
-				p.insertText(" ")
-			}
-			p.insertText(suggestion.Text)
-		} else {
-			// In middle of word, replace current word
-			wordStart, wordEnd := p.getCurrentWordBounds()
-			p.buffer = append(p.buffer[:wordStart], append([]rune(suggestion.Text), p.buffer[wordEnd:]...)...)
-			p.cursor = wordStart + len([]rune(suggestion.Text))
-		}
-	}
-}
-
-// replaceRange overwrites the buffer's runes in r with text and leaves the
-// cursor after it. A span outside the buffer, or an inverted one, is clamped
-// instead of panicking: a completer's arithmetic mistake should not take the
-// line editor down with it.
-func (p *Prompt) replaceRange(r Range, text string) {
-	start := min(max(r.Start, 0), len(p.buffer))
-	end := min(max(r.End, start), len(p.buffer))
-
-	replacement := []rune(text)
-	tail := append(replacement, p.buffer[end:]...)
-	p.buffer = append(p.buffer[:start:start], tail...)
-	p.cursor = start + len(replacement)
-}
-
-// getCurrentWordBounds finds the start and end positions of the current word at cursor
-func (p *Prompt) getCurrentWordBounds() (start, end int) {
-	// Find word start (scan backwards from cursor)
-	start = p.cursor
-	for start > 0 && isWordChar(p.buffer[start-1]) {
-		start--
-	}
-
-	// Find word end (scan forwards from cursor)
-	end = p.cursor
-	for end < len(p.buffer) && isWordChar(p.buffer[end]) {
-		end++
-	}
-
-	return start, end
 }
 
 // History management methods
