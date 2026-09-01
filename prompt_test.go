@@ -3643,13 +3643,22 @@ func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 		terminal.mockTerminal = *newMockTerminal(script.String())
 		p := newTestPromptOn(terminal,
 			WithCompleter(func(Document) []Suggestion {
-				return []Suggestion{{Text: "create"}, {Text: "credit"}, {Text: "テーブル"}}
+				// One candidate carries an escape sequence, because a completer
+				// reading names out of a file offers whatever the file holds,
+				// and that is one of the two ways a control character reaches
+				// the line without being typed. It is the only candidate the
+				// word "z" matches, so typing z and pressing Tab accepts it
+				// rather than opening a menu somebody has to steer.
+				return []Suggestion{{Text: "create"}, {Text: "credit"}, {Text: "z\x1b[31mq"}, {Text: "テーブル"}}
 			}),
 			WithMemoryHistory(10),
 		)
 		p.output = &out
 		p.renderer = newRenderer(&out, ThemeDefault, terminal)
-		p.SetHistory([]string{"older one", "older two"})
+		// And one history entry carries one, which is the other way: the history
+		// file keeps every byte of an entry that is not a backslash or a line
+		// break, and Up puts it back on the line.
+		p.SetHistory([]string{"older one", "older two", "older\x1b[31mthree"})
 
 		line, err := p.Run()
 		if err != nil {
@@ -3670,6 +3679,9 @@ func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 		drawn := newScreenModel(width)
 		drawn.feed(written[:cut])
 
+		// The screen shows the line with every rune the terminal would act on
+		// replaced by a space: what is drawn has to be what is measured, and a
+		// control character measures nothing.
 		expected := newScreenModel(width)
 		for i, text := range strings.Split(line, "\n") {
 			if i == 0 {
@@ -3677,7 +3689,7 @@ func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 			} else {
 				expected.startRow()
 			}
-			expected.writeString(text)
+			expected.writeString(singleLine(text))
 		}
 
 		// Where the cursor belongs: the same walk, stopped where the cursor was
@@ -3697,7 +3709,7 @@ func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 			if i == cursorLine && cursorCol < len(runes) {
 				runes = runes[:cursorCol]
 			}
-			atCursor.writeString(string(runes))
+			atCursor.writeString(singleLine(string(runes)))
 		}
 
 		if got, want := drawn.rows(), expected.rows(); strings.Join(got, "|") != strings.Join(want, "|") {

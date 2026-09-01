@@ -2359,3 +2359,170 @@ func TestMenuFitsTheTerminalWhateverIsSelected(t *testing.T) {
 		})
 	}
 }
+
+// TestRendererDrawsTheLineFlattened renders a line holding a control character
+// and compares the screen with the text a terminal should end up showing.
+//
+// The menu and the search block have flattened what they draw since #60 and
+// #61; the line has not, and the line is where a completion candidate and a
+// recalled history entry end up. An escape sequence written there is a command
+// the terminal obeys, and the layout walk measures it as nothing, so the cursor
+// is drawn past the text by however many cells the sequence really took.
+//
+// The expected text is written out rather than taken from singleLine, so the
+// test is an oracle rather than a second copy of the implementation.
+func TestRendererDrawsTheLineFlattened(t *testing.T) {
+	t.Parallel()
+
+	const width = 40
+	tests := map[string]struct {
+		input string
+		want  string
+	}{
+		"an escape sequence from a completion candidate": {"select\x1b[31mred", "select [31mred"},
+		"a carriage return from a history entry":         {"echo\rhi", "echo hi"},
+		"a delete from a file the completer read":        {"na\x7fme", "na me"},
+		"a C1 control from a CSV header":                 {"name\u0085surname", "name surname"},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: width})
+			if err := r.render("$ ", tt.input, len([]rune(tt.input))); err != nil {
+				t.Fatalf("render() error = %v", err)
+			}
+
+			screen := newScreenModel(width)
+			screen.feed(out.String())
+
+			want := newScreenModel(width)
+			want.writeString("$ " + tt.want)
+
+			if got, expected := screen.rows(), want.rows(); strings.Join(got, "|") != strings.Join(expected, "|") {
+				t.Errorf("the screen shows %q, want %q", got, expected)
+			}
+			if screen.row != want.row || screen.col != want.col {
+				t.Errorf("the cursor is at (%d, %d), want (%d, %d)", screen.row, screen.col, want.row, want.col)
+			}
+		})
+	}
+}
+
+// TestRendererDrawsThePrefixFlattened does the same for the prefix, which is
+// measured by the same walk and drawn by the same writer but reaches the
+// renderer by another route: an application builds it, and one that builds it
+// out of data -- a working directory's name -- does not choose what goes in it.
+func TestRendererDrawsThePrefixFlattened(t *testing.T) {
+	t.Parallel()
+
+	const width = 40
+	const input = "abc"
+
+	t.Run("an escape sequence leaves the cursor off the text", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: width})
+		if err := r.render("sqly\x1b[31m> ", input, len(input)); err != nil {
+			t.Fatalf("render() error = %v", err)
+		}
+
+		screen := newScreenModel(width)
+		screen.feed(out.String())
+
+		want := newScreenModel(width)
+		want.writeString("sqly [31m> " + input)
+
+		if got, expected := screen.rows(), want.rows(); strings.Join(got, "|") != strings.Join(expected, "|") {
+			t.Errorf("the screen shows %q, want %q", got, expected)
+		}
+		if screen.row != want.row || screen.col != want.col {
+			t.Errorf("the cursor is at (%d, %d), want (%d, %d)", screen.row, screen.col, want.row, want.col)
+		}
+	})
+
+	// A newline in the prefix costs a row rather than a column, and the row is
+	// not one the block counted: the erase that starts the next render is a row
+	// short, so the block is redrawn below the one before it and the prompt
+	// walks down the screen a row per keystroke.
+	t.Run("a newline leaves the previous block on the screen", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: width})
+		for _, typed := range []string{"a", "ab", "abc"} {
+			if err := r.render("sqly\n$ ", typed, len(typed)); err != nil {
+				t.Fatalf("render() error = %v", err)
+			}
+		}
+
+		screen := newScreenModel(width)
+		screen.feed(out.String())
+
+		want := newScreenModel(width)
+		want.writeString("sqly $ " + input)
+
+		if got, expected := screen.rows(), want.rows(); strings.Join(got, "|") != strings.Join(expected, "|") {
+			t.Errorf("after three keystrokes the screen shows %q, want %q", got, expected)
+		}
+	})
+}
+
+// TestLeavesRowNamesEveryControlRune checks the rule the function states
+// against the set Unicode names, rather than against the bytes a person can
+// type. The C1 controls are the half of the category that arrives only in data,
+// which is why the hand-written range test covered the other half.
+func TestLeavesRowNamesEveryControlRune(t *testing.T) {
+	t.Parallel()
+
+	tests := map[rune]bool{
+		'\x00':   true,  // NUL
+		'\x1b':   true,  // ESC
+		'\r':     true,  // CR
+		'\n':     true,  // LF
+		'\x7f':   true,  // DEL
+		'\u0085': true,  // NEL, which takes the cursor to the next row
+		'\u009b': true,  // CSI, which opens a control sequence
+		'\t':     false, // a tab stays on its row, and the layout walk measures it
+		'a':      false,
+		'あ':      false, // a double-width letter, measured in cells already
+		'\u200b': false, // zero width space: the terminal draws nothing and spends nothing
+		'\u2028': false, // a line separator to a text engine, an ordinary rune to a terminal
+	}
+
+	for r, want := range tests {
+		if got := leavesRow(r); got != want {
+			t.Errorf("leavesRow(%U) = %v, want %v", r, got, want)
+		}
+	}
+}
+
+// TestMenuRowHoldingAC1ControlIsFlattened renders a menu whose candidate
+// carries a C1 control and checks that none of it reaches the terminal. The
+// menu is measured by walking its text for cells, and a C1 control is zero
+// cells and a cursor movement, so a row holding one is drawn taller than it is
+// counted and the extra row survives the erase.
+func TestMenuRowHoldingAC1ControlIsFlattened(t *testing.T) {
+	t.Parallel()
+
+	const width = 40
+	suggestions := []Suggestion{
+		{Text: "name\u0085surname", Description: "a header\u009bcell"},
+		{Text: "nickname"},
+	}
+
+	var out bytes.Buffer
+	r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: width})
+	if err := r.renderWithSuggestionsOffset("$ ", "n", 1, suggestions, 0, 0); err != nil {
+		t.Fatalf("renderWithSuggestionsOffset() error = %v", err)
+	}
+
+	for _, control := range []rune{'\u0085', '\u009b'} {
+		if strings.ContainsRune(out.String(), control) {
+			t.Errorf("the menu wrote %U to the terminal: %q", control, out.String())
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/mattn/go-runewidth"
 )
@@ -133,7 +134,7 @@ func (r *renderer) setHighlighter(highlighter func(string) []StyleSpan) {
 }
 
 func (r *renderer) setContinuationPrefix(prefix string) {
-	r.continuationPrefix = prefix
+	r.continuationPrefix = singleLine(prefix)
 }
 
 // render displays the prompt with the current input.
@@ -143,6 +144,18 @@ func (r *renderer) render(prefix, input string, cursor int) error {
 
 // renderWithSuggestionsOffset displays the prompt with completion suggestions and scrolling support.
 func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int, suggestions []Suggestion, selected int, offset int) error {
+	// Both are flattened before anything is measured or written, so what the
+	// arithmetic counts is what the terminal draws. Neither reaches here having
+	// been typed: the prefix is built by the application, and a control
+	// character on the line came from a completion candidate, a recalled history
+	// entry, or an auto-indent -- a paste is sanitized as it is inserted, and a
+	// typed ESC starts a key sequence. Left as they were, the terminal obeyed
+	// them while the layout walk measured them as nothing.
+	//
+	// The map is one rune in, one rune out, so cursor and every highlighter span
+	// still index the same characters.
+	prefix, input = singleLine(prefix), multiLine(input)
+
 	// One measurement for the whole render: what is cleared, what is drawn, and
 	// where the cursor lands are three answers to the same question and have to
 	// agree.
@@ -426,7 +439,9 @@ func (r *renderer) suggestionEntryRows(s Suggestion) int {
 // a list at all.
 func (r *renderer) suggestionWindow(prefix, input string, suggestions []Suggestion, offset int) int {
 	r.measureTerminal()
-	return r.suggestionWindowAt(prefix, input, suggestions, offset)
+	// Measured against the same flattened text the render will draw, so the
+	// window the scroll is worked out from is the window that appears.
+	return r.suggestionWindowAt(singleLine(prefix), multiLine(input), suggestions, offset)
 }
 
 // suggestionWindowAt is suggestionWindow against the size already measured, for
@@ -547,8 +562,37 @@ func singleLine(s string) string {
 
 // leavesRow reports whether a terminal would do something other than draw r on
 // the row it is on.
+//
+// That is Unicode's Cc category, which is both control ranges: the C0 controls
+// and DEL, and the C1 controls, U+0080 to U+009F. A terminal reading UTF-8
+// executes the second range as well -- U+0085 is NEL, which takes the cursor to
+// the next row, and U+009B is CSI, which opens a control sequence -- and every
+// rune in it measures zero cells, so one counted as drawn is a row the erase
+// never reaches. The range test this replaced covered the first half, which is
+// the half a person can type; the second arrives only in data, from a file a
+// completer read or a history file another program wrote.
+//
+// It stops at Cc. U+2028 and U+2029 are line separators to a text layout engine
+// and ordinary zero-width runes to a terminal, so flattening them would put a
+// space where the terminal spends nothing -- the same disagreement between what
+// is drawn and what is counted, in the other direction.
+//
+// A tab is excluded because a terminal keeps it on the row, and the layout walk
+// measures it against tab stops.
 func leavesRow(r rune) bool {
-	return (r < 0x20 && r != '\t') || r == 0x7f
+	return unicode.IsControl(r) && r != '\t'
+}
+
+// multiLine is singleLine for text the renderer draws across rows of its own:
+// the line break is what it splits lines on, so it is left alone and everything
+// else the terminal would act on becomes a space.
+func multiLine(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r != '\n' && leavesRow(r) {
+			return ' '
+		}
+		return r
+	}, s)
 }
 
 // clearPreviousLines clears the previously rendered lines.
