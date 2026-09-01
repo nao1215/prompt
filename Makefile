@@ -1,4 +1,4 @@
-.PHONY: test clean vet fmt chkfmt lint tools build install examples
+.PHONY: test clean vet fmt chkfmt lint tools build install examples demo
 
 APP         = prompt
 VERSION     = $(shell git describe --tags --abbrev=0 2>/dev/null || echo "v0.1.0")
@@ -23,6 +23,10 @@ clean: ## Clean project
 test: ## Start test
 	env GOOS=$(GOOS) $(GO_TEST) -race -cover $(GO_PKGROOT) -coverpkg=./... -coverprofile=cover.out
 	$(GO_TOOL) cover -html=cover.out -o cover.html
+
+demo: ## Record the README animation (needs vhs, ttyd and ffmpeg)
+	vhs example/demo/demo.tape
+	$(GO_TEST) ./example/demo -run TestDemoGIFIsCurrent -update
 
 bench: ## Run benchmark tests
 	$(GO_TEST) -bench=. -benchmem $(GO_PKGROOT)
