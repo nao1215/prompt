@@ -2478,25 +2478,32 @@ func TestRendererDrawsThePrefixFlattened(t *testing.T) {
 func TestLeavesRowNamesEveryControlRune(t *testing.T) {
 	t.Parallel()
 
-	tests := map[rune]bool{
-		'\x00':   true,  // NUL
-		'\x1b':   true,  // ESC
-		'\r':     true,  // CR
-		'\n':     true,  // LF
-		'\x7f':   true,  // DEL
-		'\u0085': true,  // NEL, which takes the cursor to the next row
-		'\u009b': true,  // CSI, which opens a control sequence
-		'\t':     false, // a tab stays on its row, and the layout walk measures it
-		'a':      false,
-		'あ':      false, // a double-width letter, measured in cells already
-		'\u200b': false, // zero width space: the terminal draws nothing and spends nothing
-		'\u2028': false, // a line separator to a text engine, an ordinary rune to a terminal
+	tests := map[string]struct {
+		r    rune
+		want bool
+	}{
+		"NUL":                                  {'\x00', true},
+		"ESC":                                  {'\x1b', true},
+		"CR":                                   {'\r', true},
+		"LF":                                   {'\n', true},
+		"DEL":                                  {'\x7f', true},
+		"NEL takes the cursor to the next row": {'\u0085', true},
+		"CSI opens a control sequence":         {'\u009b', true},
+		"a tab stays on its row":               {'\t', false},
+		"a letter":                             {'a', false},
+		"a double-width letter":                {'あ', false},
+		"a zero width space the terminal draws nothing for": {'\u200b', false},
+		"a line separator, which is a text engine's idea":   {'\u2028', false},
 	}
 
-	for r, want := range tests {
-		if got := leavesRow(r); got != want {
-			t.Errorf("leavesRow(%U) = %v, want %v", r, got, want)
-		}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := leavesRow(tt.r); got != tt.want {
+				t.Errorf("leavesRow(%U) = %v, want %v", tt.r, got, tt.want)
+			}
+		})
 	}
 }
 
