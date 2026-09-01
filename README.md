@@ -447,12 +447,16 @@ may lose keystrokes to it.
 ### Interrupting work between prompts
 
 `Run` returns as soon as a line is submitted, so while the application executes
-that line nothing is reading the terminal. In raw mode Ctrl+C is a byte rather
-than a signal, so it cannot reach the running work: it waits in the input buffer
-and is read as part of the next line once the work is over.
+that line nothing is reading the terminal. Ctrl+C cannot reach the running work
+on its own. While the prompt holds the terminal it is a byte that waits in the
+input buffer and is read as part of the next line once the work is over; once
+the prompt has given the terminal back — which `Run` does when it returns,
+unless the session asked for persistent raw mode — the terminal turns it into a
+SIGINT that kills the application in the middle of that work.
 
-`WatchInterrupt` watches for it during that gap and returns a context canceled
-when the key arrives:
+`WatchInterrupt` watches for the byte and the signal during that gap, and
+returns a context canceled when the key arrives, however the terminal delivers
+it:
 
 ```go
 for {
@@ -485,6 +489,11 @@ Everything else typed while the work runs belongs to the next line: it is held
 and delivered to the following `Run` in the order it was typed, so typing ahead
 keeps working. Do not call `Run` while a watch is active — a line editor and a
 watcher cannot both own one terminal.
+
+While the watch is active, Ctrl+C no longer kills the application: it cancels
+the work instead, and `stop` restores the usual behavior. An interrupt sent any
+other way, such as `kill -INT` from another terminal, cancels the work too:
+nothing tells it apart from the key.
 
 ## Key bindings
 
@@ -549,16 +558,21 @@ The [example](./example) directory has complete programs:
 
 ### Thread safety
 
-This library is not thread-safe. Do not share a prompt instance across
-goroutines, call its methods concurrently, or call `Close()` while `Run()` is
-active in another goroutine. Use a separate instance per goroutine if you need
-concurrency.
+Drive one prompt from one goroutine: do not call `Run` concurrently, and do not
+edit a prompt's state from a second goroutine. Use a separate instance per
+goroutine if you need concurrency.
+
+Ending a session from another goroutine is the exception, because a prompt
+waiting for a key cannot end itself: canceling the context passed to `RunWithContext` and
+calling `Close` both end that wait, and the `Run` returns `context.Canceled` and
+`ErrEOF` respectively. A `Run` on a prompt that is already closed returns
+`ErrEOF` without touching the terminal.
 
 ### Error handling
 
 `Run` and `RunWithContext` return specific errors:
 
-- `prompt.ErrEOF`: Ctrl+D on an empty buffer, or the input reaching its end. It matches `io.EOF` as well as itself
+- `prompt.ErrEOF`: Ctrl+D on an empty buffer, the input reaching its end, or a `Run` on a prompt that is already closed. It matches `io.EOF` as well as itself
 - `prompt.ErrInterrupted`: Ctrl+C
 - `context.DeadlineExceeded`: the context deadline passed (with `RunWithContext`)
 - `context.Canceled`: the context was canceled

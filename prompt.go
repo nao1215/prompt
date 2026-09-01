@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode"
 
 	"github.com/mattn/go-colorable"
@@ -55,7 +56,11 @@ type Prompt struct {
 	renderer       *renderer
 	terminal       terminalInterface
 	keyMap         *KeyMap
-	rawActive      bool // Whether the terminal is currently in raw mode
+	// rawActive says whether the terminal is currently in raw mode. Close can be
+	// called while a Run waits for a key, and both of them restore the terminal,
+	// so each transition is made by whichever caller gets there first and the
+	// other one does nothing.
+	rawActive atomic.Bool
 
 	// pending holds runes that were read before they were needed and must be
 	// delivered before anything else: a rune read past the end of an escape
@@ -76,11 +81,14 @@ type Prompt struct {
 	// readerDone is closed when the reader goroutine returns, so its release can
 	// be observed rather than assumed.
 	readerDone chan struct{}
-}
 
-// readResult is one rune from the shared input reader.
-type readResult struct {
-	r rune
+	// closed is set by Close and says the session is over. Every entry point
+	// that would touch the terminal has to know that, because the terminal has
+	// been given up while its settings live on: raw mode is set on a descriptor
+	// Close never touches, so entering it again succeeds and nothing is left
+	// that would restore it. It is read from another goroutine -- Close while a
+	// Run waits for a key is a supported order -- so it is atomic.
+	closed atomic.Bool
 }
 
 // HistoryConfig holds all history-related configuration.
@@ -593,6 +601,13 @@ func (p *Prompt) Run() (string, error) {
 //	}
 //	fmt.Printf("Input: %s\n", input)
 func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
+	// A closed prompt has no input left to read, which is what ErrEOF says. This
+	// is answered before the read rather than by it, because reaching the read
+	// means entering raw mode first: doing that on a terminal the session has
+	// given up leaves the terminal raw with nothing left to restore it.
+	if p.closed.Load() {
+		return "", ErrEOF
+	}
 	if err := p.enterRawMode(); err != nil {
 		return "", fmt.Errorf("failed to enter raw mode: %w", err)
 	}
@@ -640,7 +655,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			return "", err
 		}
 		if err != nil {
-			if errors.Is(err, io.EOF) {
+			if p.endOfInput(err) {
 				// Input reached EOF; the session is over, so restore the terminal
 				// even in persistent mode (the deferred cleanup skips it there).
 				p.restoreOnExit()
@@ -656,7 +671,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 		case r == '\x1b':
 			seq, err := p.readEscapeSequence()
 			if err != nil {
-				if errors.Is(err, io.EOF) {
+				if p.endOfInput(err) {
 					p.restoreOnExit()
 					return "", ErrEOF
 				}
@@ -1000,6 +1015,13 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 // to prevent resource leaks. It's safe to call Close multiple times.
 // It's recommended to use defer for automatic cleanup.
 //
+// Close ends the session, so it is the last thing the prompt does with the
+// terminal: on Unix it ends a read in progress and waits for the reader to
+// finish, and a Run that was waiting for a key returns ErrEOF. A Run called
+// afterwards returns ErrEOF without touching the terminal, rather than taking
+// raw mode back on a terminal the session no longer owns. Open a new prompt for
+// a new session.
+//
 // Example:
 //
 //	p, err := prompt.New(config)
@@ -1011,6 +1033,11 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 //	// Use the prompt...
 //	result, err := p.Run()
 func (p *Prompt) Close() error {
+	// Say the session is over before anything is torn down, so a Run waiting for
+	// a key reports the ending it knows rather than the error the terminal gives
+	// up with.
+	p.closed.Store(true)
+
 	// Release the shared reader before the terminal: closing the terminal ends a
 	// read in progress, and this ends a goroutine waiting to hand over a rune
 	// nobody is collecting.
@@ -1492,13 +1519,13 @@ func (p *Prompt) removeTrailingBackslash() {
 // persistent session (see WithPersistentRawMode) acquires raw mode exactly once
 // across many Run calls.
 func (p *Prompt) enterRawMode() error {
-	if p.rawActive {
+	if !p.rawActive.CompareAndSwap(false, true) {
 		return nil
 	}
 	if err := p.terminal.SetRaw(); err != nil {
+		p.rawActive.Store(false)
 		return err
 	}
-	p.rawActive = true
 	if p.output != nil {
 		if _, err := fmt.Fprint(p.output, bracketedPasteEnableSequence); err != nil {
 			return errors.Join(err, p.exitRawMode())
@@ -1534,10 +1561,9 @@ func (p *Prompt) showCursor() {
 // It is idempotent: when the terminal is not in raw mode it does nothing, so it is
 // safe to call from multiple cleanup paths (defer, interrupt, EOF, Close).
 func (p *Prompt) exitRawMode() error {
-	if !p.rawActive {
+	if !p.rawActive.CompareAndSwap(true, false) {
 		return nil
 	}
-	p.rawActive = false
 	var errs []error
 	if p.output != nil {
 		if _, err := fmt.Fprint(p.output, bracketedPasteDisableSequence); err != nil {
@@ -1560,182 +1586,4 @@ func (p *Prompt) renderWithSuggestionsOffset(suggestions []Suggestion, selected 
 	p.renderer.setContinuationPrefix(p.config.ContinuationPrefix)
 	p.renderer.setHighlighter(p.config.Highlighter)
 	return p.renderer.renderWithSuggestionsOffset(p.config.Prefix, string(p.buffer), p.cursor, suggestions, selected, offset)
-}
-
-// readRuneContext reads the next rune and gives up when ctx is done.
-//
-// A terminal read cannot be canceled, so a context can only be noticed between
-// one key and the next: checking it before a blocking read and then waiting made
-// a deadline fire on the keystroke after it rather than on time, and an idle
-// prompt never returned at all. Where the context can actually be canceled the
-// read therefore moves to the shared reader goroutine, whose channel can be
-// waited on alongside the context.
-//
-// A context that can never be canceled -- context.Background(), which is what
-// Run passes -- keeps reading the terminal directly and starts no goroutine.
-// That is deliberate: on Windows the read goes through go-tty and Close does not
-// wait for the reader, so a session that never asked for cancellation should not
-// grow a goroutine that nothing can interrupt.
-func (p *Prompt) readRuneContext(ctx context.Context) (rune, error) {
-	done := ctx.Done()
-	if done == nil {
-		return p.readRune()
-	}
-	// A context already done takes precedence over input already held, which is
-	// what checking it at the top of the read loop used to do.
-	select {
-	case <-done:
-		return 0, ctx.Err()
-	default:
-	}
-	if r, ok := p.takePending(); ok {
-		return r, nil
-	}
-	reads := p.startInputReader()
-	select {
-	case <-done:
-		return 0, ctx.Err()
-	case res, ok := <-reads:
-		if !ok {
-			return 0, p.readErr
-		}
-		return res.r, nil
-	}
-}
-
-func (p *Prompt) readRune() (rune, error) {
-	if r, ok := p.takePending(); ok {
-		return r, nil
-	}
-	// Once a watcher has started the shared reader, every rune must come from it:
-	// a second reader on the same terminal would take bytes the other was waiting
-	// for.
-	if p.reads != nil {
-		res, ok := <-p.reads
-		if !ok {
-			return 0, p.readErr
-		}
-		return res.r, nil
-	}
-	r, _, err := p.terminal.ReadRune()
-	return r, err
-}
-
-// takePending removes and returns the oldest rune held back, if any.
-func (p *Prompt) takePending() (rune, bool) {
-	p.pendingMu.Lock()
-	defer p.pendingMu.Unlock()
-	if len(p.pending) == 0 {
-		return 0, false
-	}
-	r := p.pending[0]
-	p.pending = p.pending[1:]
-	return r, true
-}
-
-// unreadRune pushes a rune back so the next readRune returns it. It is used when
-// a rune read ahead turns out to be input rather than part of a key sequence, so
-// it goes to the front: it was read before everything already held.
-func (p *Prompt) unreadRune(r rune) {
-	p.pendingMu.Lock()
-	defer p.pendingMu.Unlock()
-	p.pending = append([]rune{r}, p.pending...)
-}
-
-// stashTypeAhead holds a rune read while WatchInterrupt was watching, to be
-// delivered to the next Run. It goes to the back, because it was typed after
-// everything already held.
-func (p *Prompt) stashTypeAhead(r rune) {
-	p.pendingMu.Lock()
-	defer p.pendingMu.Unlock()
-	p.pending = append(p.pending, r)
-}
-
-// errReaderClosed is what a read reports once Close has ended the session.
-var errReaderClosed = errors.New("prompt: input closed")
-
-// startInputReader starts the goroutine that reads the terminal into a channel,
-// and returns that channel. Reading in one place is what lets a watcher and the
-// line editor take turns without either losing a keystroke to the other.
-//
-// The goroutine has two ways out, because it has two ways to wait. Blocked on the
-// terminal it ends when the read fails, which closing the terminal causes.
-// Blocked on the channel — nothing is consuming keystrokes between a stopped
-// watch and the next Run, and someone can hold a key down — it ends on the signal
-// Close sends, which no amount of closing the terminal would deliver. Either way
-// the channel is closed and every later read reports why.
-//
-// It cannot be stopped while a read is in progress, which is why there is no
-// pause: a terminal read cannot be canceled on every platform, and a goroutine
-// abandoned mid-read would eat the next key.
-func (p *Prompt) startInputReader() <-chan readResult {
-	p.readerOnce.Do(func() {
-		// Buffered so a burst typed during long work does not block the reader,
-		// which would leave the terminal unread and lose the keys after it.
-		reads := make(chan readResult, 1024)
-		stop := make(chan struct{})
-		done := make(chan struct{})
-		p.reads = reads
-		p.readerStop = stop
-		p.readerDone = done
-		go func() {
-			defer close(done)
-			for {
-				r, _, err := p.terminal.ReadRune()
-				if err != nil {
-					p.readErr = err
-					close(reads)
-					return
-				}
-				select {
-				case reads <- readResult{r: r}:
-				case <-stop:
-					p.readErr = errReaderClosed
-					close(reads)
-					return
-				}
-			}
-		}()
-	})
-	return p.reads
-}
-
-// readInterrupter is implemented by a terminal whose Close ends a read in
-// progress. Only such a terminal can be waited on: where a read cannot be
-// interrupted, waiting for the reader to notice would hang Close forever.
-type readInterrupter interface {
-	interruptsReads() bool
-}
-
-// awaitReaderExit waits for the shared reader goroutine to finish, but only
-// where closing the terminal is known to have ended the read it was in.
-//
-// Waiting matters because a reader that outlives Close is not idle. It is
-// blocked on a descriptor the process has closed, and once that descriptor
-// number is reused — running a child process is enough to cause that — the
-// goroutine is reading whatever now holds it, taking input meant for something
-// else. A prompt opened after one was closed received nothing at all, because
-// the previous session's reader had the new session's terminal.
-//
-// Where the terminal cannot be interrupted the goroutine is left to end when
-// its read returns, which is what happened before this and is still better than
-// a Close that never returns.
-func (p *Prompt) awaitReaderExit() {
-	if p.readerDone == nil {
-		return
-	}
-	if ri, ok := p.terminal.(readInterrupter); !ok || !ri.interruptsReads() {
-		return
-	}
-	<-p.readerDone
-}
-
-// stopInputReader releases the shared reader, if one was started. A goroutine
-// waiting to hand over a rune has no other way out: closing the terminal ends a
-// read in progress, but says nothing to one blocked on the channel.
-func (p *Prompt) stopInputReader() {
-	if p.readerStop == nil {
-		return
-	}
-	p.readerStopOnce.Do(func() { close(p.readerStop) })
 }

@@ -3,6 +3,8 @@ package prompt
 import (
 	"context"
 	"errors"
+	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -158,5 +160,51 @@ func TestCloseReleasesAReaderBlockedOnHandover(t *testing.T) {
 	case <-p.readerDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the reader is still waiting to hand over a rune nobody will take")
+	}
+}
+
+// TestWatchInterruptCancelsOnSIGINT covers the mode the terminal is actually in
+// while a watch runs in a default session. Ctrl+C is only a byte in raw mode,
+// and outside a persistent session Run gives raw mode back before it returns, so
+// the key the watcher is looking for is turned into SIGINT by the terminal
+// driver and never reaches the reader at all. Watching for the signal too is
+// what makes the documented pattern work in both modes -- and registering for it
+// is also what stops the default action from killing the application in the
+// middle of the work.
+//
+// It does not call t.Parallel, on purpose: the signal goes to the whole test
+// process, and a parallel test with a watch of its own would see it too. Go
+// pauses parallel tests until the sequential ones have finished, so a
+// sequential test is the one place a signal can be sent without reaching them.
+func TestWatchInterruptCancelsOnSIGINT(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a process cannot send itself SIGINT on Windows")
+	}
+
+	// A blocking terminal, because a mock that ends its script reports EOF and
+	// the watcher returns before any signal could arrive.
+	terminal := newBlockingTerminal(true)
+	p := newTestPromptOn(terminal)
+	defer func() { _ = p.Close() }()
+
+	ctx, stop := p.WatchInterrupt(context.Background())
+	defer stop()
+
+	// Wait for the watch to be watching. Sending the signal before it registers
+	// would kill the test binary rather than cancel the context.
+	if !waitFor(func() bool { return terminal.readers.Load() > 0 }) {
+		t.Fatal("the watch never reached the terminal, so the signal would land on nothing")
+	}
+	self, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("finding the test process: %v", err)
+	}
+	if err := self.Signal(os.Interrupt); err != nil {
+		t.Fatalf("sending SIGINT to the test process: %v", err)
+	}
+
+	waitForDone(ctx, t, "SIGINT during watched work")
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Errorf("ctx.Err() = %v, want context.Canceled", ctx.Err())
 	}
 }

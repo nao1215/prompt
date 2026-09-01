@@ -4,6 +4,7 @@ package prompt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -245,6 +246,20 @@ func kill(t *testing.T, cmd *exec.Cmd) {
 	}
 }
 
+// sttySettings reads the terminal's settings the way a shell would, because
+// what a session must give back is every setting rather than the few this
+// package sets. Asking stty keeps the test off the termios constants, which
+// differ between Linux and the BSDs.
+func sttySettings() string {
+	cmd := exec.CommandContext(context.Background(), "stty", "-g")
+	cmd.Stdin = os.Stdin
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Sprintf("stty: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func boolEnv(b bool) string {
 	if b {
 		return "1"
@@ -407,6 +422,56 @@ func helperScenario(name string) {
 		line, err = p.Run()
 		fmt.Printf("session2=%q err=%v\r\n", line, err)
 		_ = p.Close()
+	case "watchdefault":
+		// The same watch as "typeahead", in the mode a caller gets without
+		// asking for anything: Run gives raw mode back when it returns, so the
+		// terminal is cooked while the watch runs and Ctrl+C arrives as SIGINT
+		// rather than as the byte the watcher reads.
+		p, err := New("p1> ")
+		if err != nil {
+			fmt.Printf("new: %v\r\n", err)
+			os.Exit(1)
+		}
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		ctx, stop := p.WatchInterrupt(context.Background())
+		fmt.Printf("watching\r\n")
+		select {
+		case <-ctx.Done():
+			fmt.Printf("interrupted\r\n")
+		case <-time.After(10 * time.Second):
+			// Not "never-interrupted": the assertion looks for "interrupted",
+			// which that would contain, so a watch that saw nothing would pass.
+			fmt.Printf("watch-timed-out\r\n")
+		}
+		stop()
+		_ = p.Close()
+	case "runafterclose":
+		start := sttySettings()
+		p := open(1)
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		if err := p.Close(); err != nil {
+			fmt.Printf("close: %v\r\n", err)
+		}
+		closed := sttySettings()
+		// A REPL that closed on one path and came round again. The second Run has
+		// to report that the session is over, and it must do so without touching
+		// the terminal, because in a persistent session the Close that would
+		// restore it has already run. The prefix changes so that anything that
+		// Run draws is recognizable in the transcript: nothing may be.
+		p.SetPrefix("p2> ")
+		line, err = p.Run()
+		fmt.Printf("session2=%q err=%v errEOF=%v\r\n", line, err, errors.Is(err, ErrEOF))
+		fmt.Printf("restored=%v\r\n", sttySettings() == closed)
+		// Printed, not asserted. Whether a whole session gives every setting
+		// back is a different question from what a Run on a closed prompt does,
+		// and macOS answers it with one bit set that Linux does not: lflag gains
+		// PENDIN (0x20000000) across a session there. The kernel sets that bit
+		// itself to say input is waiting to be reprinted -- it is not a setting
+		// an application chose or can restore -- so it is reported rather than
+		// required, and it is here so the next reader does not chase it again.
+		fmt.Printf("sessionrestored=%v\r\nstty0=%s\r\nstty1=%s\r\n", start == closed, start, closed)
 	case "childinput":
 		p := open(1)
 		line, err := p.Run()
@@ -440,6 +505,9 @@ func TestPromptLifecycleOrdersUnderAPTY(t *testing.T) {
 		scenario string
 		steps    []ptyStep
 		want     []string
+		// absent is what the terminal must never have been shown, for a scenario
+		// whose point is that something was not drawn.
+		absent []string
 	}{
 		{
 			name:     "three sessions in a row, each handing the terminal to a child",
@@ -490,6 +558,19 @@ func TestPromptLifecycleOrdersUnderAPTY(t *testing.T) {
 			want:     []string{`session1="one"`, `session2="ahead"`},
 		},
 		{
+			name:     "a watch in the default mode sees the interrupt",
+			scenario: "watchdefault",
+			steps:    []ptyStep{{await: "p1> ", send: "one\r"}, {await: "watching", send: "\x03"}},
+			want:     []string{`session1="one"`, "interrupted"},
+		},
+		{
+			name:     "a Run on a closed prompt leaves the terminal as it found it",
+			scenario: "runafterclose",
+			steps:    []ptyStep{{await: "p1> ", send: "one\r"}},
+			want:     []string{`session1="one"`, "errEOF=true", "restored=true"},
+			absent:   []string{"p2> "},
+		},
+		{
 			name:     "cancelling the context from another goroutine ends the read",
 			scenario: "cancelduringrun",
 			want:     []string{"run returned"},
@@ -504,6 +585,11 @@ func TestPromptLifecycleOrdersUnderAPTY(t *testing.T) {
 			for _, want := range tt.want {
 				if !strings.Contains(out, want) {
 					t.Errorf("the transcript does not contain %s\n--- transcript ---\n%s", want, out)
+				}
+			}
+			for _, absent := range tt.absent {
+				if strings.Contains(out, absent) {
+					t.Errorf("the transcript contains %s, which nothing should have drawn\n--- transcript ---\n%s", absent, out)
 				}
 			}
 		})

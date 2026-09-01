@@ -347,3 +347,38 @@ func TestEnterExitRawModeIdempotent(t *testing.T) {
 		t.Errorf("Restore called %d times, want 1 (idempotent exit)", mock.restoreCount)
 	}
 }
+
+// TestRunAfterCloseLeavesTheTerminalAlone pins what a Run on a closed prompt may
+// do: report that the session is over, and touch nothing on the way.
+//
+// It used to enter raw mode first and learn the terminal was gone only when it
+// read. Raw mode is set on a descriptor Close never touches, so it succeeded,
+// and in a persistent session nothing restored it: the per-call cleanup is
+// skipped there by design, and Close -- the one thing that would have restored
+// it -- had already run. The application exited leaving the user's shell with no
+// echo, no line editing and a dead Ctrl+C.
+func TestRunAfterCloseLeavesTheTerminalAlone(t *testing.T) {
+	t.Parallel()
+
+	mock := newMockTerminal("one\r")
+	p := newTestPrompt(mock, WithPersistentRawMode())
+
+	if _, err := p.RunWithContext(context.Background()); err != nil {
+		t.Fatalf("the first Run returned error: %v", err)
+	}
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	setRawBefore := mock.setRawCount
+
+	_, err := p.RunWithContext(context.Background())
+	if !errors.Is(err, ErrEOF) {
+		t.Errorf("Run after Close returned %v, want ErrEOF", err)
+	}
+	if mock.setRawCount != setRawBefore {
+		t.Errorf("Run after Close entered raw mode %d time(s), want 0", mock.setRawCount-setRawBefore)
+	}
+	if mock.rawMode {
+		t.Error("a Run on a closed prompt left the terminal in raw mode")
+	}
+}

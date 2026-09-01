@@ -2,6 +2,8 @@ package prompt
 
 import (
 	"context"
+	"os"
+	"os/signal"
 	"sync"
 )
 
@@ -33,6 +35,16 @@ const ctrlC = '\x03'
 // was typed, so typing ahead keeps working. The Ctrl+C itself is taken, which is
 // what stops it from also canceling the next line.
 //
+// The key reaches the process in one of two forms, and which one depends on the
+// mode the terminal is in: the byte 0x03 while the prompt holds the terminal,
+// and SIGINT once it has given it back, which is where a prompt built without
+// WithPersistentRawMode sits between one line and the next. Both are watched.
+// While the watch is active the signal's default action is taken away, so the
+// interrupt cancels the work instead of killing the application; the stop
+// function gives it back. An interrupt sent any other way -- kill -INT from
+// another terminal -- cancels the work too, because there is nothing to tell it
+// apart from the key.
+//
 // The returned context is a child of the one passed in, so a caller whose own
 // context is canceled still sees the work stop. It is canceled by the returned
 // function too, so work cannot outlive the call it was started for.
@@ -47,11 +59,21 @@ func (p *Prompt) WatchInterrupt(parent context.Context) (context.Context, contex
 	stop := make(chan struct{})
 	done := make(chan struct{})
 
+	// The registration happens here rather than in the goroutine, so the signal
+	// is trapped by the time this returns and there is no window in which the
+	// key still kills the caller.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt)
+
 	go func() {
 		defer close(done)
+		defer signal.Stop(signals)
 		for {
 			select {
 			case <-stop:
+				return
+			case <-signals:
+				cancel()
 				return
 			case res, ok := <-reads:
 				if !ok {
