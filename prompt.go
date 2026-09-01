@@ -113,7 +113,15 @@ type HistoryConfig struct {
 
 // Config holds the configuration for a prompt.
 type Config struct {
-	Prefix        string                      // Prompt prefix (e.g., "$ ")
+	// Prefix is drawn in front of the line being edited (for example "$ ").
+	//
+	// It is text. The color scheme colors it, so an escape sequence written
+	// here is not a second color -- it is drawn as a space, one space per rune
+	// the terminal would act on, because the prompt measures its own layout
+	// from what it draws and a sequence the terminal obeys occupies no cells to
+	// measure. A newline is a space for the same reason: the block's height is
+	// counted from the input's line breaks, not the prefix's.
+	Prefix        string
 	Completer     func(Document) []Suggestion // Completion function (accepts Document for context)
 	HistoryConfig *HistoryConfig              // History configuration (nil for default)
 	ColorScheme   *ColorScheme                // Color scheme (nil for default)
@@ -126,7 +134,8 @@ type Config struct {
 	// Highlighter colors runs of the input as it is drawn. See WithHighlighter.
 	Highlighter func(input string) []StyleSpan
 	// ContinuationPrefix is drawn in front of every line after the first while a
-	// multiline entry is still being typed. See WithContinuationPrefix.
+	// multiline entry is still being typed. See WithContinuationPrefix. It is
+	// text on the same terms as Prefix.
 	ContinuationPrefix string
 	// PersistentRawMode keeps the terminal in raw mode across consecutive Run
 	// calls instead of re-acquiring it on every call. See WithPersistentRawMode
@@ -388,8 +397,16 @@ type Range struct {
 
 // Suggestion represents a completion suggestion.
 type Suggestion struct {
-	Text        string // The text to complete
-	Description string // Description of the suggestion
+	// Text is what accepting this suggestion puts on the line.
+	//
+	// It is text, whatever its source. A completer built from a file offers
+	// whatever the file holds, so a rune the terminal would act on rather than
+	// draw -- an escape sequence in a CSV header, say -- is drawn as a space,
+	// both in the menu and on the line once the suggestion is accepted. The
+	// buffer keeps it, so Run returns the string the completer offered.
+	Text string
+	// Description is drawn beside Text in the menu, on the same terms.
+	Description string
 	// Replace, when non-nil, is the span of the input that accepting this
 	// suggestion overwrites with Text. It lets a completer that knows more about
 	// the input than a word boundary can express — a qualified name, a
@@ -404,7 +421,8 @@ type Suggestion struct {
 	Replace *Range
 }
 
-// Suggest is an alias for Suggestion for compatibility
+// Suggest is what go-prompt calls a Suggestion. It is an alias, so a completer
+// written against go-prompt keeps compiling.
 type Suggest = Suggestion
 
 // New creates a new prompt with the specified prefix and optional configuration.
@@ -1125,7 +1143,8 @@ func (p *Prompt) SetTheme(theme *ColorScheme) {
 	p.renderer = newRenderer(p.output, theme, p.terminal)
 }
 
-// SetPrefix changes the prompt prefix
+// SetPrefix changes the prompt prefix, which takes effect on the next render.
+// It is text on the terms Config.Prefix describes.
 func (p *Prompt) SetPrefix(prefix string) {
 	p.config.Prefix = prefix
 }
