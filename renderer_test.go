@@ -1869,15 +1869,6 @@ func (s *screenModel) rows() []string {
 	return out[:last+1]
 }
 
-// widthTerminal reports a fixed width, so a render can be measured against a
-// terminal narrower than the fallback.
-type widthTerminal struct {
-	mockTerminal
-	width int
-}
-
-func (w *widthTerminal) Size() (width, height int, err error) { return w.width, 24, nil }
-
 // TestRendererKeepsATabOnTheRowTheTerminalPutIt renders a line whose tab reaches
 // the right margin and compares the result against a terminal. A tab that stops
 // at the margin has not filled the last cell, so the character after it belongs
@@ -1890,7 +1881,7 @@ func TestRendererKeepsATabOnTheRowTheTerminalPutIt(t *testing.T) {
 	const input = "x\ty\tz"
 
 	var out bytes.Buffer
-	r := newRenderer(&out, ThemeDefault, &widthTerminal{width: width})
+	r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: width})
 	if err := r.render("> ", input, len([]rune(input))); err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -1924,7 +1915,7 @@ func TestRendererDoesNotEraseTheRowAboveAfterATab(t *testing.T) {
 	const width = 10
 
 	var out bytes.Buffer
-	r := newRenderer(&out, ThemeDefault, &widthTerminal{width: width})
+	r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: width})
 	if err := r.render("> ", "x\ty\tz", 5); err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -2023,7 +2014,7 @@ func TestRendererDrawsOneRowPerSuggestion(t *testing.T) {
 			const width = 40
 
 			var out bytes.Buffer
-			r := newRenderer(&out, ThemeDefault, &widthTerminal{width: width})
+			r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: width})
 			if err := r.renderWithSuggestionsOffset("> ", "a", 1, []Suggestion{tt.suggestion}, 0, 0); err != nil {
 				t.Fatalf("renderWithSuggestionsOffset: %v", err)
 			}
