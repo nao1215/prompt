@@ -799,14 +799,9 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 
 		case ActionMoveDown:
 			if len(suggestions) > 0 {
-				// Navigate suggestions with scrolling
-				maxDisplayed := 10 // Maximum suggestions to display at once
 				if selectedSuggestion < len(suggestions)-1 {
 					selectedSuggestion++
-					// Scroll down if needed
-					if selectedSuggestion >= suggestionOffset+maxDisplayed {
-						suggestionOffset = selectedSuggestion - maxDisplayed + 1
-					}
+					suggestionOffset = p.scrollToSelection(suggestions, selectedSuggestion, suggestionOffset)
 				}
 			} else if p.isMultiLine() {
 				// Navigate down within multi-line input
@@ -1127,6 +1122,31 @@ func (p *Prompt) insertText(text string) {
 func (p *Prompt) setBuffer(text string) {
 	p.buffer = []rune(text)
 	p.cursor = len(p.buffer)
+}
+
+// scrollToSelection returns the scroll offset that puts the selected suggestion
+// inside the window the renderer will draw.
+//
+// The window is however many candidates fit under the input block, which depends
+// on the terminal's height, on how far the input wraps, and on how far the
+// candidates themselves wrap -- so it is asked for rather than assumed. Asking
+// again after moving the offset is what makes the answer stable: the candidates
+// a later window holds are different ones, and they can be taller.
+func (p *Prompt) scrollToSelection(suggestions []Suggestion, selected, offset int) int {
+	// Bounded by the list: every pass moves the offset toward the selection.
+	for range suggestions {
+		if selected < offset {
+			offset = selected
+			continue
+		}
+		window := p.renderer.suggestionWindow(p.config.Prefix, string(p.buffer), suggestions, offset)
+		if window > 0 && selected >= offset+window {
+			offset = selected - window + 1
+			continue
+		}
+		return offset
+	}
+	return offset
 }
 
 // completionWord returns the word before the cursor used for completion matching

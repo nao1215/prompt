@@ -104,6 +104,10 @@ type renderer struct {
 	// change halfway through a redraw. Zero until the first render, which is why
 	// the readers fall back rather than trusting it.
 	width int
+	// height is the terminal's height in rows, read with the width. It bounds
+	// what may be drawn: a block taller than the terminal scrolls it, and the
+	// rows the renderer remembers then name rows that are no longer on screen.
+	height int
 	// continuationPrefix is drawn in front of every line after the first, so a
 	// multiline entry shows that the prompt is still collecting input. Empty
 	// (the default) keeps continuation lines flush against the left margin.
@@ -154,6 +158,14 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 	inputLines := r.calculateRenderedLines(prefix, input)
 	if inputLines == 0 {
 		inputLines = 1
+	}
+
+	// A menu with no room to be drawn is not drawn: the input block already
+	// fills the terminal, and a list under it would push the line being
+	// completed off the top of the screen. The prompt is rendered the way it is
+	// without one, cursor and all, so the user keeps what they are typing.
+	if len(suggestions) > 0 && r.suggestionWindowAt(prefix, input, suggestions, offset) == 0 {
+		suggestions = nil
 	}
 
 	if len(suggestions) > 0 {
@@ -364,26 +376,70 @@ func (r *renderer) spansFor(input string) []StyleSpan {
 	return out
 }
 
+// maxMenuEntries is the most candidates the completion menu lists at once, however
+// much room the terminal has. Past that the list stops being read and starts
+// being scrolled through.
+const maxMenuEntries = 10
+
+// suggestionEntryRows returns how many terminal rows one menu entry occupies.
+// The indicator is two cells whether or not the entry is the selected one, so a
+// row is the same height either way.
+func (r *renderer) suggestionEntryRows(s Suggestion) int {
+	wrapped, _ := layout(suggestionCells("  ", s), r.terminalWidth())
+	return wrapped + 1
+}
+
+// suggestionWindow reports how many candidates, counting from offset, the menu
+// may list: as many as fit in the rows the terminal has left under the input
+// block, and never more than maxMenuEntries.
+//
+// It exists because the answer is needed in two places that have to agree. The
+// read loop keeps the scroll offset and needs to know what a Down can reach; the
+// renderer draws the window and counts the rows it drew. A window drawn smaller
+// than the loop assumed leaves the selected candidate off screen, highlighted
+// nowhere, while Enter still accepts it.
+//
+// Zero is an answer: an input that already fills the terminal leaves no room for
+// a list, and a list drawn anyway would push the line being completed off the
+// top of the screen, which is the one thing the user is looking at.
+func (r *renderer) suggestionWindow(prefix, input string, suggestions []Suggestion, offset int) int {
+	r.measureTerminal()
+	return r.suggestionWindowAt(prefix, input, suggestions, offset)
+}
+
+// suggestionWindowAt is suggestionWindow against the size already measured, for
+// the render that has just measured it.
+func (r *renderer) suggestionWindowAt(prefix, input string, suggestions []Suggestion, offset int) int {
+	available := r.terminalHeight() - r.calculateRenderedLines(prefix, input)
+	used, count := 0, 0
+	for i := offset; i < len(suggestions) && count < maxMenuEntries; i++ {
+		rows := r.suggestionEntryRows(suggestions[i])
+		if used+rows > available {
+			break
+		}
+		used += rows
+		count++
+	}
+	return count
+}
+
 // renderSuggestionsWithOffset renders the completion suggestions with scrolling
 // support. It returns how many terminal rows the menu occupies, which the next
 // erase moves up by: the visible range is decided here, so the count is too.
-func (r *renderer) renderSuggestionsWithOffset(_, _ string, _ int, suggestions []Suggestion, selected int, offset int) (int, error) {
+func (r *renderer) renderSuggestionsWithOffset(prefix, input string, _ int, suggestions []Suggestion, selected int, offset int) (int, error) {
 	// Start rendering suggestions
 	if _, err := fmt.Fprint(r.output, "\r\n"); err != nil {
 		return 0, err
 	}
 
-	maxSuggestions := 10 // Limit number of displayed suggestions
+	// Clamp offset to valid range for all suggestion counts. The last window
+	// starts maxMenuEntries from the end, so a caller that scrolled past it is
+	// shown a full list rather than the tail of one.
+	offset = max(0, min(offset, max(0, len(suggestions)-maxMenuEntries)))
 
-	// Clamp offset to valid range for all suggestion counts
-	maxOffset := max(0, len(suggestions)-maxSuggestions)
-	offset = max(0, min(offset, maxOffset))
-
-	// Calculate visible range with offset
-	visibleSuggestions := suggestions
-	if len(suggestions) > maxSuggestions {
-		visibleSuggestions = suggestions[offset:min(offset+maxSuggestions, len(suggestions))]
-	}
+	// The window is what fits under the input, so a menu never grows the block
+	// past the terminal's last row.
+	visibleSuggestions := suggestions[offset:min(offset+r.suggestionWindowAt(prefix, input, suggestions, offset), len(suggestions))]
 
 	// Adjust selected index for visible range
 	visibleSelected := selected - offset
@@ -677,13 +733,30 @@ func (r *renderer) terminalWidth() int {
 
 // measureTerminal reads the terminal's width for the render about to happen.
 func (r *renderer) measureTerminal() {
-	r.width = 0
+	r.width, r.height = 0, 0
 	if r.terminal == nil {
 		return
 	}
-	if width, _, err := r.terminal.Size(); err == nil && width > 0 {
+	width, height, err := r.terminal.Size()
+	if err != nil {
+		return
+	}
+	if width > 0 {
 		r.width = width
 	}
+	if height > 0 {
+		r.height = height
+	}
+}
+
+// terminalHeight returns the height this render is measuring against, falling
+// back the way terminalWidth does when the terminal has not been asked yet or
+// could not say.
+func (r *renderer) terminalHeight() int {
+	if r.height > 0 {
+		return r.height
+	}
+	return fallbackHeight
 }
 
 // showCursorSequence makes the terminal cursor visible; hideCursorSequence hides
