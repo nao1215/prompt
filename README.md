@@ -9,7 +9,9 @@
 
 prompt is a terminal prompt library for Go for building interactive command-line interfaces. It is a maintained replacement for the archived [c-bata/go-prompt](https://github.com/c-bata/go-prompt), keeping the same core idea, a read loop with completion and history, while running on Linux, macOS, and Windows.
 
-![sample](./doc/img/demo.gif)
+![demo](./doc/img/demo.gif)
+
+The animation is [example/demo](./example/demo), a toy SQL shell built on this library, driven by [demo.tape](./example/demo/demo.tape). Run it yourself with `go run ./example/demo`.
 
 ## Features
 
@@ -566,6 +568,7 @@ The [example](./example) directory has complete programs:
 - [Command history](./example/history) - history navigation and persistence
 - [Multi-line input](./example/multiline) - multi-line editing
 - [Interactive shell](./example/shell) - a file explorer shell
+- [Demo](./example/demo) - the toy SQL shell in the animation above: context-aware completion, syntax highlighting, and multi-line statements
 
 ## Notes
 
