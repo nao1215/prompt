@@ -3614,7 +3614,11 @@ func (s *sizedMockTerminal) Size() (width, height int, err error) {
 // escape sequence at a time cannot see that; a terminal can.
 //
 // The keys are the ones a session actually receives, including the pastes and
-// the escape sequences that turned out to be where the bugs were.
+// the escape sequences that turned out to be where the bugs were. The terminal
+// varies in height as well as width, because an entry taller than the terminal
+// is drawn as the window of itself the terminal has room for: the line has just
+// been submitted when the screen is read, so the caret is at the end of the
+// entry and the window is its last rows.
 func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 	t.Parallel()
 
@@ -3633,6 +3637,7 @@ func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 
 	for iter := range 2000 {
 		width := widths[random.Intn(len(widths))]
+		height := []int{2, 3, 5, 8, 24}[random.Intn(5)]
 		var script strings.Builder
 		for range random.Intn(25) {
 			script.WriteString(keys[random.Intn(len(keys))])
@@ -3640,7 +3645,7 @@ func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 		script.WriteString("\r")
 
 		var out bytes.Buffer
-		terminal := &sizedMockTerminal{width: width}
+		terminal := &sizedMockTerminal{width: width, height: height}
 		terminal.mockTerminal = *newMockTerminal(script.String())
 		p := newTestPromptOn(terminal,
 			WithCompleter(func(Document) []Suggestion {
@@ -3724,16 +3729,33 @@ func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 			}
 		}
 
-		if got, want := drawn.rows(), expected.rows(); strings.Join(got, "|") != strings.Join(want, "|") {
-			t.Fatalf("iter %d width=%d script=%q returned %q\n screen %q\n want   %q",
-				iter, width, script.String(), line, got, want)
+		// A block taller than the terminal is drawn as the window of it the
+		// terminal has room for, and the line has just been submitted, so the
+		// caret is at its end and the window is the block's last rows.
+		// The rows the block occupies, blank ones at its foot included: an entry
+		// ending in a line break has a last line that holds nothing and is still
+		// a row, and the caret is on it.
+		total := expected.row + 1
+		want := make([]string, total)
+		copy(want, expected.rows())
+		offset := 0
+		if total > height {
+			offset = total - height
+			want = want[offset:]
+		}
+		for len(want) > 0 && want[len(want)-1] == "" {
+			want = want[:len(want)-1]
+		}
+		if got := drawn.rows(); strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Fatalf("iter %d width=%d height=%d script=%q returned %q\n screen %q\n want   %q",
+				iter, width, height, script.String(), line, got, want)
 		}
 		// And the cursor is on the character it is on. A measurement can put the
 		// right text on screen and still leave the cursor somewhere else, which
 		// is what a tab counted as a wrap did.
-		if drawn.row != atCursor.row || drawn.col != atCursor.col {
-			t.Fatalf("iter %d width=%d script=%q returned %q: the cursor is at (%d, %d), want (%d, %d)\n%q",
-				iter, width, script.String(), line, drawn.row, drawn.col, atCursor.row, atCursor.col, drawn.rows())
+		if drawn.row != atCursor.row-offset || drawn.col != atCursor.col {
+			t.Fatalf("iter %d width=%d height=%d script=%q returned %q: the cursor is at (%d, %d), want (%d, %d)\n%q",
+				iter, width, height, script.String(), line, drawn.row, drawn.col, atCursor.row-offset, atCursor.col, drawn.rows())
 		}
 	}
 }
