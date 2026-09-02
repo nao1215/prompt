@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -511,7 +512,7 @@ func newHistorySearcher(history []string) func(string) []string {
 }
 
 // searchHistory implements reverse history search (like Ctrl+R in bash)
-func (p *Prompt) searchHistory() (_ string, err error) {
+func (p *Prompt) searchHistory(ctx context.Context) (_ string, err error) {
 	search := newHistorySearcher(p.history)
 	searchBuffer := []rune{}
 	searchResults := search("")
@@ -540,8 +541,11 @@ func (p *Prompt) searchHistory() (_ string, err error) {
 			return "", err
 		}
 
-		// Read key input
-		r, err := p.readRune()
+		// Read key input. Through the context the caller was given, so a
+		// RunWithContext that is canceled while the search is open returns then
+		// rather than on the next keystroke: the search is a read loop of its
+		// own, and for as long as it is open it is the only thing watching.
+		r, err := p.readRuneContext(ctx)
 		if err != nil {
 			return "", err
 		}

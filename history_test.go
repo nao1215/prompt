@@ -3,6 +3,7 @@ package prompt
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -11,8 +12,10 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"testing/quick"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -612,7 +615,7 @@ func TestHistorySearch(t *testing.T) {
 		mockInput := "git\r"
 		p := createPromptWithHistory(history, mockInput)
 
-		result, err := p.searchHistory()
+		result, err := p.searchHistory(t.Context())
 		if err != nil {
 			t.Fatalf("searchHistory failed: %v", err)
 		}
@@ -628,7 +631,7 @@ func TestHistorySearch(t *testing.T) {
 		mockInput := "git\x1b"
 		p := createPromptWithHistory(history, mockInput)
 
-		result, err := p.searchHistory()
+		result, err := p.searchHistory(t.Context())
 		if err != nil {
 			t.Fatalf("searchHistory failed: %v", err)
 		}
@@ -644,7 +647,7 @@ func TestHistorySearch(t *testing.T) {
 		mockInput := "git\x03"
 		p := createPromptWithHistory(history, mockInput)
 
-		result, err := p.searchHistory()
+		result, err := p.searchHistory(t.Context())
 		if err != nil {
 			t.Fatalf("searchHistory failed: %v", err)
 		}
@@ -664,7 +667,7 @@ func TestHistorySearch(t *testing.T) {
 		p := createPromptWithHistory(history, "git\r")
 		p.output = &out
 
-		if _, err := p.searchHistory(); err != nil {
+		if _, err := p.searchHistory(t.Context()); err != nil {
 			t.Fatalf("searchHistory failed: %v", err)
 		}
 
@@ -687,7 +690,7 @@ func TestHistorySearch(t *testing.T) {
 		p := createPromptWithHistory(history, "git\x1b")
 		p.output = &out
 
-		if _, err := p.searchHistory(); err != nil {
+		if _, err := p.searchHistory(t.Context()); err != nil {
 			t.Fatalf("searchHistory failed: %v", err)
 		}
 		if got := out.String(); !strings.HasSuffix(got, "\x1b[0J") {
@@ -700,7 +703,7 @@ func TestHistorySearch(t *testing.T) {
 		mockInput := "gitx\x7f\r"
 		p := createPromptWithHistory(history, mockInput)
 
-		result, err := p.searchHistory()
+		result, err := p.searchHistory(t.Context())
 		if err != nil {
 			t.Fatalf("searchHistory failed: %v", err)
 		}
@@ -716,7 +719,7 @@ func TestHistorySearch(t *testing.T) {
 		mockInput := "git\t\r"
 		p := createPromptWithHistory(history, mockInput)
 
-		result, err := p.searchHistory()
+		result, err := p.searchHistory(t.Context())
 		if err != nil {
 			t.Fatalf("searchHistory failed: %v", err)
 		}
@@ -732,7 +735,7 @@ func TestHistorySearch(t *testing.T) {
 		mockInput := "git\t\t\t\r"
 		p := createPromptWithHistory(history, mockInput)
 
-		result, err := p.searchHistory()
+		result, err := p.searchHistory(t.Context())
 		if err != nil {
 			t.Fatalf("searchHistory failed: %v", err)
 		}
@@ -750,7 +753,7 @@ func TestHistorySearch(t *testing.T) {
 		mockInput := "\r"
 		p := createPromptWithHistory(history, mockInput)
 
-		result, err := p.searchHistory()
+		result, err := p.searchHistory(t.Context())
 		if err != nil {
 			t.Fatalf("searchHistory failed: %v", err)
 		}
@@ -766,7 +769,7 @@ func TestHistorySearch(t *testing.T) {
 		mockInput := "zzznomatch\r"
 		p := createPromptWithHistory(history, mockInput)
 
-		result, err := p.searchHistory()
+		result, err := p.searchHistory(t.Context())
 		if err != nil {
 			t.Fatalf("searchHistory failed: %v", err)
 		}
@@ -785,7 +788,7 @@ func TestHistorySearch(t *testing.T) {
 		mockInput := "こん\r"
 		p := createPromptWithHistory(unicodeHistory, mockInput)
 
-		result, err := p.searchHistory()
+		result, err := p.searchHistory(t.Context())
 		if err != nil {
 			t.Fatalf("searchHistory failed: %v", err)
 		}
@@ -896,7 +899,7 @@ func TestHistorySearchErrorCases(t *testing.T) {
 			history:  []string{"test"},
 		}
 
-		_, err := p.searchHistory()
+		_, err := p.searchHistory(t.Context())
 		if err == nil {
 			t.Error("Expected error when readRune fails")
 		}
@@ -2301,5 +2304,102 @@ func TestReverseSearchFitsUnderTheEntryItSearchesFrom(t *testing.T) {
 				t.Errorf("the search drew nothing at all")
 			}
 		})
+	}
+}
+
+// scriptedThenBlockingTerminal delivers a fixed script and then blocks in the
+// read, which is what a terminal does once the user has stopped typing. It is
+// what a test needs to ask what happens while a prompt is waiting rather than
+// while it is busy: the stock mock reports EOF as soon as its script runs out,
+// which ends whatever was waiting.
+type scriptedThenBlockingTerminal struct {
+	mu      sync.Mutex
+	input   []rune
+	pos     int
+	release chan struct{}
+}
+
+func newScriptedThenBlockingTerminal(input string) *scriptedThenBlockingTerminal {
+	return &scriptedThenBlockingTerminal{input: []rune(input), release: make(chan struct{})}
+}
+
+func (s *scriptedThenBlockingTerminal) SetRaw() error                        { return nil }
+func (s *scriptedThenBlockingTerminal) Restore() error                       { return nil }
+func (s *scriptedThenBlockingTerminal) Size() (width, height int, err error) { return 80, 24, nil }
+func (s *scriptedThenBlockingTerminal) Close() error                         { return nil }
+
+func (s *scriptedThenBlockingTerminal) ReadRune() (rune, int, error) {
+	s.mu.Lock()
+	if s.pos < len(s.input) {
+		r := s.input[s.pos]
+		s.pos++
+		s.mu.Unlock()
+		return r, 1, nil
+	}
+	s.mu.Unlock()
+	<-s.release
+	return 0, 0, io.EOF
+}
+
+// lockedBuffer is a bytes.Buffer a test can read while the prompt is writing to
+// it from another goroutine.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestCancelingTheContextEndsAnOpenReverseSearch cancels a RunWithContext while
+// the search block is on screen and nobody is typing.
+//
+// The search is a read loop of its own inside the read loop, so for as long as
+// it is open it is the only thing that can notice the context. Reading the
+// terminal directly there left a canceled call waiting for a keystroke that was
+// never going to come.
+func TestCancelingTheContextEndsAnOpenReverseSearch(t *testing.T) {
+	t.Parallel()
+
+	terminal := newScriptedThenBlockingTerminal("\x12") // Ctrl+R, then silence
+	t.Cleanup(func() { close(terminal.release) })
+
+	var out lockedBuffer
+	p := newTestPromptOn(terminal, WithMemoryHistory(10))
+	p.output = &out
+	p.renderer = newRenderer(&out, ThemeDefault, terminal)
+	p.SetHistory([]string{"select 1"})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.RunWithContext(ctx)
+		done <- err
+	}()
+
+	if !waitFor(func() bool { return strings.Contains(out.String(), "reverse-i-search") }) {
+		cancel()
+		t.Fatal("the search never drew its block, so this test would pass without proving anything")
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("RunWithContext() error = %v, want context.Canceled", err)
+		}
+	// Long enough that a busy runner is not what failed it: what is being
+	// asked is whether the call returns at all.
+	case <-time.After(10 * time.Second):
+		t.Error("RunWithContext did not return after its context was canceled")
 	}
 }
