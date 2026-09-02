@@ -424,13 +424,14 @@ p, err := prompt.New("sql> ",
 )
 ```
 
-What it returns is part of the input, so it is submitted and recorded in history
-like anything else typed.
-Everything no run covers keeps the scheme's input color. The highlighter
-decides colors and nothing else: the input is drawn exactly as it is, and the
-prompt measures its layout from that text, so highlighting cannot move the
-cursor or wrap a line early. It is called on every render, so it should be cheap
-over a line's worth of text.
+Everything no run covers keeps the scheme's input color, and a run given the zero
+`prompt.Color` keeps it too, which is how a highlighter says "leave this one
+alone". The highlighter decides colors and nothing else: the input is drawn
+exactly as it is, and the prompt measures its layout from that text, so
+highlighting cannot move the cursor or wrap a line early. Runs that overlap, run
+backwards, or reach past either end of the input are normalized rather than
+rejected — getting a color wrong must not cost the line being typed. It is
+called on every render, so it should be cheap over a line's worth of text.
 
 ### Handing the terminal to another program
 
