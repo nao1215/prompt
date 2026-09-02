@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `Close` ends the session below the entry that was on screen ([#138](https://github.com/nao1215/prompt/issues/138)). It wrote its line break from wherever the caret was, so closing a prompt while a `Run` was in progress -- which is how a session is ended from another goroutine -- left the shell's next prompt drawn into the middle of a multiline entry with the rest of it below, and nothing redraws over that. It now moves to the foot of the block first, and writes a carriage return with the line break so the column is right even if the terminal was left in raw mode.
 
+- Typing while more than one `WatchInterrupt` watch is active keeps the order of the keys ([#140](https://github.com/nao1215/prompt/issues/140)). Every watch ran a receiver of its own on the shared reader's channel, and two receivers hold what they took in whichever order the scheduler gives them, so `abcdef` typed through two watches reached the next `Run` as `abdcef`. There is now one watcher for the prompt however many watches are active, and an interrupt cancels all of them, which is what an interrupt means when the work being watched is nested. Two smaller things came with it: a watch outlives the input it watches, because the keyboard having nothing more to say is not the caller saying its work is done, and `Close` ends a watch nobody stopped rather than leaving it holding the interrupt for the rest of the process.
+
 ### Changed
 
 - The key map examples in the README and the godoc bind Ctrl+P and Ctrl+N to the history instead of rebinding Ctrl+L. Every one of them replaced a key the default map already uses, and one bound `ActionNewLine` under a comment that said it cleared the screen.

@@ -80,6 +80,18 @@ type Prompt struct {
 	// be observed rather than assumed.
 	readerDone chan struct{}
 
+	// The watch, which is one goroutine per prompt however many watches are
+	// active: watchers holds what each of them cancels, keyed so a watch can
+	// take its own out again. A goroutine per watch meant a receiver per watch
+	// on the shared reader's channel, and two receivers stash what they took in
+	// whichever order the scheduler gives them, which is not the order it was
+	// typed in. See WatchInterrupt.
+	watchMu   sync.Mutex
+	watchers  map[uint64]context.CancelFunc
+	watchNext uint64
+	watchStop chan struct{}
+	watchDone chan struct{}
+
 	// closed is set by Close and says the session is over. Every entry point
 	// that would touch the terminal has to know that, because the terminal has
 	// been given up while its settings live on: raw mode is set on a descriptor
@@ -1091,6 +1103,11 @@ func (p *Prompt) Close() error {
 	// a key reports the ending it knows rather than the error the terminal gives
 	// up with.
 	p.closed.Store(true)
+
+	// The watch ends with the session: it holds the interrupt away from its
+	// default action, and a watch nobody stopped would keep it there for the
+	// rest of the process.
+	p.endWatching()
 
 	// Release the shared reader before the terminal: closing the terminal ends a
 	// read in progress, and this ends a goroutine waiting to hand over a rune
