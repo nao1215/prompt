@@ -129,6 +129,22 @@
 // rather than the prompt's. Whichever line the cursor was on, an entry ends at
 // its foot, so what the program prints next starts below it.
 //
+// # What a byte does
+//
+// A key the terminal sends as a control byte is what the key map binds it to,
+// and a byte it binds to nothing is dropped: putting a raw control byte
+// into the line would be worse than losing it. Ctrl+D is the one whose answer
+// depends on the line -- it ends the input when there is nothing on it, and
+// does nothing when there is.
+//
+// A byte that is not valid UTF-8 is typed as U+FFFD, the replacement character.
+// The entry an application receives then holds a character nobody pressed, and
+// the byte that produced it is gone; that is the answer rather than dropping
+// the byte, because a paste of something that is not text should be visible in
+// the line rather than silently shorter, and rather than keeping the byte,
+// because a caller reading the entry would otherwise hold a string that is not
+// valid UTF-8.
+//
 // # Pasting
 //
 // A terminal that supports bracketed paste wraps a paste in markers, and

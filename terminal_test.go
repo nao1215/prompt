@@ -1,9 +1,11 @@
 package prompt
 
 import (
+	"bufio"
 	"errors"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	"golang.org/x/term"
@@ -41,7 +43,7 @@ func TestMockTerminal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &mockTerminal{
-				input:        []rune(tt.input),
+				input:        bufio.NewReader(strings.NewReader(tt.input)),
 				terminalSize: [2]int{tt.width, tt.height},
 			}
 
@@ -108,7 +110,7 @@ func TestMockTerminalInputPosition(t *testing.T) {
 	t.Parallel()
 
 	mock := &mockTerminal{
-		input: []rune("abc"),
+		input: bufio.NewReader(strings.NewReader("abc")),
 	}
 
 	// Read first rune
@@ -119,9 +121,6 @@ func TestMockTerminalInputPosition(t *testing.T) {
 	if r1 != 'a' {
 		t.Errorf("Expected 'a', got %c", r1)
 	}
-	if mock.inputPos != 1 {
-		t.Errorf("Expected inputPos 1, got %d", mock.inputPos)
-	}
 
 	// Read second rune
 	r2, _, err := mock.ReadRune()
@@ -131,9 +130,6 @@ func TestMockTerminalInputPosition(t *testing.T) {
 	if r2 != 'b' {
 		t.Errorf("Expected 'b', got %c", r2)
 	}
-	if mock.inputPos != 2 {
-		t.Errorf("Expected inputPos 2, got %d", mock.inputPos)
-	}
 
 	// Read third rune
 	r3, _, err := mock.ReadRune()
@@ -142,9 +138,6 @@ func TestMockTerminalInputPosition(t *testing.T) {
 	}
 	if r3 != 'c' {
 		t.Errorf("Expected 'c', got %c", r3)
-	}
-	if mock.inputPos != 3 {
-		t.Errorf("Expected inputPos 3, got %d", mock.inputPos)
 	}
 
 	// Try to read beyond input
@@ -157,9 +150,7 @@ func TestMockTerminalInputPosition(t *testing.T) {
 func TestMockTerminalEmptyInput(t *testing.T) {
 	t.Parallel()
 
-	mock := &mockTerminal{
-		input: []rune{},
-	}
+	mock := newMockTerminal("")
 
 	// Should return EOF immediately for empty input
 	_, _, err := mock.ReadRune()
@@ -305,9 +296,7 @@ func TestMockTerminalWithSpecialCharacters(t *testing.T) {
 
 	for _, tc := range specialChars {
 		t.Run(tc.name, func(t *testing.T) {
-			mock := &mockTerminal{
-				input: []rune{tc.char},
-			}
+			mock := newMockTerminal(string(tc.char))
 
 			r, size, err := mock.ReadRune()
 			if err != nil {
@@ -332,9 +321,7 @@ func TestMockTerminalLongInput(t *testing.T) {
 		longInput[i] = rune('a' + (i % 26)) // a-z repeating
 	}
 
-	mock := &mockTerminal{
-		input: longInput,
-	}
+	mock := newMockTerminal(string(longInput))
 
 	// Read all characters
 	for i, expected := range longInput {
