@@ -1,5 +1,7 @@
 package prompt
 
+import "strings"
+
 // Document represents the current input state for completers.
 //
 // A completer is handed one of these on every Tab and answers from it. It is a
@@ -104,7 +106,26 @@ func isEscaped(runes []rune, i int) bool {
 	return backslashes%2 == 1
 }
 
-// CurrentLine returns the current line
+// CurrentLine returns the line the cursor is on: what lies between the line
+// break before the cursor and the one after it, with neither of them.
+//
+// It is not the whole entry. An entry collected across several lines -- which is
+// what a statement typed into a SQL shell is -- has one line per break in it,
+// and a completer deciding from the current line wants the line being edited
+// rather than all of them. Returning the entry gave such a completer a string
+// with line breaks in it, which matched nothing or matched on a word from a line
+// the user was not on.
+//
+// CursorPosition is counted in runes, and a position outside the text is
+// answered the way TextBeforeCursor answers it.
 func (d *Document) CurrentLine() string {
-	return d.Text
+	before := d.TextBeforeCursor()
+	if start := strings.LastIndex(before, "\n"); start >= 0 {
+		before = before[start+1:]
+	}
+	after := d.TextAfterCursor()
+	if end := strings.Index(after, "\n"); end >= 0 {
+		after = after[:end]
+	}
+	return before + after
 }

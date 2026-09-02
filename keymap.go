@@ -21,6 +21,12 @@ const (
 	ActionDeleteToEnd
 	ActionDeleteWordBack
 	ActionComplete
+	// ActionHistoryUp moves back through the history and ActionHistoryDown
+	// forward, whatever the entry looks like. The arrow keys do the same on an
+	// entry of one line; on a multiline one they move the cursor between its
+	// lines instead, which is why these exist. The default key map binds no key
+	// to either, so they are reached through Bind -- Ctrl+P and Ctrl+N are what
+	// a shell puts them on.
 	ActionHistoryUp
 	ActionHistoryDown
 	ActionHistorySearch
@@ -81,8 +87,10 @@ type KeyMap struct {
 // Example:
 //
 //	keyMap := prompt.NewDefaultKeyMap()
-//	// Add custom binding for Ctrl+L to clear screen
-//	keyMap.Bind('\x0C', prompt.ActionNewLine)
+//	// Reach the history from a multiline entry, where the arrow keys are
+//	// moving the cursor between its lines.
+//	keyMap.Bind('\x10', prompt.ActionHistoryUp)   // Ctrl+P
+//	keyMap.Bind('\x0E', prompt.ActionHistoryDown) // Ctrl+N
 //
 //	config := prompt.Config{
 //		Prefix: "$ ",
@@ -133,10 +141,13 @@ func NewDefaultKeyMap() *KeyMap {
 // Example:
 //
 //	keyMap := prompt.NewDefaultKeyMap()
-//	// Bind Ctrl+L (\x0C) to clear the current line
-//	keyMap.Bind('\x0C', prompt.ActionDeleteLine)
-//	// Bind F1 key (if represented as a single rune)
-//	keyMap.Bind('\x91', prompt.ActionComplete)
+//	// Bind Ctrl+P to the previous history entry
+//	keyMap.Bind('\x10', prompt.ActionHistoryUp)
+//
+// A key the default map already names keeps whatever it is bound to last, so
+// binding one of those replaces the behavior this package documents for it. A
+// key a terminal sends as an escape sequence -- a function key, an arrow -- is
+// not a rune and is bound with BindSequence instead.
 func (km *KeyMap) Bind(key rune, action KeyAction) {
 	km.bindings[key] = action
 }

@@ -128,9 +128,10 @@
 // You can customize key bindings by creating a custom KeyMap:
 //
 //	keyMap := prompt.NewDefaultKeyMap()
-//	// Add Ctrl+L to clear the line
-//	keyMap.Bind('\x0C', prompt.ActionDeleteLine)
-//	// Add F1 key for help (escape sequence)
+//	// Reach the history from a multiline entry, the way a shell does
+//	keyMap.Bind('\x10', prompt.ActionHistoryUp)   // Ctrl+P
+//	keyMap.Bind('\x0E', prompt.ActionHistoryDown) // Ctrl+N
+//	// Add F1 for completion (a terminal sends it as an escape sequence)
 //	keyMap.BindSequence("OP", prompt.ActionComplete)
 //
 //	config := prompt.Config{

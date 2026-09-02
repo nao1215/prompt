@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Ctrl+C no longer writes `^C` through the entry or leaves rows of it on screen (PR [#130](https://github.com/nao1215/prompt/pull/130), [8a199da](https://github.com/nao1215/prompt/commit/8a199da), [#129](https://github.com/nao1215/prompt/issues/129)). It wrote from wherever the caret was, so it ate the character under the cursor and the rows below it survived into the next prompt, which is told that what is on screen is not its to erase. The interrupt ends the line at the foot of the block, as submitting does.
 
+- `Document.CurrentLine` returns the line the cursor is on rather than the whole entry ([#131](https://github.com/nao1215/prompt/issues/131)). It returned `Text` and never looked at `CursorPosition`, so a completer asked to decide from the current line of a multiline statement was handed every line of it with the breaks still in. A single-line entry hid it, because there the line and the entry are the same string. It is also what go-prompt's method of the same name returns, so a completer ported across no longer changes its answers in silence.
+
+- A key bound to `ActionHistoryUp` or `ActionHistoryDown` walks the history ([#132](https://github.com/nao1215/prompt/issues/132)). Both actions are exported and neither had a case in the read loop, so binding one made the key do nothing. The history walk now lives in one place that the arrow keys and the two actions share, and the actions walk it whatever the entry looks like: on a multiline entry the arrow keys are moving the cursor between lines, which is what leaves the history out of reach and what Ctrl+P and Ctrl+N are bound for.
+
+### Changed
+
+- The key map examples in the README and the godoc bind Ctrl+P and Ctrl+N to the history instead of rebinding Ctrl+L. Every one of them replaced a key the default map already uses, and one bound `ActionNewLine` under a comment that said it cleared the screen.
+
 ## [0.0.29] - 2026-09-01
 
 ### Fixed
