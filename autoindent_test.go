@@ -40,12 +40,12 @@ func TestAutoIndentOpensEachNewLine(t *testing.T) {
 			t.Parallel()
 
 			p := newTestPrompt(newMockTerminal(tt.input),
-				WithMultiline(true),
+				WithMultiline(),
 				WithIsComplete(func(in string) bool { return strings.HasSuffix(in, ";") }),
 				WithAutoIndent(indent),
 			)
 
-			got, err := p.RunWithContext(context.Background())
+			got, err := p.Run(context.Background())
 			if err != nil {
 				t.Fatalf("RunWithContext: %v", err)
 			}
@@ -64,7 +64,7 @@ func TestAutoIndentSeesTheTextBeforeTheNewLine(t *testing.T) {
 
 	var seen []string
 	p := newTestPrompt(newMockTerminal("ab\rcd\r;\r"),
-		WithMultiline(true),
+		WithMultiline(),
 		WithIsComplete(func(in string) bool { return strings.HasSuffix(in, ";") }),
 		WithAutoIndent(func(before string) string {
 			seen = append(seen, before)
@@ -72,7 +72,7 @@ func TestAutoIndentSeesTheTextBeforeTheNewLine(t *testing.T) {
 		}),
 	)
 
-	if _, err := p.RunWithContext(context.Background()); err != nil {
+	if _, err := p.Run(context.Background()); err != nil {
 		t.Fatalf("RunWithContext: %v", err)
 	}
 
@@ -98,7 +98,7 @@ func TestAutoIndentSplitsALineAtTheCursor(t *testing.T) {
 	// Completeness is "holds a ;" rather than "ends with one", because the ";"
 	// is typed into the middle of the line here.
 	p := newTestPrompt(newMockTerminal("abcd\x1b[D\x1b[D\r;\r"),
-		WithMultiline(true),
+		WithMultiline(),
 		WithIsComplete(func(in string) bool { return strings.Contains(in, ";") }),
 		WithAutoIndent(func(before string) string {
 			seen = before
@@ -106,7 +106,7 @@ func TestAutoIndentSplitsALineAtTheCursor(t *testing.T) {
 		}),
 	)
 
-	got, err := p.RunWithContext(context.Background())
+	got, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("RunWithContext: %v", err)
 	}
@@ -124,11 +124,11 @@ func TestWithoutAutoIndentNothingIsInserted(t *testing.T) {
 	t.Parallel()
 
 	p := newTestPrompt(newMockTerminal("a\rb\r;\r"),
-		WithMultiline(true),
+		WithMultiline(),
 		WithIsComplete(func(in string) bool { return strings.HasSuffix(in, ";") }),
 	)
 
-	got, err := p.RunWithContext(context.Background())
+	got, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("RunWithContext: %v", err)
 	}
@@ -150,12 +150,12 @@ func TestAutoIndentAppliesToEveryWayALineBreaks(t *testing.T) {
 		keyMap.Bind('\x0e', ActionNewLine) // Ctrl+N, so the mock can send it
 
 		p := newTestPrompt(newMockTerminal("a\x0eb\r"),
-			WithMultiline(true),
+			WithMultiline(),
 			WithKeyMap(keyMap),
 			WithAutoIndent(func(string) string { return "--" }),
 		)
 
-		got, err := p.RunWithContext(context.Background())
+		got, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext: %v", err)
 		}
@@ -168,11 +168,11 @@ func TestAutoIndentAppliesToEveryWayALineBreaks(t *testing.T) {
 		t.Parallel()
 
 		p := newTestPrompt(newMockTerminal("a\\\rb\r"),
-			WithMultiline(true),
+			WithMultiline(),
 			WithAutoIndent(func(string) string { return "--" }),
 		)
 
-		got, err := p.RunWithContext(context.Background())
+		got, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext: %v", err)
 		}

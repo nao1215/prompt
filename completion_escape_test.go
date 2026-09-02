@@ -52,7 +52,7 @@ func TestGetWordBeforeCursorEscaped(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := &Document{Text: tt.text, CursorPosition: len(tt.text)}
-			assert.Equal(t, tt.want, d.GetWordBeforeCursorEscaped())
+			assert.Equal(t, tt.want, d.WordBeforeCursorEscaped())
 		})
 	}
 }
@@ -62,7 +62,7 @@ func TestAcceptSuggestion_WordEscape(t *testing.T) {
 		p := &Prompt{
 			buffer: []rune(`.import my\ dir/in`),
 			cursor: len(`.import my\ dir/in`),
-			config: Config{WordEscape: true},
+			config: options{WordEscape: true},
 		}
 
 		p.acceptSuggestion(Suggestion{Text: `my\ dir/inner\ file.csv`})
@@ -85,7 +85,7 @@ func TestAcceptSuggestion_WordEscape(t *testing.T) {
 }
 
 func TestWithWordEscape(t *testing.T) {
-	c := &Config{}
+	c := &options{}
 	WithWordEscape()(c)
 	assert.True(t, c.WordEscape)
 }

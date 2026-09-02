@@ -1449,7 +1449,7 @@ func TestPromptDoesNotEraseOutputPrintedBetweenRuns(t *testing.T) {
 	// it. The second line is then submitted on its own.
 	mock := newMockTerminal("SELECT 1\r;\rnext;\r")
 	var output bytes.Buffer
-	config := Config{
+	config := options{
 		Prefix:     "$ ",
 		Multiline:  true,
 		IsComplete: func(input string) bool { return strings.HasSuffix(strings.TrimSpace(input), ";") },
@@ -1462,7 +1462,7 @@ func TestPromptDoesNotEraseOutputPrintedBetweenRuns(t *testing.T) {
 		renderer: newRenderer(&output, ThemeDefault, mock),
 	}
 
-	if got, err := p.RunWithContext(context.Background()); err != nil || got != "SELECT 1\n;" {
+	if got, err := p.Run(context.Background()); err != nil || got != "SELECT 1\n;" {
 		t.Fatalf("first Run = %q, %v; want the two-line statement", got, err)
 	}
 
@@ -1470,7 +1470,7 @@ func TestPromptDoesNotEraseOutputPrintedBetweenRuns(t *testing.T) {
 	fmt.Fprint(&output, "+---+\r\n| 1 |\r\n+---+\r\n")
 
 	output.Reset()
-	if _, err := p.RunWithContext(context.Background()); err != nil {
+	if _, err := p.Run(context.Background()); err != nil {
 		t.Fatalf("second Run returned error: %v", err)
 	}
 
@@ -2145,7 +2145,7 @@ func TestPromptShowsTheCursorWhenItGivesTheTerminalBack(t *testing.T) {
 			p.output = &out
 			p.renderer = newRenderer(&out, ThemeDefault, p.terminal)
 
-			if _, err := p.Run(); err == nil {
+			if _, err := p.Run(context.Background()); err == nil {
 				t.Fatalf("Run() returned no error, want the session to have ended")
 			}
 
@@ -2758,7 +2758,7 @@ func TestMenuScrollsToItsLastCandidateOnAShortTerminal(t *testing.T) {
 	// ten the clamp used to assume.
 	terminal := &sizedMockTerminal{width: 40, height: 8}
 	renderer := newRenderer(&out, ThemeDefault, terminal)
-	prompt := &Prompt{config: Config{Prefix: "> "}, output: &out, terminal: terminal, renderer: renderer}
+	prompt := &Prompt{config: options{Prefix: "> "}, output: &out, terminal: terminal, renderer: renderer}
 	prompt.buffer = []rune("c")
 
 	offset := 0

@@ -37,9 +37,9 @@ func (p *Prompt) scrollToSelection(suggestions []Suggestion, selected, offset in
 // set so space-containing paths complete as one word.
 func (p *Prompt) completionWord(doc Document) string {
 	if p.config.WordEscape {
-		return doc.GetWordBeforeCursorEscaped()
+		return doc.WordBeforeCursorEscaped()
 	}
-	return doc.GetWordBeforeCursor()
+	return doc.WordBeforeCursor()
 }
 
 // hasReplaceRange reports whether any suggestion names the span it replaces,

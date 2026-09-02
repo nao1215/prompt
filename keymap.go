@@ -34,8 +34,8 @@ const (
 	ActionHistoryDown
 	ActionHistorySearch
 	ActionNewLine
-	ActionPasteStart
-	ActionPasteEnd
+	actionPasteStart
+	actionPasteEnd
 	// ActionClearScreen clears the terminal screen and redraws the prompt at the
 	// top of it with the current input preserved, like Ctrl+L in a typical
 	// shell. The scrollback is left alone: it holds whatever the application
@@ -98,10 +98,7 @@ type KeyMap struct {
 //	keyMap.Bind('\x10', prompt.ActionHistoryUp)   // Ctrl+P
 //	keyMap.Bind('\x0E', prompt.ActionHistoryDown) // Ctrl+N
 //
-//	config := prompt.Config{
-//		Prefix: "$ ",
-//		KeyMap: keyMap,
-//	}
+//	p, err := prompt.New("$ ", prompt.WithKeyMap(keyMap))
 func NewDefaultKeyMap() *KeyMap {
 	km := &KeyMap{
 		bindings:  make(map[rune]KeyAction),
@@ -133,8 +130,8 @@ func NewDefaultKeyMap() *KeyMap {
 	km.sequences["[1;5C"] = ActionMoveWordRight // Ctrl+Right
 	km.sequences["[1;5D"] = ActionMoveWordLeft  // Ctrl+Left
 	km.sequences["[3~"] = ActionDeleteChar      // Delete
-	km.sequences["[200~"] = ActionPasteStart
-	km.sequences["[201~"] = ActionPasteEnd
+	km.sequences["[200~"] = actionPasteStart
+	km.sequences["[201~"] = actionPasteEnd
 
 	return km
 }
@@ -178,7 +175,7 @@ func (km *KeyMap) BindSequence(seq string, action KeyAction) {
 }
 
 // GetAction returns the action for a key, or ActionNone if not bound
-func (km *KeyMap) GetAction(key rune) KeyAction {
+func (km *KeyMap) action(key rune) KeyAction {
 	if km == nil || km.bindings == nil {
 		return ActionNone
 	}
@@ -189,7 +186,7 @@ func (km *KeyMap) GetAction(key rune) KeyAction {
 }
 
 // GetSequenceAction returns the action for an escape sequence, or ActionNone if not bound
-func (km *KeyMap) GetSequenceAction(seq string) KeyAction {
+func (km *KeyMap) sequenceAction(seq string) KeyAction {
 	if km == nil || km.sequences == nil {
 		return ActionNone
 	}

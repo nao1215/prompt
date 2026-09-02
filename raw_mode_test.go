@@ -11,17 +11,17 @@ import (
 
 // newTestPrompt builds a Prompt wired to the given mock terminal and a discard
 // output, ready to drive RunWithContext in tests. The options configure the
-// embedded Config (for example WithPersistentRawMode).
-func newTestPrompt(mock *mockTerminal, options ...Option) *Prompt {
-	return newTestPromptOn(mock, options...)
+// embedded options (for example WithPersistentRawMode).
+func newTestPrompt(mock *mockTerminal, opts ...Option) *Prompt {
+	return newTestPromptOn(mock, opts...)
 }
 
 // newTestPromptOn is newTestPrompt over any terminal, for a test that needs one
 // the stock mock cannot model — a read that blocks until the terminal is
 // closed, for instance.
-func newTestPromptOn(terminal terminalInterface, options ...Option) *Prompt {
-	config := Config{Prefix: "$ "}
-	for _, option := range options {
+func newTestPromptOn(terminal terminalInterface, opts ...Option) *Prompt {
+	config := options{Prefix: "$ "}
+	for _, option := range opts {
 		option(&config)
 	}
 	// The key map comes from the config when the caller set one, the way New
@@ -56,7 +56,7 @@ func TestConsecutiveRunNoInputLost(t *testing.T) {
 
 	want := []string{"first", "second", "third"}
 	for i, expected := range want {
-		got, err := p.RunWithContext(context.Background())
+		got, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("Run %d returned error: %v", i, err)
 		}
@@ -76,7 +76,7 @@ func TestInputAvailableBeforeReadIsConsumed(t *testing.T) {
 	mock := newMockTerminal("ready\r")
 	p := newTestPrompt(mock)
 
-	got, err := p.RunWithContext(context.Background())
+	got, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestPersistentRawModeEntersOnce(t *testing.T) {
 
 	want := []string{"alpha", "beta", "gamma"}
 	for i, expected := range want {
-		got, err := p.RunWithContext(context.Background())
+		got, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("Run %d returned error: %v", i, err)
 		}
@@ -136,7 +136,7 @@ func TestDefaultModeTogglesRawPerCall(t *testing.T) {
 	p := newTestPrompt(mock)
 
 	for i := range 2 {
-		if _, err := p.RunWithContext(context.Background()); err != nil {
+		if _, err := p.Run(context.Background()); err != nil {
 			t.Fatalf("Run %d returned error: %v", i, err)
 		}
 	}
@@ -161,7 +161,7 @@ func TestPersistentRawModeRestoresOnEOF(t *testing.T) {
 	mock := newMockTerminal("done\r")
 	p := newTestPrompt(mock, WithPersistentRawMode())
 
-	got, err := p.RunWithContext(context.Background())
+	got, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("first Run returned error: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestPersistentRawModeRestoresOnEOF(t *testing.T) {
 		t.Errorf("Restore called %d times after a normal submit, want 0 in persistent mode", mock.restoreCount)
 	}
 
-	_, err = p.RunWithContext(context.Background())
+	_, err = p.Run(context.Background())
 	if !errors.Is(err, ErrEOF) {
 		t.Fatalf("second Run error = %v, want ErrEOF", err)
 	}
@@ -198,7 +198,7 @@ func TestPersistentRawModeKeepsTerminalOnInterrupt(t *testing.T) {
 	mock := newMockTerminal("\x03") // Ctrl+C
 	p := newTestPrompt(mock, WithPersistentRawMode())
 
-	_, err := p.RunWithContext(context.Background())
+	_, err := p.Run(context.Background())
 	if !errors.Is(err, ErrInterrupted) {
 		t.Fatalf("Run error = %v, want ErrInterrupted", err)
 	}
@@ -229,7 +229,7 @@ func TestDefaultModeRestoresOnInterrupt(t *testing.T) {
 	mock := newMockTerminal("\x03") // Ctrl+C
 	p := newTestPrompt(mock)
 
-	_, err := p.RunWithContext(context.Background())
+	_, err := p.Run(context.Background())
 	if !errors.Is(err, ErrInterrupted) {
 		t.Fatalf("Run error = %v, want ErrInterrupted", err)
 	}
@@ -257,11 +257,11 @@ func TestInterruptedLineIsDiscardedAndSessionContinues(t *testing.T) {
 		}
 	}()
 
-	if _, err := p.RunWithContext(context.Background()); !errors.Is(err, ErrInterrupted) {
+	if _, err := p.Run(context.Background()); !errors.Is(err, ErrInterrupted) {
 		t.Fatalf("first Run error = %v, want ErrInterrupted", err)
 	}
 
-	got, err := p.RunWithContext(context.Background())
+	got, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("second Run returned error: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestPersistentRawModeStressManyLines(t *testing.T) {
 	p := newTestPrompt(mock, WithPersistentRawMode())
 
 	for i := range lines {
-		got, err := p.RunWithContext(context.Background())
+		got, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("Run %d returned error: %v", i, err)
 		}
@@ -309,7 +309,7 @@ func TestPersistentRawModeStressManyLines(t *testing.T) {
 func TestWithPersistentRawModeOption(t *testing.T) {
 	t.Parallel()
 
-	config := Config{}
+	config := options{}
 	if config.PersistentRawMode {
 		t.Error("PersistentRawMode should default to false")
 	}
@@ -363,7 +363,7 @@ func TestRunAfterCloseLeavesTheTerminalAlone(t *testing.T) {
 	mock := newMockTerminal("one\r")
 	p := newTestPrompt(mock, WithPersistentRawMode())
 
-	if _, err := p.RunWithContext(context.Background()); err != nil {
+	if _, err := p.Run(context.Background()); err != nil {
 		t.Fatalf("the first Run returned error: %v", err)
 	}
 	if err := p.Close(); err != nil {
@@ -371,7 +371,7 @@ func TestRunAfterCloseLeavesTheTerminalAlone(t *testing.T) {
 	}
 	setRawBefore := mock.setRawCount
 
-	_, err := p.RunWithContext(context.Background())
+	_, err := p.Run(context.Background())
 	if !errors.Is(err, ErrEOF) {
 		t.Errorf("Run after Close returned %v, want ErrEOF", err)
 	}

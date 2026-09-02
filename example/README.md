@@ -80,7 +80,7 @@ if err != nil {
 }
 defer p.Close()
 
-result, err := p.Run()
+result, err := p.Run(context.Background())
 ```
 
 ### 2. Autocomplete Example (`autocomplete/`)
@@ -111,7 +111,7 @@ func myCompleter(d prompt.Document) []prompt.Suggestion {
 
 p, err := prompt.New("app> ",
     prompt.WithCompleter(myCompleter),
-    prompt.WithColorScheme(prompt.ThemeNightOwl),
+    prompt.WithTheme(prompt.ThemeNightOwl),
 )
 ```
 
@@ -156,7 +156,7 @@ Demonstrates multi-line text input.
 **Configuration:**
 ```go
 p, err := prompt.New("> ",
-    prompt.WithMultiline(true),
+    prompt.WithMultiline(),
 )
 ```
 
@@ -196,8 +196,8 @@ p, err := prompt.New(">>> ")
 p, err := prompt.New(">>> ",
     prompt.WithCompleter(myCompleter),
     prompt.WithMemoryHistory(100),
-    prompt.WithColorScheme(prompt.ThemeDark),
-    prompt.WithMultiline(true),
+    prompt.WithTheme(prompt.ThemeDark),
+    prompt.WithMultiline(),
 )
 
 if err != nil {
@@ -210,7 +210,7 @@ defer p.Close()
 
 ```go
 for {
-    result, err := p.Run()
+    result, err := p.Run(context.Background())
     if err != nil {
         if errors.Is(err, prompt.ErrEOF) {
             break
@@ -266,19 +266,16 @@ Configure in-memory history:
 prompt.WithMemoryHistory(100) // Keep last 100 commands
 ```
 
-### WithHistory
+### WithFileHistory
 Configure persistent file-based history:
 ```go
-prompt.WithHistory(&prompt.HistoryConfig{
-    MaxEntries: 1000,
-    File:       "~/.myapp_history",
-})
+prompt.WithFileHistory("~/.myapp_history", 1000)
 ```
 
-### WithColorScheme
+### WithTheme
 Set a color theme:
 ```go
-prompt.WithColorScheme(prompt.ThemeNightOwl)
+prompt.WithTheme(prompt.ThemeNightOwl)
 // Available themes: ThemeDefault, ThemeDark, ThemeLight,
 // ThemeSolarizedDark, ThemeAccessible, ThemeVSCode,
 // ThemeNightOwl, ThemeDracula, ThemeMonokai
@@ -287,7 +284,7 @@ prompt.WithColorScheme(prompt.ThemeNightOwl)
 ### WithMultiline
 Enable multiline input mode:
 ```go
-prompt.WithMultiline(true)
+prompt.WithMultiline()
 ```
 
 ## Keyboard Shortcuts

@@ -1,7 +1,6 @@
 # prompt
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/nao1215/prompt.svg)](https://pkg.go.dev/github.com/nao1215/prompt)
-[![Go Report Card](https://goreportcard.com/badge/github.com/nao1215/prompt)](https://goreportcard.com/report/github.com/nao1215/prompt)
 [![MultiPlatformUnitTest](https://github.com/nao1215/prompt/actions/workflows/unit_test.yml/badge.svg)](https://github.com/nao1215/prompt/actions/workflows/unit_test.yml)
 ![Coverage](https://raw.githubusercontent.com/nao1215/octocovs-central-repo/main/badges/nao1215/prompt/coverage.svg)
 
@@ -39,6 +38,7 @@ Building needs Go 1.24 or later.
 package main
 
 import (
+    "context"
     "errors"
     "fmt"
     "log"
@@ -53,7 +53,7 @@ func main() {
     defer p.Close()
 
     for {
-        input, err := p.Run()
+        input, err := p.Run(context.Background())
         if err != nil {
             if errors.Is(err, prompt.ErrEOF) {
                 fmt.Println("Goodbye!")
@@ -77,6 +77,7 @@ func main() {
 package main
 
 import (
+    "context"
     "errors"
     "log"
     "github.com/nao1215/prompt"
@@ -94,7 +95,7 @@ func completer(d prompt.Document) []prompt.Suggestion {
 func main() {
     p, err := prompt.New("myapp> ",
         prompt.WithCompleter(completer),
-        prompt.WithColorScheme(prompt.ThemeNightOwl),
+        prompt.WithTheme(prompt.ThemeNightOwl),
     )
     if err != nil {
         log.Fatal(err)
@@ -102,7 +103,7 @@ func main() {
     defer p.Close()
 
     for {
-        input, err := p.Run()
+        input, err := p.Run(context.Background())
         if err != nil {
             if errors.Is(err, prompt.ErrEOF) {
                 break
@@ -135,7 +136,7 @@ import (
 func main() {
     p, err := prompt.New(">>> ",
         prompt.WithMemoryHistory(100),
-        prompt.WithColorScheme(prompt.ThemeDracula),
+        prompt.WithTheme(prompt.ThemeDracula),
     )
     if err != nil {
         log.Fatal(err)
@@ -145,7 +146,7 @@ func main() {
     ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
     defer cancel()
 
-    input, err := p.RunWithContext(ctx)
+    input, err := p.Run(ctx)
     if errors.Is(err, context.DeadlineExceeded) {
         fmt.Println("Timeout reached")
         return
@@ -161,6 +162,7 @@ func main() {
 package main
 
 import (
+    "context"
     "errors"
     "fmt"
     "log"
@@ -175,7 +177,7 @@ func sqlCompleter(d prompt.Document) []prompt.Suggestion {
     }
 
     suggestions := []prompt.Suggestion{}
-    input := strings.ToUpper(d.GetWordBeforeCursor())
+    input := strings.ToUpper(d.WordBeforeCursor())
 
     for _, keyword := range keywords {
         if strings.HasPrefix(keyword, input) {
@@ -199,7 +201,7 @@ func main() {
     defer p.Close()
 
     for {
-        query, err := p.Run()
+        query, err := p.Run(context.Background())
         if err != nil {
             if errors.Is(err, prompt.ErrEOF) {
                 break
@@ -253,7 +255,7 @@ and the prompt then applies that span literally and skips its own filter.
 
 ```go
 func completer(d prompt.Document) []prompt.Suggestion {
-    word := d.GetWordBeforeCursor()
+    word := d.WordBeforeCursor()
     start := d.CursorPosition - len([]rune(word))
 
     var out []prompt.Suggestion
@@ -290,18 +292,14 @@ p, err := prompt.New("$ ",
 ### Persistent history
 
 ```go
-historyConfig := &prompt.HistoryConfig{
-    Enabled:     true,
-    MaxEntries:  1000,
-    File:        "/home/user/.myapp_history",
-    MaxFileSize: 1024 * 1024, // 1MB
-    MaxBackups:  3,
-}
-
 p, err := prompt.New("$ ",
-    prompt.WithHistory(historyConfig),
+    prompt.WithFileHistory("~/.myapp_history", 1000),
 )
 ```
+
+The file is loaded when the prompt is built and written when an entry is added.
+A save writes at most one megabyte of entries, and a file that would lose
+entries to that limit is moved aside first, as `file.1` through `file.3`.
 
 ### Multi-line submit control
 
@@ -316,7 +314,7 @@ isComplete := func(input string) bool {
 }
 
 p, err := prompt.New("sql> ",
-    prompt.WithMultiline(true),
+    prompt.WithMultiline(),
     prompt.WithIsComplete(isComplete),
 )
 ```
@@ -327,7 +325,7 @@ with nothing in front of it, which is indistinguishable from a hung program:
 
 ```go
 p, err := prompt.New("sql> ",
-    prompt.WithMultiline(true),
+    prompt.WithMultiline(),
     prompt.WithIsComplete(isComplete),
     prompt.WithContinuationPrefix(" ..> "),
 )
@@ -340,9 +338,7 @@ sql> SELECT id,
 
 The prefix is drawn in the prompt's color and counted when positioning the cursor
 and measuring how many rows the input occupies, so editing a continuation line
-lands where the character is. It never appears in the returned input. Use
-`SetContinuationPrefix` to change it between calls, as `SetPrefix` does for the
-main prefix.
+lands where the character is. It never appears in the returned input.
 
 An entry taller than the terminal is drawn as the rows around the cursor that the
 terminal has room for, redrawn in place. The rows outside that window are left
@@ -378,7 +374,7 @@ if err != nil {
 defer p.Close()
 
 for {
-    line, err := p.Run()
+    line, err := p.Run(context.Background())
     if errors.Is(err, prompt.ErrEOF) || errors.Is(err, prompt.ErrInterrupted) {
         break
     }
@@ -397,7 +393,7 @@ of the new line:
 
 ```go
 p, err := prompt.New("sql> ",
-    prompt.WithMultiline(true),
+    prompt.WithMultiline(),
     prompt.WithIsComplete(func(in string) bool { return strings.HasSuffix(in, ";") }),
     prompt.WithContinuationPrefix("...> "),
     prompt.WithAutoIndent(func(before string) string {
@@ -478,7 +474,7 @@ it:
 
 ```go
 for {
-    line, err := p.Run()
+    line, err := p.Run(context.Background())
     if errors.Is(err, prompt.ErrEOF) {
         break // Ctrl+D at an empty prompt ends the session
     }
@@ -578,7 +574,7 @@ prompt.ThemeMonokai
 
 // Usage
 p, err := prompt.New("$ ",
-    prompt.WithColorScheme(prompt.ThemeDracula),
+    prompt.WithTheme(prompt.ThemeDracula),
 )
 ```
 
@@ -606,18 +602,18 @@ edit a prompt's state from a second goroutine. Use a separate instance per
 goroutine if you need concurrency.
 
 Ending a session from another goroutine is the exception, because a prompt
-waiting for a key cannot end itself: canceling the context passed to `RunWithContext` and
+waiting for a key cannot end itself: canceling the context passed to `Run` and
 calling `Close` both end that wait, and the `Run` returns `context.Canceled` and
 `ErrEOF` respectively. A `Run` on a prompt that is already closed returns
 `ErrEOF` without touching the terminal.
 
 ### Error handling
 
-`Run` and `RunWithContext` return specific errors:
+`Run` returns specific errors:
 
 - `prompt.ErrEOF`: Ctrl+D on an empty buffer, the input reaching its end, or a `Run` on a prompt that is already closed. It matches `io.EOF` as well as itself
 - `prompt.ErrInterrupted`: Ctrl+C
-- `context.DeadlineExceeded`: the context deadline passed (with `RunWithContext`)
+- `context.DeadlineExceeded`: the context deadline passed
 - `context.Canceled`: the context was canceled
 
 ## Contributing

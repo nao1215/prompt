@@ -13,7 +13,7 @@ func TestPromptBufferManipulation(t *testing.T) {
 
 	mock := &mockTerminal{}
 	p := &Prompt{
-		config:   Config{Prefix: "test> "},
+		config:   options{Prefix: "test> "},
 		terminal: mock,
 		keyMap:   NewDefaultKeyMap(),
 		buffer:   []rune{},
@@ -51,7 +51,7 @@ func TestPromptBufferManipulation(t *testing.T) {
 func TestWordBoundaryFunctions(t *testing.T) {
 	t.Parallel()
 
-	config := Config{Prefix: "$ "}
+	config := options{Prefix: "$ "}
 	p := newForTestingWithConfig(t, config, "")
 	defer p.Close()
 
@@ -108,7 +108,7 @@ func TestIsWordChar(t *testing.T) {
 func TestPromptInsertRuneAdvanced(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 	p := newForTestingWithConfig(t, config, "")
@@ -135,7 +135,7 @@ func TestPromptInsertRuneAdvanced(t *testing.T) {
 func TestPromptInsertTextAdvanced(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 	p := newForTestingWithConfig(t, config, "")
@@ -162,7 +162,7 @@ func TestPromptInsertTextAdvanced(t *testing.T) {
 func TestPromptSetBufferAdvanced(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 	p := newForTestingWithConfig(t, config, "initial")
@@ -192,9 +192,9 @@ func TestPromptSetBufferAdvanced(t *testing.T) {
 func TestMultilineNavigation(t *testing.T) {
 	// Create a prompt for testing multiline functions
 	p := &Prompt{
-		config: Config{
+		config: options{
 			Prefix: "test> ",
-			HistoryConfig: &HistoryConfig{
+			historyConfig: &historyConfig{
 				Enabled:    true,
 				MaxEntries: 100,
 			},
@@ -364,9 +364,9 @@ func TestMultilineNavigation(t *testing.T) {
 
 func TestMultilineEdgeCases(t *testing.T) {
 	p := &Prompt{
-		config: Config{
+		config: options{
 			Prefix: "test> ",
-			HistoryConfig: &HistoryConfig{
+			historyConfig: &historyConfig{
 				Enabled:    true,
 				MaxEntries: 100,
 			},

@@ -24,20 +24,20 @@ func TestNew(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		config Config
+		config options
 	}{
 		{
 			name: "default config",
-			config: Config{
+			config: options{
 				Prefix: "$ ",
 			},
 		},
 		{
 			name: "with completer",
-			config: Config{
+			config: options{
 				Prefix: "> ",
 				Completer: func(d Document) []Suggestion {
-					text := d.GetWordBeforeCursor()
+					text := d.WordBeforeCursor()
 					if strings.HasPrefix("hello", text) {
 						return []Suggestion{{Text: "hello", Description: "greeting"}}
 					}
@@ -47,9 +47,9 @@ func TestNew(t *testing.T) {
 		},
 		{
 			name: "with history",
-			config: Config{
+			config: options{
 				Prefix: ">>> ",
-				HistoryConfig: &HistoryConfig{
+				historyConfig: &historyConfig{
 					Enabled:    true,
 					MaxEntries: 1000,
 				},
@@ -57,7 +57,7 @@ func TestNew(t *testing.T) {
 		},
 		{
 			name: "with color scheme",
-			config: Config{
+			config: options{
 				Prefix:      "$ ",
 				ColorScheme: ThemeDark,
 			},
@@ -74,8 +74,8 @@ func TestNew(t *testing.T) {
 			require.NotNil(t, p, "NewForTesting() returned nil prompt")
 
 			// Check defaults were set
-			require.NotNil(t, p.config.HistoryConfig, "HistoryConfig should not be nil")
-			assert.Greater(t, p.config.HistoryConfig.MaxEntries, 0, "HistoryConfig.MaxEntries should have default value")
+			require.NotNil(t, p.config.historyConfig, "historyConfig should not be nil")
+			assert.Greater(t, p.config.historyConfig.MaxEntries, 0, "historyConfig.MaxEntries should have default value")
 
 			assert.NotNil(t, p.config.ColorScheme, "ColorScheme should have default value")
 
@@ -92,25 +92,25 @@ func TestPromptWithMockTerminal(t *testing.T) {
 		name     string
 		input    string
 		expected string
-		config   Config
+		config   options
 	}{
 		{
 			name:     "simple input",
 			input:    "hello\n",
 			expected: "hello",
-			config:   Config{Prefix: "$ "},
+			config:   options{Prefix: "$ "},
 		},
 		{
 			name:     "input with backspace",
 			input:    "hello\x7f\x7fo\n", // hello, backspace, backspace, o, enter
 			expected: "helo",
-			config:   Config{Prefix: "$ "},
+			config:   options{Prefix: "$ "},
 		},
 		{
 			name:     "empty input",
 			input:    "\n",
 			expected: "",
-			config:   Config{Prefix: "$ "},
+			config:   options{Prefix: "$ "},
 		},
 		{
 			// IsComplete reports incomplete until a trailing ";", so the bare
@@ -118,7 +118,7 @@ func TestPromptWithMockTerminal(t *testing.T) {
 			name:     "multiline buffers until IsComplete returns true",
 			input:    "SELECT 1\nUNION ALL\nSELECT 2;\n",
 			expected: "SELECT 1\nUNION ALL\nSELECT 2;",
-			config: Config{
+			config: options{
 				Prefix:     "$ ",
 				Multiline:  true,
 				IsComplete: func(in string) bool { return strings.HasSuffix(strings.TrimSpace(in), ";") },
@@ -129,7 +129,7 @@ func TestPromptWithMockTerminal(t *testing.T) {
 			name:     "complete statement submits immediately",
 			input:    "SELECT 1;\n",
 			expected: "SELECT 1;",
-			config: Config{
+			config: options{
 				Prefix:     "$ ",
 				Multiline:  true,
 				IsComplete: func(in string) bool { return strings.HasSuffix(strings.TrimSpace(in), ";") },
@@ -140,7 +140,7 @@ func TestPromptWithMockTerminal(t *testing.T) {
 			name:     "IsComplete ignored when multiline is off",
 			input:    "SELECT 1\n",
 			expected: "SELECT 1",
-			config: Config{
+			config: options{
 				Prefix:     "$ ",
 				IsComplete: func(in string) bool { return strings.HasSuffix(strings.TrimSpace(in), ";") },
 			},
@@ -163,9 +163,9 @@ func TestPromptWithMockTerminal(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
 
-			result, err := p.RunWithContext(ctx)
-			require.NoError(t, err, "RunWithContext() should not fail")
-			assert.Equal(t, tt.expected, result, "RunWithContext() result should match expected")
+			result, err := p.Run(ctx)
+			require.NoError(t, err, "Run() should not fail")
+			assert.Equal(t, tt.expected, result, "Run() result should match expected")
 		})
 	}
 }
@@ -209,7 +209,7 @@ func TestSuggestion(t *testing.T) {
 	t.Parallel()
 
 	completer := func(d Document) []Suggestion {
-		text := d.GetWordBeforeCursor()
+		text := d.WordBeforeCursor()
 		suggestions := []Suggestion{
 			{Text: "hello", Description: "greeting"},
 			{Text: "help", Description: "show help"},
@@ -285,9 +285,9 @@ func TestSuggestion(t *testing.T) {
 func TestHistory(t *testing.T) {
 	t.Parallel()
 
-	p := newForTestingWithConfig(t, Config{
+	p := newForTestingWithConfig(t, options{
 		Prefix: "$ ",
-		HistoryConfig: &HistoryConfig{
+		historyConfig: &historyConfig{
 			Enabled:    true,
 			MaxEntries: 3,
 		},
@@ -309,7 +309,7 @@ func TestHistory(t *testing.T) {
 }
 
 func BenchmarkPromptRender(b *testing.B) {
-	p, err := newFromConfig(Config{
+	p, err := newFromConfig(options{
 		Prefix: "$ ",
 	})
 	if err != nil {
@@ -353,7 +353,7 @@ func TestPromptWithColorScheme(t *testing.T) {
 	}
 
 	p := &Prompt{
-		config: Config{
+		config: options{
 			Prefix:      "test> ",
 			ColorScheme: scheme,
 		},
@@ -363,7 +363,7 @@ func TestPromptWithColorScheme(t *testing.T) {
 
 	// Test with nil color scheme (should use default)
 	p2 := &Prompt{
-		config: Config{
+		config: options{
 			Prefix:      "test> ",
 			ColorScheme: nil,
 		},
@@ -430,7 +430,7 @@ func TestPromptClose(t *testing.T) {
 	// Test closing a prompt with mock terminal
 	mock := &mockTerminal{}
 	p := &Prompt{
-		config:   Config{Prefix: "test> "},
+		config:   options{Prefix: "test> "},
 		terminal: mock,
 		keyMap:   NewDefaultKeyMap(),
 	}
@@ -449,9 +449,9 @@ func TestPromptHistoryFunctionality(t *testing.T) {
 
 	mock := &mockTerminal{}
 	p := &Prompt{
-		config: Config{
+		config: options{
 			Prefix: "test> ",
-			HistoryConfig: &HistoryConfig{
+			historyConfig: &historyConfig{
 				Enabled:    true,
 				MaxEntries: 3,
 			},
@@ -484,7 +484,7 @@ func TestEscapeDoesNotSwallowTypedCharacters(t *testing.T) {
 	mock := newMockTerminal("\x1bSELECT 1\r")
 	p := newTestPrompt(mock)
 
-	got, err := p.RunWithContext(context.Background())
+	got, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("RunWithContext returned error: %v", err)
 	}
@@ -504,7 +504,7 @@ func TestEscapeDismissesSuggestions(t *testing.T) {
 		return []Suggestion{{Text: "select"}, {Text: "session"}}
 	}))
 
-	got, err := p.RunWithContext(context.Background())
+	got, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("RunWithContext returned error: %v", err)
 	}
@@ -581,9 +581,9 @@ func TestPromptInteractiveFeatures(t *testing.T) {
 
 			var output bytes.Buffer
 			p := &Prompt{
-				config: Config{
+				config: options{
 					Prefix: "$ ",
-					HistoryConfig: &HistoryConfig{
+					historyConfig: &historyConfig{
 						Enabled:    true,
 						MaxEntries: 10,
 					},
@@ -597,7 +597,7 @@ func TestPromptInteractiveFeatures(t *testing.T) {
 				renderer: newRenderer(&output, ThemeDefault, nil),
 			}
 
-			result, err := p.RunWithContext(context.Background())
+			result, err := p.Run(context.Background())
 			if err != nil {
 				t.Errorf("Input() error = %v", err)
 			}
@@ -612,7 +612,7 @@ func TestPromptWithCompleter(t *testing.T) {
 	t.Parallel()
 
 	completer := func(d Document) []Suggestion {
-		text := d.GetWordBeforeCursor()
+		text := d.WordBeforeCursor()
 		if strings.HasPrefix("hello", text) {
 			return []Suggestion{{Text: "hello", Description: "greeting"}}
 		}
@@ -628,7 +628,7 @@ func TestPromptWithCompleter(t *testing.T) {
 
 	var output bytes.Buffer
 	p := &Prompt{
-		config: Config{
+		config: options{
 			Prefix:    "$ ",
 			Completer: completer,
 		},
@@ -641,7 +641,7 @@ func TestPromptWithCompleter(t *testing.T) {
 		renderer: newRenderer(&output, ThemeDefault, nil),
 	}
 
-	result, err := p.RunWithContext(context.Background())
+	result, err := p.Run(context.Background())
 	if err != nil {
 		t.Errorf("Input() error = %v", err)
 	}
@@ -662,9 +662,9 @@ func TestPromptHistoryNavigation(t *testing.T) {
 
 	var output bytes.Buffer
 	p := &Prompt{
-		config: Config{
+		config: options{
 			Prefix: "$ ",
-			HistoryConfig: &HistoryConfig{
+			historyConfig: &historyConfig{
 				Enabled:    true,
 				MaxEntries: 10,
 			},
@@ -678,7 +678,7 @@ func TestPromptHistoryNavigation(t *testing.T) {
 		renderer: newRenderer(&output, ThemeDefault, nil),
 	}
 
-	result, err := p.RunWithContext(context.Background())
+	result, err := p.Run(context.Background())
 	if err != nil {
 		t.Errorf("Input() error = %v", err)
 	}
@@ -699,7 +699,7 @@ func TestPromptBackspaceHandling(t *testing.T) {
 
 	var output bytes.Buffer
 	p := &Prompt{
-		config: Config{
+		config: options{
 			Prefix: "$ ",
 		},
 		terminal: mock,
@@ -711,7 +711,7 @@ func TestPromptBackspaceHandling(t *testing.T) {
 		renderer: newRenderer(&output, ThemeDefault, nil),
 	}
 
-	result, err := p.RunWithContext(context.Background())
+	result, err := p.Run(context.Background())
 	if err != nil {
 		t.Errorf("Input() error = %v", err)
 	}
@@ -732,7 +732,7 @@ func TestPromptDeleteHandling(t *testing.T) {
 
 	var output bytes.Buffer
 	p := &Prompt{
-		config: Config{
+		config: options{
 			Prefix: "$ ",
 		},
 		terminal: mock,
@@ -744,7 +744,7 @@ func TestPromptDeleteHandling(t *testing.T) {
 		renderer: newRenderer(&output, ThemeDefault, nil),
 	}
 
-	result, err := p.RunWithContext(context.Background())
+	result, err := p.Run(context.Background())
 	if err != nil {
 		t.Errorf("Input() error = %v", err)
 	}
@@ -791,7 +791,7 @@ func TestPromptCursorMovement(t *testing.T) {
 
 			var output bytes.Buffer
 			p := &Prompt{
-				config: Config{
+				config: options{
 					Prefix: "$ ",
 				},
 				terminal: mock,
@@ -803,7 +803,7 @@ func TestPromptCursorMovement(t *testing.T) {
 				renderer: newRenderer(&output, ThemeDefault, nil),
 			}
 
-			result, err := p.RunWithContext(context.Background())
+			result, err := p.Run(context.Background())
 			if err != nil {
 				t.Errorf("Input() error = %v", err)
 			}
@@ -879,7 +879,7 @@ func TestPromptRenderError(t *testing.T) {
 
 	// Test with a prompt that has initial render failure
 	p := &Prompt{
-		config: Config{
+		config: options{
 			Prefix: "$ ",
 		},
 		terminal: mock,
@@ -891,7 +891,7 @@ func TestPromptRenderError(t *testing.T) {
 		renderer: renderer,
 	}
 
-	_, err = p.RunWithContext(context.Background())
+	_, err = p.Run(context.Background())
 	if err == nil {
 		t.Error("Expected error from failing writer in prompt")
 	}
@@ -914,9 +914,9 @@ func TestMissingCoverageAreas(t *testing.T) {
 
 	t.Run("New function coverage", func(t *testing.T) {
 		// Test New() function (currently 0% coverage)
-		config := Config{
+		config := options{
 			Prefix: "test> ",
-			HistoryConfig: &HistoryConfig{
+			historyConfig: &historyConfig{
 				Enabled:    true,
 				MaxEntries: 100,
 			},
@@ -944,7 +944,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 
 		var output bytes.Buffer
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix: "$ ",
 			},
 			terminal: mock,
@@ -956,7 +956,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
-		result, err := p.Run()
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Errorf("Run() error = %v", err)
 		}
@@ -967,7 +967,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 
 	t.Run("NewForTesting coverage", func(t *testing.T) {
 		// Test NewForTesting function
-		config := Config{
+		config := options{
 			Prefix: "test> ",
 		}
 
@@ -985,7 +985,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 
 		var output bytes.Buffer
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix: "$ ",
 			},
 			terminal: mock,
@@ -1000,7 +1000,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 
-		_, err := p.RunWithContext(ctx)
+		_, err := p.Run(ctx)
 		if err == nil {
 			t.Error("Expected context cancellation error")
 		}
@@ -1067,7 +1067,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 
 		var output TestWriter
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix: "$ ",
 			},
 			terminal: mock,
@@ -1079,7 +1079,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Errorf("Complex editing error = %v", err)
 		}
@@ -1226,7 +1226,7 @@ func TestNewFunctionCoverage(t *testing.T) {
 
 	t.Run("new with invalid config", func(t *testing.T) {
 		// Test with empty prefix
-		config := Config{
+		config := options{
 			Prefix: "",
 		}
 		p, err := newFromConfig(config)
@@ -1239,9 +1239,9 @@ func TestNewFunctionCoverage(t *testing.T) {
 	})
 
 	t.Run("new with large history", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix: "test> ",
-			HistoryConfig: &HistoryConfig{
+			historyConfig: &historyConfig{
 				Enabled:    true,
 				MaxEntries: 1000,
 			},
@@ -1261,7 +1261,7 @@ func TestNewFunctionCoverage(t *testing.T) {
 			Prefix: Color{R: 255, G: 100, B: 50, Bold: true},
 			Input:  Color{R: 200, G: 200, B: 200},
 		}
-		config := Config{
+		config := options{
 			Prefix:      "custom> ",
 			ColorScheme: customScheme,
 		}
@@ -1281,7 +1281,7 @@ func TestRunWithContextCoverage(t *testing.T) {
 
 	t.Run("prompt with suggestions and selection", func(t *testing.T) {
 		completer := func(d Document) []Suggestion {
-			input := d.GetWordBeforeCursor()
+			input := d.WordBeforeCursor()
 			if input == "h" {
 				return []Suggestion{
 					{Text: "hello", Description: "greeting"},
@@ -1298,7 +1298,7 @@ func TestRunWithContextCoverage(t *testing.T) {
 
 		var output TestWriter
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix:    "$ ",
 				Completer: completer,
 			},
@@ -1311,9 +1311,9 @@ func TestRunWithContextCoverage(t *testing.T) {
 			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
-			t.Errorf("RunWithContext() error = %v", err)
+			t.Errorf("Run() error = %v", err)
 		}
 		t.Logf("Result with suggestions: %q", result)
 	})
@@ -1326,7 +1326,7 @@ func TestRunWithContextCoverage(t *testing.T) {
 
 		var output TestWriter
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix: "$ ",
 			},
 			terminal: mock,
@@ -1338,9 +1338,9 @@ func TestRunWithContextCoverage(t *testing.T) {
 			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
-			t.Errorf("RunWithContext() error = %v", err)
+			t.Errorf("Run() error = %v", err)
 		}
 		t.Logf("Result with history: %q", result)
 	})
@@ -1353,7 +1353,7 @@ func TestRunWithContextCoverage(t *testing.T) {
 
 		var output TestWriter
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix: "$ ",
 			},
 			terminal: mock,
@@ -1365,9 +1365,9 @@ func TestRunWithContextCoverage(t *testing.T) {
 			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
-			t.Errorf("RunWithContext() error = %v", err)
+			t.Errorf("Run() error = %v", err)
 		}
 		t.Logf("Result with key combinations: %q", result)
 	})
@@ -1382,7 +1382,7 @@ func TestCloseFunctionCoverage(t *testing.T) {
 	t.Parallel()
 
 	t.Run("close with real terminal", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix: "$ ",
 		}
 		p, err := newFromConfig(config)
@@ -1612,7 +1612,7 @@ func TestAdvancedPromptCoverage(t *testing.T) {
 
 		var output TestWriter
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix:    "$ ",
 				Completer: completer,
 			},
@@ -1625,9 +1625,9 @@ func TestAdvancedPromptCoverage(t *testing.T) {
 			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
-			t.Errorf("RunWithContext() error = %v", err)
+			t.Errorf("Run() error = %v", err)
 		}
 		if result != "test" {
 			t.Errorf("Expected 'test', got %q", result)
@@ -1641,9 +1641,9 @@ func TestAdvancedPromptCoverage(t *testing.T) {
 
 		var output TestWriter
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix: "$ ",
-				HistoryConfig: &HistoryConfig{
+				historyConfig: &historyConfig{
 					Enabled:    true,
 					MaxEntries: 2, // Small limit
 				},
@@ -1657,9 +1657,9 @@ func TestAdvancedPromptCoverage(t *testing.T) {
 			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
-			t.Errorf("RunWithContext() error = %v", err)
+			t.Errorf("Run() error = %v", err)
 		}
 		if result != "command1" {
 			t.Errorf("Expected 'command1', got %q", result)
@@ -1706,7 +1706,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 
 	t.Run("complex completion scenarios", func(t *testing.T) {
 		completer := func(d Document) []Suggestion {
-			input := d.GetWordBeforeCursor()
+			input := d.WordBeforeCursor()
 			switch input {
 			case "g":
 				return []Suggestion{
@@ -1732,7 +1732,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 
 		var output TestWriter
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix:    "$ ",
 				Completer: completer,
 			},
@@ -1745,9 +1745,9 @@ func TestFinalCoverageBoost(t *testing.T) {
 			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
-			t.Errorf("RunWithContext() error = %v", err)
+			t.Errorf("Run() error = %v", err)
 		}
 		t.Logf("Complex completion result: %q", result)
 	})
@@ -1760,7 +1760,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 
 		var output TestWriter
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix: "$ ",
 			},
 			terminal: mock,
@@ -1772,9 +1772,9 @@ func TestFinalCoverageBoost(t *testing.T) {
 			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
-			t.Errorf("RunWithContext() error = %v", err)
+			t.Errorf("Run() error = %v", err)
 		}
 		if result != "" {
 			t.Errorf("Expected empty result, got %q", result)
@@ -1800,7 +1800,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 
 		var output TestWriter
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix: "$ ",
 			},
 			terminal: mock,
@@ -1812,9 +1812,9 @@ func TestFinalCoverageBoost(t *testing.T) {
 			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
-			t.Errorf("RunWithContext() error = %v", err)
+			t.Errorf("Run() error = %v", err)
 		}
 		if result != "he" {
 			t.Errorf("Expected 'he', got %q", result)
@@ -1828,7 +1828,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 
 		var output TestWriter
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix: "$ ",
 			},
 			terminal: mock,
@@ -1840,9 +1840,9 @@ func TestFinalCoverageBoost(t *testing.T) {
 			renderer: newRenderer(&output, ThemeDefault, nil),
 		}
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
-			t.Errorf("RunWithContext() error = %v", err)
+			t.Errorf("Run() error = %v", err)
 		}
 		if result != "test" {
 			t.Errorf("Expected 'test', got %q", result)
@@ -1872,9 +1872,9 @@ func containsString(s, substr string) bool {
 func TestPromptHistoryMethods(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
-		HistoryConfig: &HistoryConfig{
+		historyConfig: &historyConfig{
 			Enabled:    true,
 			MaxEntries: 3,
 		},
@@ -1884,7 +1884,7 @@ func TestPromptHistoryMethods(t *testing.T) {
 	defer p.Close()
 
 	// Test initial empty history
-	history := p.GetHistory()
+	history := p.History()
 	if len(history) != 0 {
 		t.Errorf("Expected empty history, got %d items", len(history))
 	}
@@ -1894,28 +1894,28 @@ func TestPromptHistoryMethods(t *testing.T) {
 	p.AddHistory("command2")
 	p.AddHistory("command3")
 
-	history = p.GetHistory()
+	history = p.History()
 	if len(history) != 3 {
 		t.Errorf("Expected 3 history items, got %d", len(history))
 	}
 
 	// Test max history limit
 	p.AddHistory("command4")
-	history = p.GetHistory()
+	history = p.History()
 	if len(history) != 3 {
 		t.Errorf("Expected history to be limited to 3 items, got %d", len(history))
 	}
 
 	// Test duplicate prevention
 	p.AddHistory("command4") // duplicate
-	history = p.GetHistory()
+	history = p.History()
 	if len(history) != 3 {
 		t.Errorf("Expected no duplicate, history length should be 3, got %d", len(history))
 	}
 
 	// Test AddHistory with empty string
 	p.AddHistory("")
-	history = p.GetHistory()
+	history = p.History()
 	if len(history) != 3 {
 		t.Errorf("Expected empty string to be ignored, history length should be 3, got %d", len(history))
 	}
@@ -1923,14 +1923,14 @@ func TestPromptHistoryMethods(t *testing.T) {
 	// Test SetHistory
 	newHistory := []string{"new1", "new2", "new3", "new4", "new5"}
 	p.SetHistory(newHistory)
-	history = p.GetHistory()
+	history = p.History()
 	if len(history) != 3 { // should be limited by MaxHistory
 		t.Errorf("Expected history to be limited to 3 items after SetHistory, got %d", len(history))
 	}
 
 	// Test ClearHistory
-	p.ClearHistory()
-	history = p.GetHistory()
+	p.SetHistory(nil)
+	history = p.History()
 	if len(history) != 0 {
 		t.Errorf("Expected empty history after clear, got %d items", len(history))
 	}
@@ -1939,7 +1939,7 @@ func TestPromptHistoryMethods(t *testing.T) {
 func TestPromptConfigurationMethods(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 
@@ -1961,24 +1961,12 @@ func TestPromptConfigurationMethods(t *testing.T) {
 	if p.config.ColorScheme != newTheme {
 		t.Error("Expected theme to be set")
 	}
-	if p.config.Theme != newTheme {
-		t.Error("Expected Theme alias to be set")
-	}
-
-	// Test SetCompleter
-	completer := func(_ Document) []Suggestion {
-		return []Suggestion{{Text: "test", Description: "test"}}
-	}
-	p.SetCompleter(completer)
-	if p.config.Completer == nil {
-		t.Error("Expected completer to be set")
-	}
 }
 
 func TestPromptAcceptSuggestionAdvanced(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 	p := newForTestingWithConfig(t, config, "")
@@ -2004,7 +1992,7 @@ func TestPromptAcceptSuggestionAdvanced(t *testing.T) {
 func TestPromptWithContextAdvanced(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 	p := newForTestingWithConfig(t, config, "hello\r")
@@ -2014,7 +2002,7 @@ func TestPromptWithContextAdvanced(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	result, err := p.RunWithContext(ctx)
+	result, err := p.Run(ctx)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -2026,7 +2014,7 @@ func TestPromptWithContextAdvanced(t *testing.T) {
 func TestPromptWithCancelledContextAdvanced(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 	p := newForTestingWithConfig(t, config, "")
@@ -2036,7 +2024,7 @@ func TestPromptWithCancelledContextAdvanced(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	_, err := p.RunWithContext(ctx)
+	_, err := p.Run(ctx)
 	if err == nil {
 		t.Error("Expected error for cancelled context")
 	}
@@ -2048,7 +2036,7 @@ func TestPromptWithCancelledContextAdvanced(t *testing.T) {
 func TestPromptCloseMultipleAdvanced(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 	p := newForTestingWithConfig(t, config, "")
@@ -2074,7 +2062,7 @@ func TestPromptErrorHandlingAdvanced(t *testing.T) {
 	t.Parallel()
 
 	// Test creating prompt with invalid config
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 
@@ -2109,7 +2097,7 @@ func TestAdvancedKeyBindingsExtended(t *testing.T) {
 	for _, action := range actions {
 		t.Run(action.name, func(t *testing.T) {
 			t.Parallel()
-			keyAction := keyMap.GetAction(action.key)
+			keyAction := keyMap.action(action.key)
 			if keyAction == ActionNone {
 				t.Errorf("Expected %s key to be bound", action.name)
 			}
@@ -2135,7 +2123,7 @@ func TestPromptWithCustomCompleterAdvanced(t *testing.T) {
 		return nil
 	}
 
-	config := Config{
+	config := options{
 		Prefix:    "$ ",
 		Completer: completer,
 	}
@@ -2143,7 +2131,7 @@ func TestPromptWithCustomCompleterAdvanced(t *testing.T) {
 	p := newForTestingWithConfig(t, config, "git\t\r\r")
 	defer p.Close()
 
-	result, err := p.Run()
+	result, err := p.Run(context.Background())
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -2159,7 +2147,7 @@ func TestPromptWithCustomCompleterAdvanced(t *testing.T) {
 func TestPromptAddHistoryComprehensive(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 	p := newForTestingWithConfig(t, config, "")
@@ -2190,7 +2178,7 @@ func TestPromptSuggestionScrolling(t *testing.T) {
 		return suggestions
 	}
 
-	config := Config{
+	config := options{
 		Prefix:    "$ ",
 		Completer: completer,
 	}
@@ -2199,7 +2187,7 @@ func TestPromptSuggestionScrolling(t *testing.T) {
 	p := newForTestingWithConfig(t, config, "c\t\r")
 	defer p.Close()
 
-	result, err := p.Run()
+	result, err := p.Run(context.Background())
 
 	// EOF and ErrEOF are acceptable for this test - they just mean input ended
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, ErrEOF) {
@@ -2260,7 +2248,7 @@ func TestPromptSuggestionScrollingEdgeCases(t *testing.T) {
 				return suggestions
 			}
 
-			config := Config{
+			config := options{
 				Prefix:    "$ ",
 				Completer: completer,
 			}
@@ -2276,7 +2264,7 @@ func TestPromptSuggestionScrollingEdgeCases(t *testing.T) {
 			p := newForTestingWithConfig(t, config, input)
 			defer p.Close()
 
-			result, err := p.Run()
+			result, err := p.Run(context.Background())
 
 			// Accept EOF and ErrEOF as valid test termination conditions
 			if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, ErrEOF) {
@@ -2303,7 +2291,7 @@ func TestPromptSuggestionScrollingEdgeCases(t *testing.T) {
 func TestPromptSetPrefixComprehensive(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 	p := newForTestingWithConfig(t, config, "test\r")
@@ -2313,7 +2301,7 @@ func TestPromptSetPrefixComprehensive(t *testing.T) {
 	p.SetPrefix(">> ")
 
 	// Run and verify it still works
-	result, err := p.Run()
+	result, err := p.Run(context.Background())
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -2325,9 +2313,9 @@ func TestPromptSetPrefixComprehensive(t *testing.T) {
 func TestPromptWithHistoryPreloadedComprehensive(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
-		HistoryConfig: &HistoryConfig{
+		historyConfig: &historyConfig{
 			Enabled:    true,
 			MaxEntries: 1000,
 		},
@@ -2341,7 +2329,7 @@ func TestPromptWithHistoryPreloadedComprehensive(t *testing.T) {
 	p.AddHistory("command3")
 
 	// Verify that prompt can be created with history
-	result, err := p.Run()
+	result, err := p.Run(context.Background())
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -2369,7 +2357,7 @@ func TestPromptCompleterFunctionalityComprehensive(t *testing.T) {
 		return nil
 	}
 
-	config := Config{
+	config := options{
 		Prefix:    "$ ",
 		Completer: completer,
 	}
@@ -2377,7 +2365,7 @@ func TestPromptCompleterFunctionalityComprehensive(t *testing.T) {
 	defer p.Close()
 
 	// Run with tab completion
-	result, err := p.Run()
+	result, err := p.Run(context.Background())
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -2391,7 +2379,7 @@ func TestPromptCompleterFunctionalityComprehensive(t *testing.T) {
 func TestPromptTimeoutBehaviorComprehensive(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 	p := newForTestingWithConfig(t, config, "")
@@ -2401,7 +2389,7 @@ func TestPromptTimeoutBehaviorComprehensive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 	defer cancel()
 
-	_, err := p.RunWithContext(ctx)
+	_, err := p.Run(ctx)
 	if err == nil {
 		t.Error("Expected timeout error")
 	}
@@ -2415,11 +2403,11 @@ func TestPromptMinimalConfigComprehensive(t *testing.T) {
 	t.Parallel()
 
 	// Test with absolutely minimal config
-	config := Config{}
+	config := options{}
 	p := newForTestingWithConfig(t, config, "test\r")
 	defer p.Close()
 
-	result, err := p.Run()
+	result, err := p.Run(context.Background())
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -2431,14 +2419,14 @@ func TestPromptMinimalConfigComprehensive(t *testing.T) {
 func TestPromptRunMultipleComprehensive(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 
 	// Test multiple runs with same config
 	for i := range 3 {
 		p := newForTestingWithConfig(t, config, "test\r")
-		result, err := p.Run()
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Errorf("Run %d failed: %v", i, err)
 		}
@@ -2453,7 +2441,7 @@ func TestPromptRunMultipleComprehensive(t *testing.T) {
 func TestPromptCloseIdempotencyComprehensive(t *testing.T) {
 	t.Parallel()
 
-	config := Config{
+	config := options{
 		Prefix: "$ ",
 	}
 	p := newForTestingWithConfig(t, config, "")
@@ -2483,8 +2471,8 @@ func TestNewFunctionAdditionalCoverage(t *testing.T) {
 			t.Fatalf("Failed to create test history file: %v", err)
 		}
 
-		config := Config{
-			HistoryConfig: &HistoryConfig{
+		config := options{
+			historyConfig: &historyConfig{
 				Enabled:     true,
 				MaxEntries:  100,
 				File:        historyFile,
@@ -2494,7 +2482,7 @@ func TestNewFunctionAdditionalCoverage(t *testing.T) {
 		}
 
 		// Test history manager loading separately
-		hm := newHistoryManager(config.HistoryConfig)
+		hm := newHistoryManager(config.historyConfig)
 		err = hm.loadHistory()
 		if err != nil {
 			t.Fatalf("Failed to load history: %v", err)
@@ -2519,9 +2507,9 @@ func TestNewFunctionAdditionalCoverage(t *testing.T) {
 		}
 
 		// Try to load history from path where parent is a file
-		config := Config{
+		config := options{
 			Prefix: "test> ",
-			HistoryConfig: &HistoryConfig{
+			historyConfig: &historyConfig{
 				Enabled: true,
 				File:    filepath.Join(blockingFile, "history"), // Invalid path
 			},
@@ -2536,7 +2524,7 @@ func TestNewFunctionAdditionalCoverage(t *testing.T) {
 		} else if p != nil {
 			defer p.Close()
 			// The error should occur when trying to save history
-			histManager := newHistoryManager(config.HistoryConfig)
+			histManager := newHistoryManager(config.historyConfig)
 			histManager.addEntry("test")
 			saveErr := histManager.saveHistory()
 			if saveErr == nil {
@@ -2547,29 +2535,8 @@ func TestNewFunctionAdditionalCoverage(t *testing.T) {
 		}
 	})
 
-	t.Run("WithThemeAlias", func(t *testing.T) {
-		// Use default theme
-		theme := ThemeDefault
-
-		config := Config{
-			Prefix: "test> ",
-			Theme:  theme, // Using Theme alias instead of ColorScheme
-		}
-
-		p := newForTestingWithConfig(t, config, "")
-		defer p.Close()
-
-		// Should use the theme (Theme alias sets ColorScheme)
-		if p.config.ColorScheme == nil {
-			t.Error("Expected ColorScheme to be set")
-		}
-		if p.config.Theme != theme {
-			t.Error("Expected Theme to be preserved")
-		}
-	})
-
 	t.Run("DefaultsAndNilValues", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix: "test> ",
 			// All other fields nil/zero - should use defaults
 		}
@@ -2577,15 +2544,15 @@ func TestNewFunctionAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, "")
 		defer p.Close()
 
-		if p.config.HistoryConfig == nil || p.config.HistoryConfig.MaxEntries != 1000 {
+		if p.config.historyConfig == nil || p.config.historyConfig.MaxEntries != 1000 {
 			maxEntries := 0
-			if p.config.HistoryConfig != nil {
-				maxEntries = p.config.HistoryConfig.MaxEntries
+			if p.config.historyConfig != nil {
+				maxEntries = p.config.historyConfig.MaxEntries
 			}
-			t.Errorf("Expected default HistoryConfig.MaxEntries 1000, got %d", maxEntries)
+			t.Errorf("Expected default historyConfig.MaxEntries 1000, got %d", maxEntries)
 		}
-		if p.config.HistoryConfig == nil {
-			t.Error("Expected default HistoryConfig to be set")
+		if p.config.historyConfig == nil {
+			t.Error("Expected default historyConfig to be set")
 		}
 		if p.config.ColorScheme == nil {
 			t.Error("Expected default ColorScheme to be set")
@@ -2598,7 +2565,7 @@ func TestNewFunctionAdditionalCoverage(t *testing.T) {
 
 func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	t.Run("ContextCancellation", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix: "test> ",
 		}
 
@@ -2609,14 +2576,14 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 
-		_, err := p.RunWithContext(ctx)
+		_, err := p.Run(ctx)
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Expected context.Canceled error, got: %v", err)
 		}
 	})
 
 	t.Run("ContextTimeout", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix: "test> ",
 		}
 
@@ -2633,14 +2600,14 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		// context and reported EOF.
 		<-ctx.Done()
 
-		_, err := p.RunWithContext(ctx)
+		_, err := p.Run(ctx)
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Errorf("Expected context.DeadlineExceeded error, got: %v", err)
 		}
 	})
 
 	t.Run("EOFHandling", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix: "test> ",
 		}
 
@@ -2651,7 +2618,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		// Replace terminal with one that returns EOF
 		p.terminal = &eofMockTerminal{}
 
-		_, err := p.RunWithContext(context.Background())
+		_, err := p.Run(context.Background())
 		// Should handle EOF gracefully by returning ErrEOF
 		// This test mainly ensures the EOF handling branch is covered
 		if !errors.Is(err, ErrEOF) {
@@ -2660,7 +2627,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("ComplexKeySequences", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix: "test> ",
 		}
 
@@ -2669,7 +2636,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext failed: %v", err)
 		}
@@ -2681,9 +2648,9 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("HistoryNavigation", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix: "test> ",
-			HistoryConfig: &HistoryConfig{
+			historyConfig: &historyConfig{
 				Enabled:    true,
 				MaxEntries: 1000,
 			},
@@ -2698,7 +2665,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p.AddHistory("command1")
 		p.AddHistory("command2")
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext failed: %v", err)
 		}
@@ -2720,7 +2687,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 			return nil
 		}
 
-		config := Config{
+		config := options{
 			Prefix:    "test> ",
 			Completer: completer,
 		}
@@ -2730,7 +2697,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext failed: %v", err)
 		}
@@ -2742,7 +2709,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("CtrlDWithContent", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix: "test> ",
 		}
 
@@ -2754,17 +2721,17 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
-			t.Fatalf("RunWithContext() error = %v", err)
+			t.Fatalf("Run() error = %v", err)
 		}
 		if result != "hello" {
-			t.Errorf("RunWithContext() = %q, want %q", result, "hello")
+			t.Errorf("Run() = %q, want %q", result, "hello")
 		}
 	})
 
 	t.Run("CtrlCInterrupt", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix: "test> ",
 		}
 
@@ -2773,7 +2740,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		// Should return ErrInterrupted
 		if !errors.Is(err, ErrInterrupted) {
 			t.Errorf("Expected ErrInterrupted, got %v", err)
@@ -2785,7 +2752,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("CtrlCWithoutContent", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix: "test> ",
 		}
 
@@ -2794,7 +2761,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		// Should return ErrInterrupted
 		if !errors.Is(err, ErrInterrupted) {
 			t.Errorf("Expected ErrInterrupted, got %v", err)
@@ -2806,7 +2773,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("MultilineMode", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix:    "test> ",
 			Multiline: true,
 		}
@@ -2816,7 +2783,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext failed: %v", err)
 		}
@@ -2827,7 +2794,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("BackslashContinuation", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix:    "test> ",
 			Multiline: true,
 		}
@@ -2837,7 +2804,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext failed: %v", err)
 		}
@@ -2849,7 +2816,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("SingleLineBackslashContinuation", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix:    "test> ",
 			Multiline: false,
 		}
@@ -2859,7 +2826,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext failed: %v", err)
 		}
@@ -2871,7 +2838,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("BracketedPasteMultilineInput", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix:    "test> ",
 			Multiline: true,
 		}
@@ -2880,7 +2847,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext failed: %v", err)
 		}
@@ -2892,7 +2859,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("BracketedPastePreservesTrailingBackslash", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix:    "test> ",
 			Multiline: true,
 		}
@@ -2901,7 +2868,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext failed: %v", err)
 		}
@@ -2916,7 +2883,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	// instead of running completion, which silently deleted the TAB (and, with a
 	// matching candidate, rewrote the pasted word).
 	t.Run("BracketedPasteKeepsTabAsText", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix:    "test> ",
 			Multiline: true,
 			Completer: func(Document) []Suggestion {
@@ -2928,7 +2895,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext failed: %v", err)
 		}
@@ -2942,7 +2909,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	// A terminal sends CRLF for the line breaks of text copied on Windows. Both
 	// bytes submit, so pasting one line break inserted two.
 	t.Run("BracketedPasteCollapsesCRLFToOneNewline", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix:    "test> ",
 			Multiline: true,
 		}
@@ -2951,7 +2918,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext failed: %v", err)
 		}
@@ -2965,7 +2932,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	// A control byte carried in pasted text must not be obeyed as a keystroke:
 	// a stray 0x03 ended the whole prompt with ErrInterrupted.
 	t.Run("BracketedPasteIgnoresControlBytes", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix:    "test> ",
 			Multiline: true,
 		}
@@ -2974,7 +2941,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext failed: %v", err)
 		}
@@ -2989,7 +2956,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	// byte and goes, but the characters after it are text the user pasted and
 	// must survive, and the sequence must not move the cursor.
 	t.Run("BracketedPasteKeepsTextOfAnEscapeSequence", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix:    "test> ",
 			Multiline: true,
 		}
@@ -2998,7 +2965,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext failed: %v", err)
 		}
@@ -3012,7 +2979,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 	// The CRLF pairing is per paste. A paste that ends in CR must not swallow the
 	// newline the next paste begins with.
 	t.Run("BracketedPasteResetsCRLFStateBetweenPastes", func(t *testing.T) {
-		config := Config{
+		config := options{
 			Prefix:    "test> ",
 			Multiline: true,
 		}
@@ -3021,7 +2988,7 @@ func TestRunWithContextAdditionalCoverage(t *testing.T) {
 		p := newForTestingWithConfig(t, config, input)
 		defer p.Close()
 
-		result, err := p.RunWithContext(context.Background())
+		result, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("RunWithContext failed: %v", err)
 		}
@@ -3049,9 +3016,9 @@ func TestNewRealTerminalHandling(t *testing.T) {
 	}
 
 	// Test actual New function with real terminal (may fail in CI)
-	config := Config{
+	config := options{
 		Prefix: "test> ",
-		HistoryConfig: &HistoryConfig{
+		historyConfig: &historyConfig{
 			Enabled: true,
 			File:    "/dev/null/invalid", // Invalid path that will cause mkdir to fail
 		},
@@ -3088,7 +3055,7 @@ func TestNewWithOptions(t *testing.T) {
 			prefix: "> ",
 			options: []Option{
 				WithCompleter(func(d Document) []Suggestion {
-					if strings.HasPrefix("test", d.GetWordBeforeCursor()) {
+					if strings.HasPrefix("test", d.WordBeforeCursor()) {
 						return []Suggestion{{Text: "test", Description: "test command"}}
 					}
 					return nil
@@ -3106,14 +3073,14 @@ func TestNewWithOptions(t *testing.T) {
 			name:   "with color scheme",
 			prefix: "# ",
 			options: []Option{
-				WithColorScheme(ThemeDefault),
+				WithTheme(ThemeDefault),
 			},
 		},
 		{
 			name:   "with multiline",
 			prefix: ">> ",
 			options: []Option{
-				WithMultiline(true),
+				WithMultiline(),
 			},
 		},
 		{
@@ -3124,7 +3091,7 @@ func TestNewWithOptions(t *testing.T) {
 					return []Suggestion{{Text: "help", Description: "show help"}}
 				}),
 				WithMemoryHistory(100),
-				WithMultiline(true),
+				WithMultiline(),
 			},
 		},
 	}
@@ -3134,7 +3101,7 @@ func TestNewWithOptions(t *testing.T) {
 			t.Parallel()
 
 			// Test that config is correctly constructed without creating the prompt
-			config := Config{
+			config := options{
 				Prefix: tt.prefix,
 			}
 
@@ -3145,11 +3112,11 @@ func TestNewWithOptions(t *testing.T) {
 
 			// Verify prefix was set correctly
 			if config.Prefix != tt.prefix {
-				t.Errorf("Config prefix = %v, want %v", config.Prefix, tt.prefix)
+				t.Errorf("options prefix = %v, want %v", config.Prefix, tt.prefix)
 			}
 
 			// Test NewWithOptions function creates config correctly by using NewForTesting
-			testConfig := Config{Prefix: tt.prefix}
+			testConfig := options{Prefix: tt.prefix}
 			for _, option := range tt.options {
 				option(&testConfig)
 			}
@@ -3164,12 +3131,12 @@ func TestNewWithOptions(t *testing.T) {
 			}
 
 			// Verify defaults were set
-			if p.config.HistoryConfig == nil || p.config.HistoryConfig.MaxEntries <= 0 {
+			if p.config.historyConfig == nil || p.config.historyConfig.MaxEntries <= 0 {
 				maxEntries := 0
-				if p.config.HistoryConfig != nil {
-					maxEntries = p.config.HistoryConfig.MaxEntries
+				if p.config.historyConfig != nil {
+					maxEntries = p.config.historyConfig.MaxEntries
 				}
-				t.Errorf("Prompt config HistoryConfig.MaxEntries should have default value > 0, got %v", maxEntries)
+				t.Errorf("Prompt config historyConfig.MaxEntries should have default value > 0, got %v", maxEntries)
 			}
 
 			if p.config.ColorScheme == nil {
@@ -3186,7 +3153,7 @@ func TestNewWithOptions(t *testing.T) {
 func TestOptionFunctions(t *testing.T) {
 	t.Parallel()
 
-	config := Config{}
+	config := options{}
 
 	// Test WithCompleter
 	completer := func(_ Document) []Suggestion {
@@ -3199,58 +3166,51 @@ func TestOptionFunctions(t *testing.T) {
 
 	// Test WithMemoryHistory
 	WithMemoryHistory(500)(&config)
-	if config.HistoryConfig == nil {
-		t.Error("WithMemoryHistory() did not create HistoryConfig")
+	if config.historyConfig == nil {
+		t.Error("WithMemoryHistory() did not create historyConfig")
 	} else {
-		if config.HistoryConfig.MaxEntries != 500 {
-			t.Errorf("WithMemoryHistory() MaxEntries = %v, want %v", config.HistoryConfig.MaxEntries, 500)
+		if config.historyConfig.MaxEntries != 500 {
+			t.Errorf("WithMemoryHistory() MaxEntries = %v, want %v", config.historyConfig.MaxEntries, 500)
 		}
-		if config.HistoryConfig.File != "" {
-			t.Errorf("WithMemoryHistory() should create memory-only history, got File = %v", config.HistoryConfig.File)
+		if config.historyConfig.File != "" {
+			t.Errorf("WithMemoryHistory() should create memory-only history, got File = %v", config.historyConfig.File)
 		}
-		if !config.HistoryConfig.Enabled {
+		if !config.historyConfig.Enabled {
 			t.Error("WithMemoryHistory() should enable history")
 		}
 	}
 
 	// Test WithMultiline
-	WithMultiline(true)(&config)
+	WithMultiline()(&config)
 	if !config.Multiline {
-		t.Error("WithMultiline(true) did not set multiline to true")
+		t.Error("WithMultiline() did not set multiline to true")
 	}
 
-	// Test WithColorScheme
+	// Test WithTheme
 	colorScheme := &ColorScheme{}
-	WithColorScheme(colorScheme)(&config)
+	WithTheme(colorScheme)(&config)
 	if config.ColorScheme != colorScheme {
-		t.Error("WithColorScheme() did not set color scheme")
-	}
-
-	// Test WithTheme (alias)
-	theme := &ColorScheme{}
-	WithTheme(theme)(&config)
-	if config.Theme != theme {
-		t.Error("WithTheme() did not set theme")
+		t.Error("WithTheme() did not set color scheme")
 	}
 }
 
 // newForTestingWithConfig creates a new prompt with a mock terminal for testing.
 // This function is mainly for testing and migration purposes.
-func newForTestingWithConfig(t *testing.T, config Config, mockInput string) *Prompt {
+func newForTestingWithConfig(t *testing.T, config options, mockInput string) *Prompt {
 	t.Helper()
 
 	// Set defaults for history config
-	if config.HistoryConfig == nil {
+	if config.historyConfig == nil {
 		// For testing, disable file persistence by default
-		config.HistoryConfig = &HistoryConfig{
+		config.historyConfig = &historyConfig{
 			Enabled:    true,
 			MaxEntries: 1000,
 			File:       "", // No file persistence in tests
 		}
 	} else {
 		// Set defaults for incomplete history config
-		if config.HistoryConfig.MaxEntries <= 0 {
-			config.HistoryConfig.MaxEntries = 1000
+		if config.historyConfig.MaxEntries <= 0 {
+			config.historyConfig.MaxEntries = 1000
 		}
 	}
 	if config.ColorScheme == nil {
@@ -3267,7 +3227,7 @@ func newForTestingWithConfig(t *testing.T, config Config, mockInput string) *Pro
 	terminal := newMockTerminal(mockInput)
 
 	// Initialize history manager (but don't load from file for testing)
-	historyManager := newHistoryManager(config.HistoryConfig)
+	historyManager := newHistoryManager(config.historyConfig)
 	historyManager.setHistory([]string{}) // Start with empty history for testing
 
 	// Initialize prompt
@@ -3294,7 +3254,7 @@ func TestContinuationPrefix(t *testing.T) {
 	t.Run("marks buffered lines without entering the result", func(t *testing.T) {
 		t.Parallel()
 
-		p := newForTestingWithConfig(t, Config{
+		p := newForTestingWithConfig(t, options{
 			Prefix:             "$ ",
 			Multiline:          true,
 			IsComplete:         incomplete,
@@ -3309,7 +3269,7 @@ func TestContinuationPrefix(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		result, err := p.RunWithContext(ctx)
+		result, err := p.Run(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, "SELECT 1\nUNION ALL\nSELECT 2;", result, "the continuation prefix must not enter the returned input")
 		assert.Contains(t, output.String(), "...> ", "the continuation prefix should have been drawn")
@@ -3318,7 +3278,7 @@ func TestContinuationPrefix(t *testing.T) {
 	t.Run("is absent by default", func(t *testing.T) {
 		t.Parallel()
 
-		p := newForTestingWithConfig(t, Config{
+		p := newForTestingWithConfig(t, options{
 			Prefix:     "$ ",
 			Multiline:  true,
 			IsComplete: incomplete,
@@ -3332,24 +3292,18 @@ func TestContinuationPrefix(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		result, err := p.RunWithContext(ctx)
+		result, err := p.Run(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, "SELECT 1\nSELECT 2;", result)
 		assert.NotContains(t, output.String(), "...> ")
 	})
 
-	t.Run("option and setter reach the config", func(t *testing.T) {
+	t.Run("the option reaches the config", func(t *testing.T) {
 		t.Parallel()
 
-		var cfg Config
+		var cfg options
 		WithContinuationPrefix("...> ")(&cfg)
 		assert.Equal(t, "...> ", cfg.ContinuationPrefix)
-
-		p := newForTestingWithConfig(t, cfg, "")
-		defer p.Close()
-
-		p.SetContinuationPrefix("  -> ")
-		assert.Equal(t, "  -> ", p.config.ContinuationPrefix)
 	})
 }
 
@@ -3379,7 +3333,7 @@ func TestDeleteWordBackStopsAtTheWordItIsIn(t *testing.T) {
 			t.Parallel()
 
 			p := newTestPrompt(newMockTerminal(tt.typed + "\x17\r"))
-			got, err := p.Run()
+			got, err := p.Run(context.Background())
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -3423,7 +3377,7 @@ func TestBackslashContinuationCountsInRunes(t *testing.T) {
 			t.Parallel()
 
 			p := newTestPrompt(newMockTerminal(tt.typed + "\r\r"))
-			got, err := p.Run()
+			got, err := p.Run(context.Background())
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -3463,7 +3417,7 @@ func TestHistoryDownRestoresTheLineBeingTyped(t *testing.T) {
 
 			p := newTestPrompt(newMockTerminal(tt.script), WithMemoryHistory(10))
 			p.SetHistory([]string{"first", "second"})
-			got, err := p.Run()
+			got, err := p.Run(context.Background())
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -3494,7 +3448,7 @@ func TestCtrlDReportsErrEOF(t *testing.T) {
 			t.Parallel()
 
 			p := newTestPrompt(newMockTerminal(tt.script))
-			_, err := p.Run()
+			_, err := p.Run(context.Background())
 			if !errors.Is(err, ErrEOF) {
 				t.Errorf("Run() error = %v, want it to match ErrEOF", err)
 			}
@@ -3544,9 +3498,9 @@ func TestNewClosesTheTerminalWhenItCannotFinish(t *testing.T) {
 	}
 
 	terminal := &closeCountingTerminal{}
-	config := Config{
+	config := options{
 		Prefix:        "> ",
-		HistoryConfig: &HistoryConfig{Enabled: true, File: unreadable, MaxEntries: 100},
+		historyConfig: &historyConfig{Enabled: true, File: unreadable, MaxEntries: 100},
 		ColorScheme:   ThemeDefault,
 		KeyMap:        NewDefaultKeyMap(),
 	}
@@ -3569,9 +3523,9 @@ func TestNewKeepsTheTerminalWhenItSucceeds(t *testing.T) {
 	t.Parallel()
 
 	terminal := &closeCountingTerminal{}
-	config := Config{
+	config := options{
 		Prefix:        "> ",
-		HistoryConfig: &HistoryConfig{Enabled: true, MaxEntries: 100},
+		historyConfig: &historyConfig{Enabled: true, MaxEntries: 100},
 		ColorScheme:   ThemeDefault,
 		KeyMap:        NewDefaultKeyMap(),
 	}
@@ -3666,7 +3620,7 @@ func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 		// break, and Up puts it back on the line.
 		p.SetHistory([]string{"older one", "older two", "older\x1b[31mthree"})
 
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		if err != nil {
 			// A script can run out of keys before submitting, which ends the
 			// session rather than the line.
@@ -3766,40 +3720,29 @@ func TestRunLeavesTheScreenAgreeingWithTheLineItReturns(t *testing.T) {
 func TestOptionsSetWhatTheyName(t *testing.T) {
 	t.Parallel()
 
-	t.Run("WithHistory takes the configuration as given", func(t *testing.T) {
-		t.Parallel()
-
-		want := &HistoryConfig{Enabled: true, MaxEntries: 7, File: "/tmp/history", MaxFileSize: 11, MaxBackups: 2}
-		var config Config
-		WithHistory(want)(&config)
-		if config.HistoryConfig != want {
-			t.Errorf("WithHistory() set %#v, want the configuration it was given", config.HistoryConfig)
-		}
-	})
-
 	t.Run("WithFileHistory names the file and the limit", func(t *testing.T) {
 		t.Parallel()
 
-		var config Config
+		var config options
 		WithFileHistory("/tmp/history", 42)(&config)
-		if config.HistoryConfig == nil {
+		if config.historyConfig == nil {
 			t.Fatal("WithFileHistory() set no history configuration")
 		}
-		if !config.HistoryConfig.Enabled {
+		if !config.historyConfig.Enabled {
 			t.Error("WithFileHistory() left history disabled")
 		}
-		if config.HistoryConfig.File != "/tmp/history" {
-			t.Errorf("WithFileHistory() set File = %q, want /tmp/history", config.HistoryConfig.File)
+		if config.historyConfig.File != "/tmp/history" {
+			t.Errorf("WithFileHistory() set File = %q, want /tmp/history", config.historyConfig.File)
 		}
-		if config.HistoryConfig.MaxEntries != 42 {
-			t.Errorf("WithFileHistory() set MaxEntries = %d, want 42", config.HistoryConfig.MaxEntries)
+		if config.historyConfig.MaxEntries != 42 {
+			t.Errorf("WithFileHistory() set MaxEntries = %d, want 42", config.historyConfig.MaxEntries)
 		}
 	})
 
 	t.Run("WithHighlighter takes the function as given", func(t *testing.T) {
 		t.Parallel()
 
-		var config Config
+		var config options
 		WithHighlighter(func(string) []StyleSpan {
 			return []StyleSpan{{Start: 0, End: 1}}
 		})(&config)
@@ -3827,14 +3770,14 @@ func TestSubmittingFromALineAboveTheLastEndsTheBlockBelowTheEntry(t *testing.T) 
 	// the Enter after them submits rather than opening another line.
 	terminal.mockTerminal = *newMockTerminal("select 1,\r2,\r3;\x1b[A\x1b[A\r")
 	p := newTestPromptOn(terminal,
-		WithMultiline(true),
+		WithMultiline(),
 		WithContinuationPrefix("...> "),
 		WithIsComplete(func(in string) bool { return strings.HasSuffix(strings.TrimSpace(in), ";") }),
 	)
 	p.output = &out
 	p.renderer = newRenderer(&out, ThemeDefault, terminal)
 
-	line, err := p.Run()
+	line, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -3865,14 +3808,14 @@ func TestCancelingFromALineAboveTheLastLeavesNoRowOfTheEntryBehind(t *testing.T)
 	terminal := &sizedMockTerminal{width: width}
 	terminal.mockTerminal = *newMockTerminal("select 1,\r2,\r3\x1b[A\x1b[A\x03")
 	p := newTestPromptOn(terminal,
-		WithMultiline(true),
+		WithMultiline(),
 		WithContinuationPrefix("...> "),
 		WithIsComplete(func(in string) bool { return strings.HasSuffix(strings.TrimSpace(in), ";") }),
 	)
 	p.output = &out
 	p.renderer = newRenderer(&out, ThemeDefault, terminal)
 
-	if _, err := p.Run(); !errors.Is(err, ErrInterrupted) {
+	if _, err := p.Run(context.Background()); !errors.Is(err, ErrInterrupted) {
 		t.Fatalf("Run() error = %v, want ErrInterrupted", err)
 	}
 	fmt.Fprint(&out, "$ ") // the prompt the REPL draws next
@@ -3923,22 +3866,22 @@ func TestAKeyBoundToTheHistoryActionsWalksTheHistory(t *testing.T) {
 
 			var out bytes.Buffer
 			terminal := newMockTerminal(tt.keys)
-			options := []Option{WithKeyMap(keyMap), WithMemoryHistory(10)}
+			opts := []Option{WithKeyMap(keyMap), WithMemoryHistory(10)}
 			if tt.multiline {
 				// The entry is complete only once it has been recalled from the
 				// history, so the Enters typed before that open lines instead of
 				// submitting and the cursor keys would be moving between them.
-				options = append(options,
-					WithMultiline(true),
+				opts = append(opts,
+					WithMultiline(),
 					WithIsComplete(func(in string) bool { return strings.HasPrefix(in, "second") }),
 				)
 			}
-			p := newTestPromptOn(terminal, options...)
+			p := newTestPromptOn(terminal, opts...)
 			p.output = &out
 			p.renderer = newRenderer(&out, ThemeDefault, terminal)
 			p.SetHistory([]string{"first", "second"})
 
-			line, err := p.Run()
+			line, err := p.Run(context.Background())
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -3988,7 +3931,7 @@ func TestCloseEndsTheSessionBelowTheEntryOnScreen(t *testing.T) {
 
 			var out bytes.Buffer
 			terminal := &sizedMockTerminal{width: width, height: height}
-			p := newTestPromptOn(terminal, WithMultiline(true))
+			p := newTestPromptOn(terminal, WithMultiline())
 			p.output = &out
 			p.renderer = newRenderer(&out, ThemeDefault, terminal)
 			p.buffer = []rune(tt.buffer)
@@ -4029,7 +3972,7 @@ func TestSetThemeTakesANilThemeTheWayNewDoes(t *testing.T) {
 		t.Errorf("SetTheme(nil) left the scheme as %v, want the default", p.config.ColorScheme)
 	}
 
-	line, err := p.Run()
+	line, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -4050,7 +3993,7 @@ func TestSetThemeKeepsWhatTheRendererKnows(t *testing.T) {
 
 	var out bytes.Buffer
 	terminal := &sizedMockTerminal{width: width, height: height}
-	p := newTestPromptOn(terminal, WithMultiline(true))
+	p := newTestPromptOn(terminal, WithMultiline())
 	p.output = &out
 	p.renderer = newRenderer(&out, ThemeDefault, terminal)
 	p.buffer = []rune("one\ntwo\nthree")
@@ -4117,7 +4060,7 @@ func TestAMultilineSessionLeavesTheScreenAgreeingWithTheEntry(t *testing.T) {
 		terminal := &sizedMockTerminal{width: width, height: height}
 		terminal.mockTerminal = *newMockTerminal(script.String())
 		p := newTestPromptOn(terminal,
-			WithMultiline(true),
+			WithMultiline(),
 			WithContinuationPrefix("..> "),
 			WithIsComplete(func(in string) bool { return strings.HasSuffix(strings.TrimSpace(in), ";") }),
 			WithAutoIndent(func(before string) string {
@@ -4135,7 +4078,7 @@ func TestAMultilineSessionLeavesTheScreenAgreeingWithTheEntry(t *testing.T) {
 		p.output = &out
 		p.renderer = newRenderer(&out, ThemeDefault, terminal)
 
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		if err != nil {
 			if !errors.Is(err, ErrEOF) && !errors.Is(err, ErrInterrupted) {
 				t.Fatalf("iter %d: Run() error = %v script %q", iter, err, script.String())
@@ -4211,7 +4154,7 @@ func TestAPasteIsNotRedrawnOncePerCharacter(t *testing.T) {
 	p.output = &out
 	p.renderer = newRenderer(&out, ThemeDefault, terminal)
 
-	line, err := p.Run()
+	line, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -4259,7 +4202,7 @@ func TestAPasteHoldingEscapeSequencesIsNotRedrawnPerSequence(t *testing.T) {
 	p.output = &out
 	p.renderer = newRenderer(&out, ThemeDefault, terminal)
 
-	line, err := p.Run()
+	line, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -4314,13 +4257,13 @@ func TestCtrlUClearsTheLineTheCursorIsOn(t *testing.T) {
 			terminal := &sizedMockTerminal{width: 40, height: 24}
 			terminal.mockTerminal = *newMockTerminal(tt.keys)
 			p := newTestPromptOn(terminal,
-				WithMultiline(true),
+				WithMultiline(),
 				WithIsComplete(func(in string) bool { return strings.HasSuffix(in, ";") }),
 			)
 			p.output = &out
 			p.renderer = newRenderer(&out, ThemeDefault, terminal)
 
-			line, err := p.Run()
+			line, err := p.Run(context.Background())
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}

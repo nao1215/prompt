@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -185,7 +186,7 @@ func TestCompletionBehavior(t *testing.T) {
 		}
 
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix:    "app> ",
 				Completer: completer,
 			},
@@ -224,7 +225,7 @@ func TestCompletionBehavior(t *testing.T) {
 		}
 
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix:    "app> ",
 				Completer: completer,
 			},
@@ -241,7 +242,7 @@ func TestCompletionBehavior(t *testing.T) {
 		assert.Equal(t, 3, len(allSuggestions), "Completer should return 3 suggestions for 'create '")
 
 		// But when filtering by current word "a", no suggestions should match
-		currentWord := doc.GetWordBeforeCursor()
+		currentWord := doc.WordBeforeCursor()
 		assert.Equal(t, "a", currentWord, "Current word should be 'a'")
 
 		filteredSuggestions := make([]Suggestion, 0)
@@ -269,7 +270,7 @@ func TestCompletionBehavior(t *testing.T) {
 		}
 
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix:    "app> ",
 				Completer: completer,
 			},
@@ -288,7 +289,7 @@ func TestCompletionBehavior(t *testing.T) {
 		assert.Equal(t, 3, len(suggestions), "Should have 3 suggestions for 'create '")
 
 		// Current word should be empty (after space)
-		currentWord := doc.GetWordBeforeCursor()
+		currentWord := doc.WordBeforeCursor()
 		assert.Equal(t, "", currentWord, "Current word should be empty after space")
 
 		// Since currentWord is empty, no filtering should occur
@@ -321,7 +322,7 @@ func TestCompletionBehavior(t *testing.T) {
 					Text:           tt.text,
 					CursorPosition: tt.cursor,
 				}
-				word := doc.GetWordBeforeCursor()
+				word := doc.WordBeforeCursor()
 				assert.Equal(t, tt.expectedWord, word,
 					"For text '%s' with cursor at %d, expected word '%s' but got '%s'",
 					tt.text, tt.cursor, tt.expectedWord, word)
@@ -344,7 +345,7 @@ func TestCompletionBehavior(t *testing.T) {
 		}
 
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix:    "app> ",
 				Completer: completer,
 			},
@@ -380,7 +381,7 @@ func TestCompletionBehavior(t *testing.T) {
 	t.Run("TAB character should never be inserted into buffer", func(t *testing.T) {
 		// Test that TAB characters are never accidentally inserted
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix: "test> ",
 			},
 			buffer: []rune("hello"),
@@ -417,7 +418,7 @@ func TestCompletionBehavior(t *testing.T) {
 		}
 
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix:    "app> ",
 				Completer: completer,
 			},
@@ -461,7 +462,7 @@ func TestCompletionBehavior(t *testing.T) {
 		}
 
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix:    "app> ",
 				Completer: completer,
 			},
@@ -541,7 +542,7 @@ func TestAcceptSuggestionGuessesWhatToReplace(t *testing.T) {
 					{Text: "other", Replace: &Range{Start: 0, End: 0}},
 				}
 			}))
-			got, err := p.Run()
+			got, err := p.Run(context.Background())
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -627,7 +628,7 @@ func TestMenuClosesWhenTheCursorLeavesTheWord(t *testing.T) {
 			p := newTestPrompt(newMockTerminal("cre\t"+tt.move+"\r"), WithCompleter(func(Document) []Suggestion {
 				return []Suggestion{{Text: "create"}, {Text: "credit"}}
 			}))
-			got, err := p.Run()
+			got, err := p.Run(context.Background())
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -645,7 +646,7 @@ func TestMenuClosesWhenTheCursorLeavesTheWord(t *testing.T) {
 		p := newTestPrompt(newMockTerminal("cre\t\x1b[F\t\r\r"), WithCompleter(func(Document) []Suggestion {
 			return []Suggestion{{Text: "create"}, {Text: "credit"}}
 		}))
-		got, err := p.Run()
+		got, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
@@ -670,7 +671,7 @@ func TestMenuClosesWhenTheLineIsReplaced(t *testing.T) {
 		t.Parallel()
 
 		p := newTestPrompt(newMockTerminal("cre\t\x15\r"), WithCompleter(suggestions))
-		got, err := p.Run()
+		got, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
@@ -683,7 +684,7 @@ func TestMenuClosesWhenTheLineIsReplaced(t *testing.T) {
 		t.Parallel()
 
 		p := newTestPrompt(newMockTerminal("credit\x1b[D\x1b[D\x1b[D\t\x0b\r"), WithCompleter(suggestions))
-		got, err := p.Run()
+		got, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
@@ -698,7 +699,7 @@ func TestMenuClosesWhenTheLineIsReplaced(t *testing.T) {
 		p := newTestPrompt(newMockTerminal("cre\t\x12older\r\t\r"),
 			WithCompleter(suggestions), WithMemoryHistory(10))
 		p.SetHistory([]string{"older one"})
-		got, err := p.Run()
+		got, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
@@ -722,7 +723,7 @@ func TestMenuIsNotDrawnOverALineItDoesNotDescribe(t *testing.T) {
 	}))
 	p.output = &out
 	p.renderer = newRenderer(&out, ThemeDefault, terminal)
-	if _, err := p.Run(); !errors.Is(err, ErrEOF) {
+	if _, err := p.Run(context.Background()); !errors.Is(err, ErrEOF) {
 		t.Fatalf("Run() error = %v, want the input to have ended", err)
 	}
 
@@ -760,7 +761,7 @@ func TestMenuScrollsWithTheWindowItIsDrawnIn(t *testing.T) {
 	}))
 	p.output = &out
 	p.renderer = newRenderer(&out, ThemeDefault, terminal)
-	if _, err := p.Run(); !errors.Is(err, ErrEOF) {
+	if _, err := p.Run(context.Background()); !errors.Is(err, ErrEOF) {
 		t.Fatalf("Run() error = %v, want the input to have ended", err)
 	}
 
@@ -818,7 +819,7 @@ func TestFuzzyCompleterCompletesWhatItMatched(t *testing.T) {
 			t.Parallel()
 
 			p := newTestPrompt(newMockTerminal(tt.input), WithCompleter(NewFuzzyCompleter(candidates)))
-			got, err := p.Run()
+			got, err := p.Run(context.Background())
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -851,7 +852,7 @@ func TestCompletingIsTyping(t *testing.T) {
 		terminal := &sizedMockTerminal{width: 60, height: 24}
 		terminal.mockTerminal = *newMockTerminal(script)
 		p := newTestPromptOn(terminal, WithCompleter(func(d Document) []Suggestion {
-			word := d.GetWordBeforeCursor()
+			word := d.WordBeforeCursor()
 			var s []Suggestion
 			for _, c := range candidates {
 				if word != "" && strings.HasPrefix(c, word) {
@@ -862,7 +863,7 @@ func TestCompletingIsTyping(t *testing.T) {
 		}))
 		p.output = &out
 		p.renderer = newRenderer(&out, ThemeDefault, terminal)
-		return p.Run()
+		return p.Run(context.Background())
 	}
 
 	for iter := range 2000 {

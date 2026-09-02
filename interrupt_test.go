@@ -58,7 +58,7 @@ func TestWatchInterruptKeepsTypeAheadForTheNextRun(t *testing.T) {
 	waitForDone(ctx, t, "Ctrl+C after type-ahead")
 	stop()
 
-	got, err := p.RunWithContext(context.Background())
+	got, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run after the interrupt returned error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestWatchInterruptWithoutInterruptLosesNothing(t *testing.T) {
 	_, stop := p.WatchInterrupt(context.Background())
 	stop()
 
-	got, err := p.RunWithContext(context.Background())
+	got, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run after the watched work returned error: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestWatchInterruptStopsAtEndOfInput(t *testing.T) {
 	_, stop := p.WatchInterrupt(context.Background())
 	stop()
 
-	if _, err := p.RunWithContext(context.Background()); !errors.Is(err, ErrEOF) {
+	if _, err := p.Run(context.Background()); !errors.Is(err, ErrEOF) {
 		t.Fatalf("Run error = %v, want ErrEOF", err)
 	}
 }
@@ -238,7 +238,7 @@ func TestNestedWatchesKeepTheOrderOfWhatWasTyped(t *testing.T) {
 		stopInner()
 		stopOuter()
 
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("run %d: Run() error = %v", i, err)
 		}

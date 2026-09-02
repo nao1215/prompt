@@ -13,6 +13,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -26,7 +27,7 @@ func main() {
 		prompt.WithCompleter(completer),
 		prompt.WithHighlighter(highlight),
 		prompt.WithMemoryHistory(100),
-		prompt.WithMultiline(true),
+		prompt.WithMultiline(),
 		prompt.WithIsComplete(statementIsComplete),
 		prompt.WithContinuationPrefix("demo-# "),
 		prompt.WithTheme(prompt.ThemeDracula),
@@ -39,7 +40,7 @@ func main() {
 	fmt.Print("prompt demo -- a toy SQL shell. Type \\q to leave.\n\n")
 
 	for {
-		statement, err := p.Run()
+		statement, err := p.Run(context.Background())
 		if err != nil {
 			if errors.Is(err, prompt.ErrEOF) || errors.Is(err, prompt.ErrInterrupted) {
 				fmt.Println("bye")

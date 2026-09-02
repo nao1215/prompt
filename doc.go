@@ -1,82 +1,80 @@
-// Package prompt provides a modern, robust terminal prompt library for Go.
+// Package prompt reads lines from a terminal for an interactive program: a
+// REPL, a shell, a tool that asks a question. It draws a prefix, edits the line
+// the user types, offers completion on Tab, walks a history with the arrow keys
+// and searches it with Ctrl+R, and hands the line back.
 //
-// This library is designed as a replacement for the unmaintained go-prompt
-// library, addressing critical issues like divide-by-zero panics, memory leaks,
-// and limited cross-platform support while providing enhanced functionality.
+// It runs on Linux, macOS and Windows, and it is the successor of the archived
+// c-bata/go-prompt: the same idea, without the panics and the leaked
+// goroutines, and without go-prompt's API, which this package does not
+// reproduce.
 //
-// Key Features:
+// # Reading a line
 //
-//   - Interactive terminal prompts with rich editing capabilities
-//   - Multi-line input support with proper cursor navigation
-//   - Fuzzy auto-completion with intelligent ranking
-//   - Command history with reverse search (Ctrl+R)
-//   - Configurable key bindings and shortcuts
-//   - Cross-platform compatibility (Windows, macOS, Linux)
-//   - Context support for timeouts and cancellation
-//   - Comprehensive error handling and resource management
-//
-// Quick Start:
-//
-// The simplest way to create a prompt:
-//
-//	package main
-//
-//	import (
-//		"fmt"
-//		"log"
-//		"github.com/nao1215/prompt"
-//	)
-//
-//	func main() {
-//		p, err := prompt.New("Enter command: ")
-//		if err != nil {
-//			log.Fatal(err)
-//		}
-//		defer p.Close()
-//
-//		result, err := p.Run()
-//		if err != nil {
-//			log.Fatal(err)
-//		}
-//		fmt.Printf("You entered: %s\n", result)
-//	}
-//
-// Advanced Usage with Completion:
-//
-//	completer := prompt.NewFuzzyCompleter([]string{
-//		"git status", "git commit", "docker run", "kubectl get",
-//	})
-//
-//	p, err := prompt.New("$ ",
-//		prompt.WithCompleter(completer),
-//		prompt.WithMemoryHistory(100),
-//	)
+//	p, err := prompt.New("> ")
 //	if err != nil {
 //		log.Fatal(err)
 //	}
 //	defer p.Close()
 //
-//	result, err := p.Run()
+//	line, err := p.Run(context.Background())
 //	if err != nil {
 //		log.Fatal(err)
 //	}
-//	fmt.Printf("Command: %s\n", result)
+//	fmt.Println(line)
 //
-// Choosing What a Suggestion Replaces:
+// New opens the terminal and Close gives it back, so a program that forgets
+// Close leaves the terminal as it found it only by luck; call it whatever Run
+// returned. Run takes the terminal into raw mode for one entry and restores it
+// before returning, which is what lets a program print between prompts as it
+// always did.
 //
-// By default the prompt decides what a suggestion replaces: it takes the word
-// before the cursor and keeps a suggestion only when the word is a
-// case-sensitive prefix of it. A completer that matches by another rule sets
-// Suggestion.Replace to the span it stands for, counted in runes like
-// Document.CursorPosition, and the prompt applies that span literally instead:
+// What Run returns says how the entry ended. Enter returns the line without its
+// line break. Ctrl+C discards the line and returns ErrInterrupted. Ctrl+D on an
+// empty line, the input reaching its end, and Close from another goroutine
+// return ErrEOF, which matches io.EOF as well, so a loop that stops on either is
+// right. The context ending returns its own error, and it is the only way to
+// bound the wait, since a key the terminal has not sent cannot be waited for
+// with a deadline of its own.
+//
+// # Options
+//
+// New takes options. WithCompleter names a function asked on Tab; WithTheme
+// names the colors, from the Theme* variables or a ColorScheme of the caller's;
+// WithKeyMap names the key bindings; WithMemoryHistory and WithFileHistory say
+// how many entries the arrow keys walk and whether they outlive the process;
+// WithMultiline, WithIsComplete, WithAutoIndent and WithContinuationPrefix
+// shape an entry of several lines; WithHighlighter colors runs of the input as
+// it is drawn; WithWordEscape reads a backslash before a space as part of the
+// word being completed; WithPersistentRawMode keeps raw mode across Run calls
+// for a program that never prints between them.
+//
+//	p, err := prompt.New("$ ",
+//		prompt.WithCompleter(prompt.NewFuzzyCompleter([]string{"git status", "git commit"})),
+//		prompt.WithMemoryHistory(100),
+//		prompt.WithTheme(prompt.ThemeDracula),
+//	)
+//
+// What an option sets can be changed while the prompt lives, for the few
+// things a program changes: SetPrefix, SetTheme, and the history through
+// AddHistory, SetHistory and History.
+//
+// # Completion
+//
+// A completer is a function from a Document, which is the whole input and
+// where the cursor is, to a list of Suggestions. It is asked on Tab. By default
+// the prompt takes the word before the cursor and keeps a suggestion only when
+// that word is a case-sensitive prefix of it, and accepting a suggestion
+// replaces that word. A completer that matches by another rule -- a qualified
+// name, a case-insensitive match -- sets Suggestion.Replace to the span it
+// stands for, counted in runes like Document.CursorPosition, and the prompt
+// applies that span literally instead:
 //
 //	func completer(d prompt.Document) []prompt.Suggestion {
-//		word := d.GetWordBeforeCursor()
+//		word := d.WordBeforeCursor()
 //		start := d.CursorPosition - len([]rune(word))
 //
 //		var out []prompt.Suggestion
 //		for _, kw := range []string{"SELECT", "INSERT", "UPDATE"} {
-//			// Match case-insensitively, which the built-in filter cannot do.
 //			if strings.HasPrefix(strings.ToLower(kw), strings.ToLower(word)) {
 //				out = append(out, prompt.Suggestion{
 //					Text:    kw,
@@ -87,117 +85,58 @@
 //		return out
 //	}
 //
-// Key Bindings:
+// The menu stands for the word before the cursor, so editing the line or
+// moving the cursor off that word ends it and the next Tab asks again. It lists
+// at most ten candidates, and fewer when the terminal has fewer rows to spare
+// under the line being typed; Up and Down scroll a longer list. NewFuzzyCompleter
+// and NewFileCompleter are two completers this package ships.
 //
-// The library supports comprehensive key bindings out of the box:
+// # Keys
 //
-//   - Enter: Submit input (Shift+Enter for multi-line in appropriate contexts)
-//   - Ctrl+C: Discard the current line and return ErrInterrupted
-//   - Ctrl+D: EOF when buffer is empty
-//   - Esc: Close the completion popup
-//   - Arrow keys: Navigate history (up/down) and move cursor (left/right)
-//   - Ctrl+A / Home: Move to beginning of line
-//   - Ctrl+E / End: Move to end of line
-//   - Ctrl+K: Delete from cursor to end of line
-//   - Ctrl+U: Delete the line the cursor is on, which on an entry of one line
-//     is the whole of it. Ctrl+C is what discards an entry of several.
-//   - Ctrl+W: Delete word backwards
-//   - Ctrl+R: Reverse history search (like bash). Tab and the arrow keys move
-//     through the matches, Enter accepts the one the search names, Escape
-//     cancels. A query that matches nothing has nothing to accept, so Enter
-//     leaves the line as the search found it.
-//   - Tab: Auto-completion
-//   - Backspace: Delete character backwards
-//   - Delete: Delete character forwards
-//   - Ctrl+Left/Right: Move by word boundaries
+// The default key map binds what a shell binds: Enter submits; Ctrl+C
+// discards the entry; Ctrl+D on an empty entry ends the input; Tab completes
+// and Escape closes the menu; Up and Down walk the history, or the lines of a
+// multiline entry; Left, Right, Home, End, Ctrl+A and Ctrl+E move the cursor,
+// and Ctrl+Left and Ctrl+Right move it by a word; Backspace and Delete delete
+// a character, Ctrl+W the word before the cursor, Ctrl+K to the end of the
+// line, and Ctrl+U the line the cursor is on; Ctrl+R searches the history,
+// where Tab and the arrow keys move through the matches, Enter accepts and
+// Escape cancels; Ctrl+L clears the screen and leaves the scrollback.
 //
-// A completion menu stands for the word before the cursor, so editing the line
-// or moving the cursor off that word ends it and the next Tab asks again. It
-// lists at most ten candidates, and fewer when the terminal has fewer rows to
-// spare under the line being typed -- none at all when it has none, which is
-// what keeps that line on screen; Up and Down scroll a longer list.
-//
-// While an application runs work between prompts (a query, an import), no one is
-// reading the terminal, so Ctrl+C either waits in the buffer as a byte or, once
-// the prompt has given raw mode back, arrives as a SIGINT that would otherwise
-// kill the application. WatchInterrupt watches for the byte and the signal
-// during that gap: the key cancels the context it returns instead of ending the
-// process, until the stop function is called.
-//
-// Custom Key Bindings:
-//
-// You can customize key bindings by creating a custom KeyMap:
+// A KeyMap from NewDefaultKeyMap can be changed with Bind and BindSequence and
+// given to New with WithKeyMap. ActionHistoryUp and ActionHistoryDown are bound
+// to no key by default, because on a multiline entry the arrow keys are moving
+// the cursor; a shell puts them on Ctrl+P and Ctrl+N:
 //
 //	keyMap := prompt.NewDefaultKeyMap()
-//	// Reach the history from a multiline entry, the way a shell does
 //	keyMap.Bind('\x10', prompt.ActionHistoryUp)   // Ctrl+P
 //	keyMap.Bind('\x0E', prompt.ActionHistoryDown) // Ctrl+N
-//	// Add F1 for completion (a terminal sends it as an escape sequence)
-//	keyMap.BindSequence("OP", prompt.ActionComplete)
+//	keyMap.BindSequence("OP", prompt.ActionComplete) // F1
 //
-//	config := prompt.Config{
-//		Prefix: "$ ",
-//		KeyMap: keyMap,
-//	}
+// # Multiline entries
 //
-// Context Support:
+// With WithMultiline, an entry may hold line breaks: Enter inserts one while
+// the WithIsComplete predicate says the entry is not finished, and submits it
+// once it is. Up and Down then move between lines, and Home and End to the
+// ends of the line the cursor is on. An entry taller than the terminal is
+// drawn as the rows around the cursor the terminal has room for, redrawn in
+// place, so what scrolls off the top of the screen is the program's output
+// rather than the prompt's. Whichever line the cursor was on, an entry ends at
+// its foot, so what the program prints next starts below it.
 //
-// Use RunWithContext for timeout or cancellation support:
+// # Between prompts
 //
-//	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-//	defer cancel()
+// A REPL spends most of its time not reading the terminal. During that time
+// Ctrl+C either waits in the terminal's buffer as a byte, or, once the prompt
+// has given raw mode back, arrives as a SIGINT that ends the process.
+// WatchInterrupt watches for both while the program works between prompts and
+// cancels the context it returns instead; the watch runs until its stop
+// function is called, and Run is not to be called while one is active.
 //
-//	result, err := p.RunWithContext(ctx)
-//	if err == context.DeadlineExceeded {
-//		fmt.Println("Timeout reached")
-//		return
-//	}
+// # Goroutines
 //
-// Error Handling:
-//
-// The library provides specific error types for different scenarios:
-//
-//   - prompt.ErrInterrupted: User pressed Ctrl+C
-//   - prompt.ErrEOF: User pressed Ctrl+D with an empty buffer, or the input
-//     reached its end. It matches io.EOF as well as itself.
-//   - context.DeadlineExceeded: Timeout reached (when using context)
-//   - context.Canceled: Context was canceled
-//
-// Multi-line Input:
-//
-// The prompt automatically detects and handles multi-line input. When the buffer
-// contains newline characters, arrow keys navigate between lines instead of history,
-// and Home/End keys move to line boundaries instead of buffer boundaries.
-//
-// An entry taller than the terminal is drawn as the rows around the cursor that
-// the terminal has room for, redrawn in place. The rows outside that window are
-// left undrawn rather than drawn and scrolled away, because what scrolls off the
-// top of the screen is the application's output rather than the prompt's. The
-// window moves only as far as the cursor makes it: an entry does not scroll
-// under a cursor that is already on screen.
-//
-// A line ends at the foot of the entry, whichever line the cursor was on when
-// Enter or Ctrl+C was pressed. The cursor is left after the entry's last
-// character, so what an application prints next starts below the entry rather
-// than on top of the rows the cursor was above.
-//
-// Thread Safety:
-//
-// Prompt instances are not thread-safe. Each prompt should be used from a single
-// goroutine. Ending a session is the exception, because a prompt waiting for a
-// key cannot end itself: canceling the context passed to RunWithContext returns
-// context.Canceled, and Close returns ErrEOF.
-//
-// Resource Management:
-//
-// Always call Close() when done with a prompt to prevent resource leaks:
-//
-//	p, err := prompt.New(config)
-//	if err != nil {
-//		return err
-//	}
-//	defer p.Close() // Essential for cleanup
-//
-// The Close method is safe to call multiple times and should be called even if
-// Run or RunWithContext returns an error.
+// A Prompt is used from one goroutine. The exception is ending a session,
+// because a prompt waiting for a key cannot end itself: canceling the context
+// given to Run returns context.Canceled, and Close from another goroutine
+// returns ErrEOF. Close may be called more than once.
 package prompt

@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -24,7 +25,7 @@ func main() {
 
 	for {
 		// Run the prompt and get user input
-		result, err := p.Run()
+		result, err := p.Run(context.Background())
 		if err != nil {
 			if errors.Is(err, prompt.ErrEOF) {
 				fmt.Println("\nGoodbye!")

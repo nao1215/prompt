@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,7 @@ func TestReadEscapeSequence(t *testing.T) {
 	}
 
 	p := &Prompt{
-		config:   Config{Prefix: "test> "},
+		config:   options{Prefix: "test> "},
 		terminal: mock,
 		keyMap:   NewDefaultKeyMap(),
 	}
@@ -60,7 +61,7 @@ func TestReadEscapeSequenceBareEscape(t *testing.T) {
 			t.Parallel()
 
 			p := &Prompt{
-				config:   Config{Prefix: "test> "},
+				config:   options{Prefix: "test> "},
 				terminal: newMockTerminal(tt.input),
 				keyMap:   NewDefaultKeyMap(),
 			}
@@ -91,38 +92,38 @@ func TestKeyMapMethods(t *testing.T) {
 
 	// Test Bind method
 	km.Bind('x', ActionSubmit)
-	action := km.GetAction('x')
+	action := km.action('x')
 	if action != ActionSubmit {
 		t.Errorf("Expected ActionSubmit after binding 'x', got %v", action)
 	}
 
 	// Test BindSequence method
 	km.BindSequence("TEST", ActionCancel)
-	seqAction := km.GetSequenceAction("TEST")
+	seqAction := km.sequenceAction("TEST")
 	if seqAction != ActionCancel {
 		t.Errorf("Expected ActionCancel after binding sequence 'TEST', got %v", seqAction)
 	}
 
 	// Test GetAction with unbound key
-	action = km.GetAction('z')
+	action = km.action('z')
 	if action != ActionNone {
 		t.Errorf("Expected ActionNone for unbound key 'z', got %v", action)
 	}
 
 	// Test GetSequenceAction with unbound sequence
-	seqAction = km.GetSequenceAction("UNBOUND")
+	seqAction = km.sequenceAction("UNBOUND")
 	if seqAction != ActionNone {
 		t.Errorf("Expected ActionNone for unbound sequence 'UNBOUND', got %v", seqAction)
 	}
 
 	// Test nil KeyMap
 	var nilKm *KeyMap
-	action = nilKm.GetAction('a')
+	action = nilKm.action('a')
 	if action != ActionNone {
 		t.Errorf("Expected ActionNone for nil KeyMap, got %v", action)
 	}
 
-	seqAction = nilKm.GetSequenceAction("test")
+	seqAction = nilKm.sequenceAction("test")
 	if seqAction != ActionNone {
 		t.Errorf("Expected ActionNone for nil KeyMap sequence, got %v", seqAction)
 	}
@@ -147,12 +148,12 @@ func TestNewDefaultKeyMapAdvanced(t *testing.T) {
 	}
 
 	// Test that default keys are bound
-	enterAction := keyMap.GetAction('\r')
+	enterAction := keyMap.action('\r')
 	if enterAction == ActionNone {
 		t.Error("Expected Enter key to be bound")
 	}
 
-	backspaceAction := keyMap.GetAction('\b')
+	backspaceAction := keyMap.action('\b')
 	if backspaceAction == ActionNone {
 		t.Error("Expected Backspace key to be bound")
 	}
@@ -162,7 +163,7 @@ func TestDefaultKeyMapBindsClearScreen(t *testing.T) {
 	t.Parallel()
 
 	km := NewDefaultKeyMap()
-	if got := km.GetAction('\x0C'); got != ActionClearScreen {
+	if got := km.action('\x0C'); got != ActionClearScreen {
 		t.Errorf("Ctrl+L action = %v, want ActionClearScreen", got)
 	}
 }
@@ -178,7 +179,7 @@ func TestKeyMapBindAdvanced(t *testing.T) {
 	// Test binding a key
 	keyMap.Bind('x', ActionComplete)
 
-	action := keyMap.GetAction('x')
+	action := keyMap.action('x')
 	if action != ActionComplete {
 		t.Error("Expected bound action to be retrievable")
 	}
@@ -186,7 +187,7 @@ func TestKeyMapBindAdvanced(t *testing.T) {
 	// Test overwriting a binding
 	keyMap.Bind('x', ActionSubmit)
 
-	retrievedAction := keyMap.GetAction('x')
+	retrievedAction := keyMap.action('x')
 	if retrievedAction != ActionSubmit {
 		t.Error("Expected overwritten action to be retrievable")
 	}
@@ -203,13 +204,13 @@ func TestKeyMapBindSequenceAdvanced(t *testing.T) {
 	// Test binding a sequence
 	keyMap.BindSequence("[A", ActionHistoryUp)
 
-	action := keyMap.GetSequenceAction("[A")
+	action := keyMap.sequenceAction("[A")
 	if action != ActionHistoryUp {
 		t.Error("Expected bound sequence action to be retrievable")
 	}
 
 	// Test nonexistent sequence
-	action = keyMap.GetSequenceAction("[Z")
+	action = keyMap.sequenceAction("[Z")
 	if action != ActionNone {
 		t.Error("Expected ActionNone for nonexistent sequence")
 	}
@@ -224,7 +225,7 @@ func TestKeyMapGetActionAdvanced(t *testing.T) {
 	}
 
 	// Test getting action for unbound key
-	action := keyMap.GetAction('z')
+	action := keyMap.action('z')
 	if action != ActionNone {
 		t.Error("Expected ActionNone for unbound key")
 	}
@@ -232,7 +233,7 @@ func TestKeyMapGetActionAdvanced(t *testing.T) {
 	// Test getting action for bound key
 	keyMap.Bind('z', ActionSubmit)
 
-	action = keyMap.GetAction('z')
+	action = keyMap.action('z')
 	if action != ActionSubmit {
 		t.Error("Expected ActionSubmit for bound key")
 	}
@@ -273,7 +274,7 @@ func TestReadEscapeSequenceConsumesASequenceItCannotName(t *testing.T) {
 			t.Parallel()
 
 			p := newTestPrompt(newMockTerminal(tt.input))
-			got, err := p.Run()
+			got, err := p.Run(context.Background())
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}

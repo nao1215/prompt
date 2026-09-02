@@ -57,7 +57,7 @@ func main() {
 		}
 		p.SetPrefix(fmt.Sprintf("shell:%s> ", filepath.Base(cwd)))
 
-		result, err := p.Run()
+		result, err := p.Run(context.Background())
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			break
