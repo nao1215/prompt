@@ -277,8 +277,10 @@ the word-based behavior.
 
 ```go
 keyMap := prompt.NewDefaultKeyMap()
-// Bind Ctrl+L to clear the line.
-keyMap.Bind('\x0C', prompt.ActionDeleteLine)
+// Reach the history from a multiline entry, where the arrow keys move the
+// cursor between its lines.
+keyMap.Bind('\x10', prompt.ActionHistoryUp)   // Ctrl+P
+keyMap.Bind('\x0E', prompt.ActionHistoryDown) // Ctrl+N
 
 p, err := prompt.New("$ ",
     prompt.WithKeyMap(keyMap),
