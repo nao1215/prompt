@@ -2839,3 +2839,18 @@ func TestTheDefaultThemeDrawsTheInputInTheTerminalsColor(t *testing.T) {
 		t.Error("the default theme draws the prefix in no color of its own")
 	}
 }
+
+// TestTheAccessibleThemeDoesNotAssumeABackground holds the theme named for
+// contrast to the rule the default theme follows. It is picked by someone who
+// needs to read the screen, and it named white -- which on a light terminal is
+// the least contrast there is.
+func TestTheAccessibleThemeDoesNotAssumeABackground(t *testing.T) {
+	t.Parallel()
+
+	if got := ThemeAccessible.Input.ToANSI(); got != "" {
+		t.Errorf("the accessible theme draws the input as %q, want the terminal's own color", got)
+	}
+	if got := ThemeAccessible.Suggestion.Text.ToANSI(); got != "" {
+		t.Errorf("the accessible theme draws a candidate as %q, want the terminal's own color", got)
+	}
+}

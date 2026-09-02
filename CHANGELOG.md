@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A paste is no longer redrawn once per character ([#147](https://github.com/nao1215/prompt/issues/147)). The read loop drew the whole block after every pasted rune, so a twenty-thousand-character statement -- which is what pasting a generated query is -- wrote about fifty megabytes of escape sequences and took seconds before the prompt read another key, which from the outside is a shell that has hung. The paste is now drawn every few hundred characters and once at its end, which for that statement is a hundred kilobytes and sixteen milliseconds.
 
+- `ThemeAccessible` draws the input in the terminal's own foreground instead of white ([#152](https://github.com/nao1215/prompt/issues/152)). It is the theme someone picks because they need to read the screen, and it was the one naming white on a background it does not choose. It keeps the blue and orange pair, which is what makes it colorblind-safe.
+
 - The default theme draws the input in the terminal's own foreground instead of white ([#152](https://github.com/nao1215/prompt/issues/152)). A prompt that names no theme drew what the user types in bold white, which cannot be seen on a light background: the prefix was there and the line was not. Every foreground a theme picks is wrong on the background it did not assume, so the theme that has not been chosen now picks none for the input or the menu's candidates, and keeps color for what reads on both -- the prefix, the selection, a description.
 
 ### Changed

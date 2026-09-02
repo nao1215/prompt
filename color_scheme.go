@@ -115,14 +115,21 @@ var ThemeSolarizedDark = &ColorScheme{
 	Selected: Color{R: 38, G: 139, B: 210, Bold: true},
 }
 
-// ThemeAccessible is a colorblind-safe theme with high contrast
+// ThemeAccessible is a colorblind-safe theme with high contrast.
+//
+// Unlike the themes named for a palette, this one does not say which background
+// it is for, so it names no foreground for the text: the line being typed and
+// the candidates are the terminal's own color, which is the highest contrast
+// available against the background the user chose. What it does name is the blue
+// and orange pair, which is told apart under every common form of color
+// blindness.
 var ThemeAccessible = &ColorScheme{
 	Name:   "Accessible",
 	Prefix: Color{R: 0, G: 114, B: 178, Bold: true},
-	Input:  Color{R: 255, G: 255, B: 255, Bold: false},
+	Input:  Color{},
 	Suggestion: SuggestionColors{
-		Text:        Color{R: 255, G: 255, B: 255, Bold: false},
-		Description: Color{R: 204, G: 204, B: 204, Bold: false},
+		Text:        Color{},
+		Description: Color{R: 128, G: 128, B: 128, Bold: false},
 	},
 	Selected: Color{R: 230, G: 159, B: 0, Bold: true},
 }
