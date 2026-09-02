@@ -2403,3 +2403,60 @@ func TestCancelingTheContextEndsAnOpenReverseSearch(t *testing.T) {
 		t.Error("RunWithContext did not return after its context was canceled")
 	}
 }
+
+// FuzzSearchBlockFitsWhatItDraws holds the reverse search to the two numbers it
+// is erased by. The rows it reports are the rows the next keystroke moves up
+// past, and the rows it draws are what is on screen: reporting fewer leaves rows
+// behind, and reporting more walks the erase up into the session's output.
+//
+// The room it has is what the terminal has left under the caret, because the
+// block is drawn from the row the caret was left on rather than from the top of
+// the screen. Queries and entries are fuzzed because both are whatever the user
+// typed: an entry can hold a tab, a wide glyph, a control character, or a line
+// break, and each of those is measured by a different rule than it is drawn by.
+func FuzzSearchBlockFitsWhatItDraws(f *testing.F) {
+	f.Add("sel", "select 1\nselect 2\nselect 3", 40, 10, 0)
+	f.Add("", "a", 8, 3, 0)
+	f.Add("あ", "あいうえお\nかきくけこ", 7, 4, 1)
+	f.Add("x", strings.Repeat("y", 300), 20, 5, 0)
+	f.Fuzz(func(t *testing.T, query, joined string, width, height, caret int) {
+		if width < 1 || width > 200 || height < 1 || height > 60 {
+			t.Skip()
+		}
+		results := strings.Split(joined, "\n")
+		if len(results) > 20 || len(joined) > 2000 {
+			t.Skip()
+		}
+		if caret < 0 || caret >= height {
+			t.Skip()
+		}
+
+		var out bytes.Buffer
+		terminal := &sizedMockTerminal{width: width, height: height}
+		p := newTestPromptOn(terminal)
+		p.output = &out
+		p.renderer = newRenderer(&out, ThemeDefault, terminal)
+		// The caret is wherever the last render left it inside the block.
+		p.renderer.lastCursorRow = caret
+		p.renderer.lastLines = caret + 1
+
+		rows, err := p.renderHistorySearch(query, results, 0)
+		if err != nil {
+			t.Fatalf("renderHistorySearch: %v", err)
+		}
+
+		screen := newScreenModel(width)
+		screen.feed(out.String())
+		if drawn := len(screen.rows()); drawn > rows {
+			t.Fatalf("query %q results %q width %d height %d caret %d: drew %d rows and reported %d",
+				query, results, width, height, caret, drawn, rows)
+		}
+		// The block plus the row the cursor is left on has to fit under the
+		// caret, or the erase that ends the search moves past the top of the
+		// screen.
+		if room := height - caret - 1; rows > room && rows > 1 {
+			t.Fatalf("query %q results %q width %d height %d caret %d: drew %d rows with room for %d",
+				query, results, width, height, caret, rows, room)
+		}
+	})
+}
