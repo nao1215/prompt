@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-09-02
 
 ### Breaking Changes
 
@@ -360,7 +360,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Screen clearing**: More robust terminal content clearing with multiple fallback strategies
 - **Cross-platform compatibility**: Better handling of terminal differences across operating systems
 
-## [0.1.0] - 2025-09-18
+## [0.0.1] - 2025-09-18
 
 ### Added
 - **Initial implementation of modern prompt library ([45519e9](https://github.com/nao1215/prompt/commit/45519e9))**: Complete rewrite of go-prompt with improved architecture and cross-platform support
