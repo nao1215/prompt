@@ -733,11 +733,15 @@ func TestATallEntryUnderAPTY(t *testing.T) {
 	)
 
 	// Every line reached the buffer, in order, with nothing lost to a redraw.
-	want := "select 1,"
+	// The entry is compared as the helper prints it, which is quoted, so the
+	// line breaks in it are two characters.
+	entry := make([]string, 0, lines)
+	entry = append(entry, "select 1,")
 	for i := 2; i < lines; i++ {
-		want += fmt.Sprintf("\\nline%02d,", i)
+		entry = append(entry, fmt.Sprintf("line%02d,", i))
 	}
-	want += "\\ndone;"
+	entry = append(entry, "done;")
+	want := strings.Join(entry, "\\n")
 	if !strings.Contains(out, `entry="`+want+`"`) {
 		t.Errorf("the entry came back as something else\n--- transcript ---\n%s", out)
 	}
