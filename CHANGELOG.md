@@ -29,9 +29,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Typing while more than one `WatchInterrupt` watch is active keeps the order of the keys ([#140](https://github.com/nao1215/prompt/issues/140)). Every watch ran a receiver of its own on the shared reader's channel, and two receivers hold what they took in whichever order the scheduler gives them, so `abcdef` typed through two watches reached the next `Run` as `abdcef`. There is now one watcher for the prompt however many watches are active, and an interrupt cancels all of them, which is what an interrupt means when the work being watched is nested. Two smaller things came with it: a watch outlives the input it watches, because the keyboard having nothing more to say is not the caller saying its work is done, and `Close` ends a watch nobody stopped rather than leaving it holding the interrupt for the rest of the process.
 
+- `NewFileCompleter` completes the word before the cursor rather than the whole line ([#142](https://github.com/nao1215/prompt/issues/142)). It handed everything to the left of the cursor to the path walk, so a line holding anything but the path -- a command, which is what a shell line starts with -- named a directory nothing is called and completed nothing: Tab after `cat /et` offered no files, and after `cat ` it offered none either, because an empty path was read as `.` whose base is `.` and only dot files start with one. The godoc now says what it does not do as well: no `~`, no quoting or escapes, no idea which argument of which command it is completing.
+
+- `NewFileCompleter` offers the path as it was typed ([#143](https://github.com/nao1215/prompt/issues/143)). The candidate was built with `filepath.Join`, which cleans what it builds, so completing `./al` offered `alpha.txt` and completing a path with a doubled separator offered one without it. Neither starts with the word being completed, and a suggestion that does not is dropped before it is drawn, so the key appeared to do nothing. The candidate is now what was typed up to the last separator, exactly as it was written, with the entry's name after it, and a directory is offered with the separator the path was written with rather than always a forward slash.
+
 ### Changed
 
 - The key map examples in the README and the godoc bind Ctrl+P and Ctrl+N to the history instead of rebinding Ctrl+L. Every one of them replaced a key the default map already uses, and one bound `ActionNewLine` under a comment that said it cleared the screen.
+
+- `example/shell` hands the whole document to the file completer instead of cutting the command off and putting it back in front of every candidate. Those candidates were dropped by the prompt before they reached the screen, because a suggestion is measured against the word being typed and "cat /etc/hosts" does not start with "/etc/ho": the example's file completion did nothing at all.
 
 ## [0.0.29] - 2026-09-01
 

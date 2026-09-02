@@ -3,7 +3,6 @@ package prompt
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -72,37 +71,72 @@ func calculateFuzzyScore(input, candidate string) int {
 	return score
 }
 
-// NewFileCompleter creates a completer that provides file and directory suggestions
+// NewFileCompleter returns a completer that offers the files and directories the
+// word before the cursor names the start of. A directory is offered with a
+// trailing separator -- the one the path was written with -- so the next Tab
+// continues inside it, and a name beginning with a dot is offered only once the
+// word begins with one.
+//
+// It completes the word rather than the line, so it can be used on a line that
+// holds more than the path -- a command and its arguments, which is what a shell
+// line is. A cursor that follows a space is not in the middle of a name, and
+// what is offered there is the directory's contents.
+//
+// What it does not do: expand "~", understand quoting or backslash escapes, or
+// know which argument of which command is being completed. A path holding a
+// space is therefore two words to it. A completer that needs any of that is a
+// function of your own -- example/shell has one -- and Document says where the
+// cursor is and what the line holds.
 func NewFileCompleter() func(Document) []Suggestion {
 	return func(d Document) []Suggestion {
-		text := d.TextBeforeCursor()
-		return completeFilePath(text)
+		// The word before the cursor, not the line before it. A line is a
+		// command and its arguments, and handing the whole of it to the path
+		// walk named a directory nothing is called: completion after "cat /et"
+		// offered nothing at all. The word is empty when the cursor follows a
+		// space, which is where the directory's contents belong rather than
+		// nothing, and completeFilePath reads an empty path as the current
+		// directory.
+		//
+		// It is also the word the prompt measures a candidate against when the
+		// completer does not name the span it replaces, so what is offered here
+		// and what is applied there are the same string.
+		return completeFilePath(d.GetWordBeforeCursor())
 	}
 }
 
-// completeFilePath provides file and directory completion for the given path (internal)
+// completeFilePath returns the files and directories whose names start with the
+// last component of path, offered as the path the user typed with that component
+// completed.
+//
+// The candidate is built from what was typed rather than from the parts the path
+// was taken apart into. filepath.Join cleans what it builds -- "./" goes, a
+// doubled separator goes -- and a candidate that comes back tidier than the word
+// it completes does not start with that word, which is what the prompt measures
+// a suggestion against when the completer does not name the span it replaces. It
+// was then dropped before it reached the screen, so the key appeared to do
+// nothing.
 func completeFilePath(path string) []Suggestion {
-	// Handle empty path - start from current directory
-	if path == "" {
-		path = "."
-	}
+	// What was typed in front of the name being completed, kept exactly as it
+	// was, and the name itself. Nothing typed at all is the current directory
+	// with no name to filter by: reading that as the path "." made "." the name
+	// as well, and only a dot file starts with one, so the case that should list
+	// everything listed the dot files alone.
+	cut := strings.LastIndexAny(path, `/\`)
+	prefix, base := path[:cut+1], path[cut+1:]
 
-	// Extract directory and filename parts
-	dir := filepath.Dir(path)
-	base := filepath.Base(path)
-
-	// If path ends with separator, we're completing in that directory
-	if strings.HasSuffix(path, "/") || strings.HasSuffix(path, "\\") {
-		dir = path
-		base = ""
-	}
-
-	// Handle relative paths
-	if dir == "." && !strings.HasPrefix(path, "./") {
+	dir := prefix
+	if dir == "" {
 		dir = "."
 	}
 
-	// Read directory contents
+	// A directory is offered with the separator the path was written with, so a
+	// path typed the way Windows writes them stays one. A path with no separator
+	// in it yet has no style to follow, and both platforms take the slash.
+	separator := "/"
+	if cut >= 0 {
+		separator = path[cut : cut+1]
+	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -112,31 +146,25 @@ func completeFilePath(path string) []Suggestion {
 	for _, entry := range entries {
 		name := entry.Name()
 
-		// Skip hidden files unless explicitly requested
+		// A name beginning with a dot is offered only once the word begins with
+		// one, the way a shell hides them until they are asked for.
 		if strings.HasPrefix(name, ".") && !strings.HasPrefix(base, ".") {
 			continue
 		}
-
-		// Filter by prefix
 		if base != "" && !strings.HasPrefix(name, base) {
 			continue
 		}
 
-		// Build full path
-		fullPath := filepath.Join(dir, name)
-		if dir == "." && !strings.HasPrefix(path, "./") {
-			fullPath = name
-		}
-
-		// Add trailing slash for directories
+		// A directory is offered with the separator after it, so the next Tab
+		// continues inside it rather than starting again on the same word.
 		description := "file"
 		if entry.IsDir() {
-			fullPath += "/"
+			name += separator
 			description = "directory"
 		}
 
 		suggestions = append(suggestions, Suggestion{
-			Text:        fullPath,
+			Text:        prefix + name,
 			Description: description,
 		})
 	}
