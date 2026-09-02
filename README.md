@@ -516,12 +516,13 @@ nothing tells it apart from the key.
 | Ctrl+A / Home | Move to beginning of line |
 | Ctrl+E / End | Move to end of line |
 | Ctrl+K | Delete from cursor to end of line |
-| Ctrl+U | Delete entire line |
+| Ctrl+U | Delete the whole entry, whichever of its lines the cursor is on |
 | Ctrl+W | Delete word backwards |
 | Ctrl+R | Reverse history search; Tab and ↑/↓ move through the matches, Enter accepts the one the search names, Esc cancels |
 | Tab | Auto-completion |
 | Backspace | Delete character backwards |
 | Delete | Delete character forwards |
+| Ctrl+L | Clear the screen and redraw the prompt at the top of it, keeping the scrollback |
 | Ctrl+←/→ | Move by word boundaries |
 | Esc | Close the completion popup |
 

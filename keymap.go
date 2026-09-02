@@ -33,8 +33,11 @@ const (
 	ActionNewLine
 	ActionPasteStart
 	ActionPasteEnd
-	// ActionClearScreen clears the terminal screen and redraws the prompt with
-	// the current input preserved, like Ctrl+L in a typical shell.
+	// ActionClearScreen clears the terminal screen and redraws the prompt at the
+	// top of it with the current input preserved, like Ctrl+L in a typical
+	// shell. The scrollback is left alone: it holds whatever the application
+	// printed before the prompt, which is what the user has in front of them
+	// when they reach for the key.
 	ActionClearScreen
 )
 
@@ -73,10 +76,10 @@ type KeyMap struct {
 //   - Ctrl+A: Move to beginning of line
 //   - Ctrl+E: Move to end of line
 //   - Ctrl+K: Delete from cursor to end of line
-//   - Ctrl+U: Delete entire line
+//   - Ctrl+U: Delete the whole entry, whichever of its lines the cursor is on
 //   - Ctrl+W: Delete word backwards
 //   - Ctrl+R: Reverse history search
-//   - Ctrl+L: Clear the screen
+//   - Ctrl+L: Clear the screen, keeping the scrollback
 //   - Tab: Auto-completion
 //   - Backspace: Delete character backwards
 //   - Arrow keys: Navigate history and move cursor
