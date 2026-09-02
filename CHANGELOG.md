@@ -39,13 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Ctrl+U is documented as what it does: it deletes the whole entry, whichever of its lines the cursor is on ([#150](https://github.com/nao1215/prompt/issues/150)). "Delete entire line" said nothing about which line, and on a multiline entry the answer is all of them. The behavior is unchanged.
+
 - Ctrl+L clears the screen and leaves the scrollback ([#149](https://github.com/nao1215/prompt/issues/149)). It sent Erase Saved Lines along with the screen clear, so the output a person had Ctrl+L in front of them -- the results they had been reading -- could not be scrolled back to, and nothing undoes that. What a shell's Ctrl+L sends is the terminal's clear capability, which homes the cursor and erases the screen.
 
-- Ctrl+U deletes the line the cursor is on rather than the whole entry ([#150](https://github.com/nao1215/prompt/issues/150)). It emptied the buffer whatever the entry looked like, so on a statement typed across several lines the key that says "delete entire line" discarded the statement, with no undo. Ctrl+K beside it has asked which line it is on since multiline entries existed.
-
-  Migration: the key that discards a whole entry is Ctrl+C, which ends the line and returns `ErrInterrupted`. On an entry of one line Ctrl+U is unchanged, because there the line is the entry.
-
-- The key map examples in the README and the godoc bind Ctrl+P and Ctrl+N to the history instead of rebinding Ctrl+L. Every one of them replaced a key the default map already uses, and one bound `ActionNewLine` under a comment that said it cleared the screen.
+		case ActionDeleteLine:
+			p.buffer = []rune{}
+			p.cursor = 0- The key map examples in the README and the godoc bind Ctrl+P and Ctrl+N to the history instead of rebinding Ctrl+L. Every one of them replaced a key the default map already uses, and one bound `ActionNewLine` under a comment that said it cleared the screen.
 
 - `example/shell` hands the whole document to the file completer instead of cutting the command off and putting it back in front of every candidate. Those candidates were dropped by the prompt before they reached the screen, because a suggestion is measured against the word being typed and "cat /etc/hosts" does not start with "/etc/ho": the example's file completion did nothing at all.
 

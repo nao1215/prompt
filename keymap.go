@@ -76,7 +76,7 @@ type KeyMap struct {
 //   - Ctrl+A: Move to beginning of line
 //   - Ctrl+E: Move to end of line
 //   - Ctrl+K: Delete from cursor to end of line
-//   - Ctrl+U: Delete the line the cursor is on
+//   - Ctrl+U: Delete the whole entry, whichever of its lines the cursor is on
 //   - Ctrl+W: Delete word backwards
 //   - Ctrl+R: Reverse history search
 //   - Ctrl+L: Clear the screen, keeping the scrollback
