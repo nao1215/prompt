@@ -131,8 +131,8 @@
 //
 // # What a byte does
 //
-// A key the terminal sends as a byte below a space is what the key map binds it
-// to, and a byte it binds to nothing is dropped: putting a raw control byte
+// A key the terminal sends as a control byte is what the key map binds it to,
+// and a byte it binds to nothing is dropped: putting a raw control byte
 // into the line would be worse than losing it. Ctrl+D is the one whose answer
 // depends on the line -- it ends the input when there is nothing on it, and
 // does nothing when there is.

@@ -1,6 +1,9 @@
 package prompt
 
-import "io"
+import (
+	"bufio"
+	"strings"
+)
 
 // mockTerminal implements terminalInterface for testing and development.
 //
@@ -17,8 +20,15 @@ import "io"
 // The mock terminal is essential for testing complex scenarios like multi-line
 // input, history navigation, and completion without manual interaction.
 type mockTerminal struct {
-	input        []rune // Pre-configured input sequence for testing
-	inputPos     int    // Current position in the input sequence
+	// input holds the bytes of the script, decoded the way the real terminal
+	// decodes them. Holding runes instead would have decoded them here, where
+	// a byte that is not valid UTF-8 becomes U+FFFD before the prompt has seen
+	// it: a test of what the prompt does with such a byte would then be a test
+	// of the conversion in this file.
+	input *bufio.Reader
+	// script is what the reader was built from, for a test that asserts what a
+	// helper handed the terminal rather than what the terminal did with it.
+	script       string
 	rawMode      bool   // Track raw mode state for test verification
 	terminalSize [2]int // Fixed terminal dimensions [width, height]
 	setRawCount  int    // Number of SetRaw calls, for verifying raw mode is entered once per session
@@ -27,8 +37,8 @@ type mockTerminal struct {
 
 func newMockTerminal(input string) *mockTerminal {
 	return &mockTerminal{
-		input:        []rune(input),
-		inputPos:     0,
+		input:        bufio.NewReader(strings.NewReader(input)),
+		script:       input,
 		rawMode:      false,
 		terminalSize: [2]int{80, 24},
 	}
@@ -51,11 +61,12 @@ func (m *mockTerminal) Size() (width, height int, err error) {
 }
 
 func (m *mockTerminal) ReadRune() (rune, int, error) {
-	if m.inputPos >= len(m.input) {
-		return 0, 0, io.EOF
+	r, _, err := m.input.ReadRune()
+	if err != nil {
+		return 0, 0, err
 	}
-	r := m.input[m.inputPos]
-	m.inputPos++
+	// The real terminal answers 1 whatever the rune's width, because what the
+	// caller counts is runes.
 	return r, 1, nil
 }
 

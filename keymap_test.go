@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"bufio"
 	"context"
 	"io"
 	"strings"
@@ -12,7 +13,7 @@ func TestReadEscapeSequence(t *testing.T) {
 
 	// Test with mock terminal that provides escape sequences
 	mock := &mockTerminal{
-		input: []rune("[A"), // Up arrow (without initial ESC)
+		input: bufio.NewReader(strings.NewReader("[A")), // Up arrow (without initial ESC)
 	}
 
 	p := &Prompt{

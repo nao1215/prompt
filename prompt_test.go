@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -576,7 +577,7 @@ func TestPromptInteractiveFeatures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &mockTerminal{
-				input: []rune(tt.input),
+				input: bufio.NewReader(strings.NewReader(tt.input)),
 			}
 
 			var output bytes.Buffer
@@ -623,7 +624,7 @@ func TestPromptWithCompleter(t *testing.T) {
 	}
 
 	mock := &mockTerminal{
-		input: []rune("h\t\r"), // Type 'h', press tab for completion, then enter
+		input: bufio.NewReader(strings.NewReader("h\t\r")), // Type 'h', press tab for completion, then enter
 	}
 
 	var output bytes.Buffer
@@ -657,7 +658,7 @@ func TestPromptHistoryNavigation(t *testing.T) {
 
 	mock := &mockTerminal{
 		// Simulate up arrow followed by enter
-		input: []rune("\x1b[A\r"),
+		input: bufio.NewReader(strings.NewReader("\x1b[A\r")),
 	}
 
 	var output bytes.Buffer
@@ -694,7 +695,7 @@ func TestPromptBackspaceHandling(t *testing.T) {
 
 	mock := &mockTerminal{
 		// Type "hello", backspace twice, then enter
-		input: []rune("hello\b\b\r"),
+		input: bufio.NewReader(strings.NewReader("hello\b\b\r")),
 	}
 
 	var output bytes.Buffer
@@ -727,7 +728,7 @@ func TestPromptDeleteHandling(t *testing.T) {
 
 	mock := &mockTerminal{
 		// Type "hello", move cursor to position 2, delete, then enter
-		input: []rune("hello\x1b[D\x1b[D\x1b[D\x7f\r"), // Left 3 times, delete, enter
+		input: bufio.NewReader(strings.NewReader("hello\x1b[D\x1b[D\x1b[D\x7f\r")), // Left 3 times, delete, enter
 	}
 
 	var output bytes.Buffer
@@ -786,7 +787,7 @@ func TestPromptCursorMovement(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &mockTerminal{
-				input: []rune(tt.input),
+				input: bufio.NewReader(strings.NewReader(tt.input)),
 			}
 
 			var output bytes.Buffer
@@ -818,7 +819,7 @@ func TestPromptComplexEscapeSequences(t *testing.T) {
 
 	// Test reading escape sequences directly
 	mock := &mockTerminal{
-		input: []rune("[A"), // Up arrow sequence (without ESC)
+		input: bufio.NewReader(strings.NewReader("[A")), // Up arrow sequence (without ESC)
 	}
 
 	p := &Prompt{
@@ -840,7 +841,7 @@ func TestPromptLongEscapeSequence(t *testing.T) {
 
 	// Test with a sequence that should be truncated
 	mock := &mockTerminal{
-		input: []rune("abcdefghijklmnop"), // Longer than 10 characters
+		input: bufio.NewReader(strings.NewReader("abcdefghijklmnop")), // Longer than 10 characters
 	}
 
 	p := &Prompt{
@@ -864,7 +865,7 @@ func TestPromptRenderError(t *testing.T) {
 
 	// Create a mock that will cause render errors
 	mock := &mockTerminal{
-		input: []rune("test\r"),
+		input: bufio.NewReader(strings.NewReader("test\r")),
 	}
 
 	// Use a failing writer
@@ -939,7 +940,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 	t.Run("Run function coverage", func(t *testing.T) {
 		// Test Run() function (currently 0% coverage)
 		mock := &mockTerminal{
-			input: []rune("hello\r"),
+			input: bufio.NewReader(strings.NewReader("hello\r")),
 		}
 
 		var output bytes.Buffer
@@ -980,7 +981,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 	t.Run("Context cancellation", func(t *testing.T) {
 		// Test context cancellation
 		mock := &mockTerminal{
-			input: []rune("never ending input..."),
+			input: bufio.NewReader(strings.NewReader("never ending input...")),
 		}
 
 		var output bytes.Buffer
@@ -1041,7 +1042,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 		for _, seq := range sequences {
 			t.Run(seq.name, func(t *testing.T) {
 				mock := &mockTerminal{
-					input: []rune(seq.input[1:] + "\r"), // Skip ESC, add enter
+					input: bufio.NewReader(strings.NewReader(seq.input[1:] + "\r")), // Skip ESC, add enter
 				}
 
 				p := &Prompt{
@@ -1061,7 +1062,7 @@ func TestMissingCoverageAreas(t *testing.T) {
 	t.Run("Complex cursor movements and editing", func(t *testing.T) {
 		// Test complex editing scenarios
 		mock := &mockTerminal{
-			input: []rune("hello world\x1b[D\x1b[D\x1b[D\x1b[D\x1b[D\x1b[Dcruel \x1b[F\r"),
+			input: bufio.NewReader(strings.NewReader("hello world\x1b[D\x1b[D\x1b[D\x1b[D\x1b[D\x1b[Dcruel \x1b[F\r")),
 			// Type "hello world", move left 6 times, type "cruel ", go to end, enter
 		}
 
@@ -1107,17 +1108,14 @@ func TestMockTerminalHelpers(t *testing.T) {
 
 	// Test newMockTerminalHelper helper
 	helper := newMockTerminalHelper("hello")
-	if string(helper.input) != "hello\r" {
-		t.Errorf("Expected 'hello\\r', got %q", string(helper.input))
+	if helper.script != "hello\r" {
+		t.Errorf("Expected 'hello\\r', got %q", helper.script)
 	}
 }
 
 // newMockTerminalHelper creates a mock terminal with the given input
 func newMockTerminalHelper(input string) *mockTerminal {
-	return &mockTerminal{
-		input:        []rune(input + "\r"), // Add enter key
-		terminalSize: [2]int{80, 24},
-	}
+	return newMockTerminal(input + "\r") // Add enter key
 }
 
 // TestRendererWithSuggestionEdgeCases covers edge cases in suggestion rendering
@@ -1293,7 +1291,7 @@ func TestRunWithContextCoverage(t *testing.T) {
 
 		mock := &mockTerminal{
 			// Type 'h', press down arrow, press enter (accept suggestion)
-			input: []rune("h\x1b[B\r\r"),
+			input: bufio.NewReader(strings.NewReader("h\x1b[B\r\r")),
 		}
 
 		var output TestWriter
@@ -1321,7 +1319,7 @@ func TestRunWithContextCoverage(t *testing.T) {
 	t.Run("prompt with history navigation", func(t *testing.T) {
 		mock := &mockTerminal{
 			// Press up arrow, then enter
-			input: []rune("\x1b[A\r"),
+			input: bufio.NewReader(strings.NewReader("\x1b[A\r")),
 		}
 
 		var output TestWriter
@@ -1348,7 +1346,7 @@ func TestRunWithContextCoverage(t *testing.T) {
 	t.Run("prompt with various key combinations", func(t *testing.T) {
 		mock := &mockTerminal{
 			// Type "test", press home, press end, press enter
-			input: []rune("test\x1b[H\x1b[F\r"),
+			input: bufio.NewReader(strings.NewReader("test\x1b[H\x1b[F\r")),
 		}
 
 		var output TestWriter
@@ -1578,7 +1576,7 @@ func TestAdvancedPromptCoverage(t *testing.T) {
 		for _, seq := range sequences {
 			t.Run(seq.name, func(t *testing.T) {
 				mock := &mockTerminal{
-					input: []rune(seq.sequence[1:]), // Skip initial ESC
+					input: bufio.NewReader(strings.NewReader(seq.sequence[1:])), // Skip initial ESC
 				}
 
 				var output TestWriter
@@ -1607,7 +1605,7 @@ func TestAdvancedPromptCoverage(t *testing.T) {
 		}
 
 		mock := &mockTerminal{
-			input: []rune("test\t\r"), // Type test, press tab, press enter
+			input: bufio.NewReader(strings.NewReader("test\t\r")), // Type test, press tab, press enter
 		}
 
 		var output TestWriter
@@ -1636,7 +1634,7 @@ func TestAdvancedPromptCoverage(t *testing.T) {
 
 	t.Run("history with max limit", func(t *testing.T) {
 		mock := &mockTerminal{
-			input: []rune("command1\r"),
+			input: bufio.NewReader(strings.NewReader("command1\r")),
 		}
 
 		var output TestWriter
@@ -1727,7 +1725,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 		// Test multiple tab completions
 		mock := &mockTerminal{
 			// Type 'git', tab (multiple suggestions), enter to accept first, enter to submit
-			input: []rune("git\t\r\r"),
+			input: bufio.NewReader(strings.NewReader("git\t\r\r")),
 		}
 
 		var output TestWriter
@@ -1755,7 +1753,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 	t.Run("history edge cases", func(t *testing.T) {
 		// Test with empty history
 		mock := &mockTerminal{
-			input: []rune("\x1b[A\x1b[B\r"), // Up arrow, down arrow, enter
+			input: bufio.NewReader(strings.NewReader("\x1b[A\x1b[B\r")), // Up arrow, down arrow, enter
 		}
 
 		var output TestWriter
@@ -1787,15 +1785,15 @@ func TestFinalCoverageBoost(t *testing.T) {
 			t.Error("Expected non-nil mock terminal")
 			return
 		}
-		if string(mock.input) != "test" {
-			t.Errorf("Expected 'test', got %q", string(mock.input))
+		if mock.script != "test" {
+			t.Errorf("Expected 'test', got %q", mock.script)
 		}
 	})
 
 	t.Run("various key combinations", func(t *testing.T) {
 		// Test backspace at different positions
 		mock := &mockTerminal{
-			input: []rune("hello\x7f\x7f\x7f\r"), // Type hello, 3 backspaces, enter
+			input: bufio.NewReader(strings.NewReader("hello\x7f\x7f\x7f\r")), // Type hello, 3 backspaces, enter
 		}
 
 		var output TestWriter
@@ -1823,7 +1821,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 
 	t.Run("duplicate history handling", func(t *testing.T) {
 		mock := &mockTerminal{
-			input: []rune("test\r"),
+			input: bufio.NewReader(strings.NewReader("test\r")),
 		}
 
 		var output TestWriter
@@ -4361,9 +4359,10 @@ func TestCtrlUClearsTheLineTheCursorIsOn(t *testing.T) {
 }
 
 // TestWhatEveryControlByteDoesToALine is the whole of the read loop's answer to
-// a byte below a space, enumerated rather than sampled. Each row types "ab",
-// then the byte, then "c", then Enter, so what the byte did shows in the entry
-// that comes back or in the error that ended the line.
+// a byte the terminal sends as a control: the thirty-two below a space, and
+// 0x7f above the printable range, which is what a terminal sends for the delete
+// key. Each row types "ab", then the byte, then "c", then Enter, so what the
+// byte did shows in the entry that comes back or in the error that ended it.
 //
 // The point of enumerating it is the rows with no comment: a control byte the
 // key map does not bind is dropped. That is the right answer -- putting a raw
