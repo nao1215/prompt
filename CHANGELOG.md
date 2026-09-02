@@ -37,7 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A paste is no longer redrawn once per character ([#147](https://github.com/nao1215/prompt/issues/147)). The read loop drew the whole block after every pasted rune, so a twenty-thousand-character statement -- which is what pasting a generated query is -- wrote about fifty megabytes of escape sequences and took seconds before the prompt read another key, which from the outside is a shell that has hung. The paste is now drawn every few hundred characters and once at its end, which for that statement is a hundred kilobytes and sixteen milliseconds.
 
+- `ThemeAccessible` draws the input in the terminal's own foreground instead of white ([#152](https://github.com/nao1215/prompt/issues/152)). It is the theme someone picks because they need to read the screen, and it was the one naming white on a background it does not choose. It keeps the blue and orange pair, which is what makes it colorblind-safe.
+
+- The default theme draws the input in the terminal's own foreground instead of white ([#152](https://github.com/nao1215/prompt/issues/152)). A prompt that names no theme drew what the user types in bold white, which cannot be seen on a light background: the prefix was there and the line was not. Every foreground a theme picks is wrong on the background it did not assume, so the theme that has not been chosen now picks none for the input or the menu's candidates, and keeps color for what reads on both -- the prefix, the selection, a description.
+
 ### Changed
+
+- The zero `Color` is the terminal's own foreground rather than black ([#152](https://github.com/nao1215/prompt/issues/152)). `ToANSI` writes no color for it, which is what makes a `ColorScheme` literal that leaves a field out draw readable text rather than black on black. `Bold` is not a color and still applies on its own.
+
+  Migration: a scheme that asked for black by leaving a `Color` at its zero value now draws in the terminal's foreground. Ask for `Color{B: 1}`, which is black to any eye.
 
 - Ctrl+U is documented as what it does: it deletes the whole entry, whichever of its lines the cursor is on ([#150](https://github.com/nao1215/prompt/issues/150)). "Delete entire line" said nothing about which line, and on a multiline entry the answer is all of them. The behavior is unchanged.
 

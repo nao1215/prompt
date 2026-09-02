@@ -540,6 +540,14 @@ matches, the next Tab accepts a candidate you cannot see.
 
 ## Color themes
 
+A prompt that names no theme draws the line being typed and the completion menu's
+candidates in the terminal's own foreground, and colors only what carries meaning
+wherever it lands: the prefix, the selected candidate, a description. The named
+themes below choose a foreground, so they say which background they are for.
+
+The zero `prompt.Color` is that same "the terminal's own color", which is what a
+field left out of a `ColorScheme` literal means. Black is `prompt.Color{B: 1}`.
+
 ```go
 // Available themes
 prompt.ThemeDefault
