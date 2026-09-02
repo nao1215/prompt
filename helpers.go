@@ -72,24 +72,49 @@ func calculateFuzzyScore(input, candidate string) int {
 	return score
 }
 
-// NewFileCompleter creates a completer that provides file and directory suggestions
+// NewFileCompleter returns a completer that offers the files and directories the
+// word before the cursor names the start of. A directory is offered with a
+// trailing separator, so the next Tab continues inside it, and a name beginning
+// with a dot is offered only once the word begins with one.
+//
+// It completes the word rather than the line, so it can be used on a line that
+// holds more than the path -- a command and its arguments, which is what a shell
+// line is. A cursor that follows a space is not in the middle of a name, and
+// what is offered there is the directory's contents.
+//
+// What it does not do: expand "~", understand quoting or backslash escapes, or
+// know which argument of which command is being completed. A path holding a
+// space is therefore two words to it. A completer that needs any of that is a
+// function of your own -- example/shell has one -- and Document says where the
+// cursor is and what the line holds.
 func NewFileCompleter() func(Document) []Suggestion {
 	return func(d Document) []Suggestion {
-		text := d.TextBeforeCursor()
-		return completeFilePath(text)
+		// The word before the cursor, not the line before it. A line is a
+		// command and its arguments, and handing the whole of it to the path
+		// walk named a directory nothing is called: completion after "cat /et"
+		// offered nothing at all. The word is empty when the cursor follows a
+		// space, which is where the directory's contents belong rather than
+		// nothing, and completeFilePath reads an empty path as the current
+		// directory.
+		//
+		// It is also the word the prompt measures a candidate against when the
+		// completer does not name the span it replaces, so what is offered here
+		// and what is applied there are the same string.
+		return completeFilePath(d.GetWordBeforeCursor())
 	}
 }
 
 // completeFilePath provides file and directory completion for the given path (internal)
 func completeFilePath(path string) []Suggestion {
-	// Handle empty path - start from current directory
-	if path == "" {
-		path = "."
+	// Nothing typed yet: the current directory, with no name to filter by. It
+	// used to be read as the path ".", whose base is "." as well, and a base of
+	// "." keeps only the names that start with one -- so the case that should
+	// list everything listed the dot files alone.
+	dir, base := ".", ""
+	if path != "" {
+		dir = filepath.Dir(path)
+		base = filepath.Base(path)
 	}
-
-	// Extract directory and filename parts
-	dir := filepath.Dir(path)
-	base := filepath.Base(path)
 
 	// If path ends with separator, we're completing in that directory
 	if strings.HasSuffix(path, "/") || strings.HasSuffix(path, "\\") {

@@ -124,34 +124,13 @@ func createShellCompleter() func(prompt.Document) []prompt.Suggestion {
 			return filtered
 		}
 
-		// For file/directory arguments, use file completer
+		// For file/directory arguments, use file completer. It completes the word
+		// before the cursor, so the command in front of the path is no trouble
+		// and the document goes to it as it is. Offering the command with the
+		// path would be worse than useless: a suggestion is measured against the
+		// word being typed, and "cat /etc/hosts" does not start with "/etc/ho".
 		if cmd == cmdLs || cmd == cmdCd || cmd == cmdCat {
-			// Extract the path part after the command
-			pathStart := len(cmd)
-			if pathStart < len(text) && text[pathStart] == ' ' {
-				pathStart++
-			}
-
-			if pathStart >= len(text) {
-				// No path yet, complete from current directory
-				return fileCompleter(prompt.Document{Text: "", CursorPosition: 0})
-			}
-
-			pathText := text[pathStart:]
-			// CursorPosition is a rune offset, which is what the prompt's own
-			// buffer is indexed by. Counting bytes puts it past the end of a
-			// path holding any character outside ASCII.
-			suggestions := fileCompleter(prompt.Document{Text: pathText, CursorPosition: len([]rune(pathText))})
-
-			// Adjust suggestions to include the command prefix
-			var adjusted []prompt.Suggestion
-			for _, s := range suggestions {
-				adjusted = append(adjusted, prompt.Suggestion{
-					Text:        cmd + " " + s.Text,
-					Description: s.Description,
-				})
-			}
-			return adjusted
+			return fileCompleter(d)
 		}
 
 		return nil

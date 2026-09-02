@@ -1,7 +1,11 @@
 package prompt
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -449,5 +453,119 @@ func TestFuzzyCompleterSpanFollowsTheTextItMatched(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestFileCompleterCompletesTheWordBeforeTheCursor asks the completer for the
+// paths a line ends in, with something in front of it. It read everything to the
+// left of the cursor and handed the whole of it to the path walk, so a line that
+// held anything but the path -- a command, which is what a shell line starts
+// with -- named a directory that does not exist and completed nothing.
+func TestFileCompleterCompletesTheWordBeforeTheCursor(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	for _, name := range []string{"alpha.txt", "beta.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatalf("writing the fixture: %v", err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "gamma"), 0o750); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+
+	completer := NewFileCompleter()
+	alpha := filepath.Join(dir, "alpha.txt")
+
+	tests := map[string]struct {
+		text string
+		want []string
+	}{
+		"a path alone": {
+			text: filepath.Join(dir, "al"),
+			want: []string{alpha},
+		},
+		"a path after a command": {
+			text: "cat " + filepath.Join(dir, "al"),
+			want: []string{alpha},
+		},
+		"a path after a command and a flag": {
+			text: "cat -n " + filepath.Join(dir, "al"),
+			want: []string{alpha},
+		},
+		"a directory, which is listed with the separator": {
+			text: "cd " + filepath.Join(dir, "ga"),
+			want: []string{filepath.Join(dir, "gamma") + "/"},
+		},
+		"everything in a directory named in full": {
+			text: "ls " + dir + "/",
+			want: []string{alpha, filepath.Join(dir, "beta.txt"), filepath.Join(dir, "gamma") + "/"},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got := completer(Document{Text: tt.text, CursorPosition: len([]rune(tt.text))})
+			texts := make([]string, 0, len(got))
+			for _, suggestion := range got {
+				texts = append(texts, suggestion.Text)
+			}
+			if !slices.Equal(texts, tt.want) {
+				t.Errorf("completing %q offered %q, want %q", tt.text, texts, tt.want)
+			}
+		})
+	}
+}
+
+// TestFileCompleterListsTheDirectoryAfterASpace pins the empty word. A cursor
+// that follows a space is not typing a path yet, and what belongs there is the
+// directory's contents rather than nothing.
+func TestFileCompleterListsTheDirectoryAfterASpace(t *testing.T) {
+	// Not parallel: it works from a directory of its own, which is a property of
+	// the process rather than of the test.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "alpha.txt"), nil, 0o600); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+	t.Chdir(dir)
+
+	got := NewFileCompleter()(Document{Text: "cat ", CursorPosition: 4})
+	if len(got) != 1 || got[0].Text != "alpha.txt" {
+		t.Errorf("completing %q offered %v, want the contents of the directory", "cat ", got)
+	}
+}
+
+// TestFileCompleterCompletesInsideAPrompt runs the helper the way an application
+// does: handed to WithCompleter, with Tab pressed on a line that holds a command
+// in front of the path.
+//
+// It is the chain rather than the helper. A completer that does not name the
+// span its candidate replaces has that candidate measured against the word
+// before the cursor, both to decide whether to offer it and to decide what to
+// insert, so a candidate carrying anything the word does not start with is
+// dropped without a word to the user.
+func TestFileCompleterCompletesInsideAPrompt(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "alpha.txt"), nil, 0o600); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+
+	var out bytes.Buffer
+	terminal := &sizedMockTerminal{width: 120, height: 24}
+	terminal.mockTerminal = *newMockTerminal("cat " + filepath.Join(dir, "al") + "\t\r")
+	p := newTestPromptOn(terminal, WithCompleter(NewFileCompleter()))
+	p.output = &out
+	p.renderer = newRenderer(&out, ThemeDefault, terminal)
+
+	line, err := p.Run()
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if want := "cat " + filepath.Join(dir, "alpha.txt"); line != want {
+		t.Errorf("Tab completed to %q, want %q", line, want)
 	}
 }
