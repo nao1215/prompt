@@ -771,9 +771,18 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			if inPaste && action != ActionPasteEnd {
 				for _, pasted := range seq {
 					lastPasted = p.insertPastedRune(pasted, lastPasted)
+					pastedSinceDraw++
 				}
 				suggestions = nil
 				action = ActionNone
+				// Drawn on the same terms as the rest of the paste. This branch
+				// falls through to the render at the foot of the loop, so
+				// content that arrives as sequences -- copied terminal output
+				// has one every few characters -- was costing a redraw each.
+				if pastedSinceDraw < pasteDrawInterval {
+					continue
+				}
+				pastedSinceDraw = 0
 			}
 		case inPaste:
 			// Pasted content is data, not keystrokes: it goes into the buffer as

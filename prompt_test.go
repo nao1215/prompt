@@ -4233,3 +4233,45 @@ func TestAPasteIsNotRedrawnOncePerCharacter(t *testing.T) {
 		t.Errorf("the paste was drawn %d time(s): a long one shows nothing arriving", strings.Count(out.String(), showCursorSequence))
 	}
 }
+
+// TestAPasteHoldingEscapeSequencesIsNotRedrawnPerSequence pastes what copying
+// colored terminal output gives you: text with an escape sequence every few
+// characters.
+//
+// Those arrive through the branch that reads a sequence rather than the one that
+// reads a rune, and that branch falls through to the render at the foot of the
+// read loop. Throttling only the rune branch left a paste of colored output
+// costing a redraw per sequence, which is the cost the throttle exists to remove.
+func TestAPasteHoldingEscapeSequencesIsNotRedrawnPerSequence(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 80, 24
+	const sequences = 2000
+
+	// "\x1b[31mword " repeated: a sequence and a word, the way a colored log
+	// reaches the clipboard.
+	colored := strings.Repeat("\x1b[31mword ", sequences)
+
+	var out bytes.Buffer
+	terminal := &sizedMockTerminal{width: width, height: height}
+	terminal.mockTerminal = *newMockTerminal("\x1b[200~" + colored + "\x1b[201~\r")
+	p := newTestPromptOn(terminal)
+	p.output = &out
+	p.renderer = newRenderer(&out, ThemeDefault, terminal)
+
+	line, err := p.Run()
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	// The ESC of each sequence is a control byte and is dropped; the rest of it
+	// is text and is kept, which is what the read loop documents.
+	if want := strings.Repeat("[31mword ", sequences); line != want {
+		t.Fatalf("the paste came back as %d characters, want %d", len([]rune(line)), len([]rune(want)))
+	}
+
+	const budget = 100 * width * height * 4
+	if out.Len() > budget {
+		t.Errorf("pasting %d escape sequences wrote %d bytes to the terminal, which is more than %d: the block is being redrawn per sequence",
+			sequences, out.Len(), budget)
+	}
+}
