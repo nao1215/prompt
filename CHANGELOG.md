@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A key bound to `ActionHistoryUp` or `ActionHistoryDown` walks the history ([#132](https://github.com/nao1215/prompt/issues/132)). Both actions are exported and neither had a case in the read loop, so binding one made the key do nothing. The history walk now lives in one place that the arrow keys and the two actions share, and the actions walk it whatever the entry looks like: on a multiline entry the arrow keys are moving the cursor between lines, which is what leaves the history out of reach and what Ctrl+P and Ctrl+N are bound for.
 
+- Ctrl+R on a multiline entry no longer scrolls the entry off the screen ([#134](https://github.com/nao1215/prompt/issues/134)). The reverse-search block is drawn from the row the caret was left on and was measured against the terminal's whole height, so the rows the entry occupies above the caret were rows nothing counted: a five-row entry on an eight-row terminal pushed itself and four rows of the session off the top the moment the search opened. The block is now bounded by what the terminal has left under the caret, and the header is still drawn however little that is.
+
+- `RunWithContext` returns while a reverse search is open ([#135](https://github.com/nao1215/prompt/issues/135)). The search is a read loop of its own and read the terminal directly, so a canceled context was noticed only on the keystroke after it and an idle prompt never noticed it at all. It now reads through the context the caller was given, and a canceled one ends the call.
+
 ### Changed
 
 - The key map examples in the README and the godoc bind Ctrl+P and Ctrl+N to the history instead of rebinding Ctrl+L. Every one of them replaced a key the default map already uses, and one bound `ActionNewLine` under a comment that said it cleared the screen.
