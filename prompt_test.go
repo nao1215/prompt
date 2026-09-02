@@ -4010,3 +4010,176 @@ func TestCloseEndsTheSessionBelowTheEntryOnScreen(t *testing.T) {
 		})
 	}
 }
+
+// TestSetThemeTakesANilThemeTheWayNewDoes gives the setter the value the
+// constructor accepts. A nil scheme means the default one there, and the
+// renderer reads colors off the scheme on every render without checking, so
+// writing a nil one through was a panic on the next keystroke.
+func TestSetThemeTakesANilThemeTheWayNewDoes(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	terminal := newMockTerminal("ab\r")
+	p := newTestPromptOn(terminal)
+	p.output = &out
+	p.renderer = newRenderer(&out, ThemeDefault, terminal)
+
+	p.SetTheme(nil)
+	if p.config.ColorScheme != ThemeDefault {
+		t.Errorf("SetTheme(nil) left the scheme as %v, want the default", p.config.ColorScheme)
+	}
+
+	line, err := p.Run()
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if line != "ab" {
+		t.Errorf("Run() = %q, want %q", line, "ab")
+	}
+}
+
+// TestSetThemeKeepsWhatTheRendererKnows changes the theme between one render and
+// the next. What the renderer holds is what it knows about the screen -- how
+// tall the block on it is and which row the caret is on -- and the next redraw
+// erases from there. Replacing the renderer to change a color threw that away,
+// so the redraw erased from the wrong row and left the block behind.
+func TestSetThemeKeepsWhatTheRendererKnows(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 20, 24
+
+	var out bytes.Buffer
+	terminal := &sizedMockTerminal{width: width, height: height}
+	p := newTestPromptOn(terminal, WithMultiline(true))
+	p.output = &out
+	p.renderer = newRenderer(&out, ThemeDefault, terminal)
+	p.buffer = []rune("one\ntwo\nthree")
+	p.cursor = len(p.buffer)
+
+	if err := p.render(); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	screen := newBoundedScreenModel(width, height)
+	screen.feed(out.String())
+
+	p.SetTheme(&ColorScheme{Name: "other", Prefix: Color{R: 255}, Input: Color{G: 255}})
+
+	out.Reset()
+	if err := p.render(); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	screen.feed(out.String())
+
+	want := []string{"$ one", "two", "three"}
+	if got := screen.rows(); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("after the theme changed the screen shows\n%q\nwant\n%q", got, want)
+	}
+}
+
+// TestAMultilineSessionLeavesTheScreenAgreeingWithTheEntry is
+// TestRunLeavesTheScreenAgreeingWithTheLineItReturns for the configuration the
+// one user of this library runs: a multiline entry collected until a semicolon,
+// a continuation prefix on every line after the first, an auto-indenter, and a
+// highlighter over the lot.
+//
+// Every piece of that changes what is drawn without changing what is measured,
+// which is where this package's bugs live: the continuation prefix is cells the
+// first line does not have, the indent is text the user did not type, and the
+// highlighter is escape sequences between the runes. When the entry is
+// submitted the screen has to show the prefix, the continuation prefixes and the
+// entry -- the window of it the terminal has room for -- and the caret has to be
+// at its end, which is where ending a line at the foot of the block leaves it.
+func TestAMultilineSessionLeavesTheScreenAgreeingWithTheEntry(t *testing.T) {
+	t.Parallel()
+
+	keys := []string{
+		"a", "b", ";", " ", "あ", "é", "é", "😀", "\t",
+		"\x01", "\x05", "\x02", "\x06", "\x7f", "\x0b", "\x15", "\x17",
+		"\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D", "\x1b[H", "\x1b[F", "\x1b[3~",
+		"\r", "\r", "\x1b[200~x\r\ny\x1b[201~",
+	}
+	widths := []int{8, 20, 40}
+	heights := []int{3, 5, 24}
+	// A fixed seed, so a failure is one anyone can reproduce from the iteration
+	// it names.
+	random := rand.New(rand.NewSource(90909)) //nolint:gosec // test input, not a secret
+
+	for iter := range 3000 {
+		width := widths[random.Intn(len(widths))]
+		height := heights[random.Intn(len(heights))]
+		var script strings.Builder
+		for range random.Intn(20) {
+			script.WriteString(keys[random.Intn(len(keys))])
+		}
+		script.WriteString(";\r")
+
+		var out bytes.Buffer
+		terminal := &sizedMockTerminal{width: width, height: height}
+		terminal.mockTerminal = *newMockTerminal(script.String())
+		p := newTestPromptOn(terminal,
+			WithMultiline(true),
+			WithContinuationPrefix("..> "),
+			WithIsComplete(func(in string) bool { return strings.HasSuffix(strings.TrimSpace(in), ";") }),
+			WithAutoIndent(func(before string) string {
+				line := before[strings.LastIndex(before, "\n")+1:]
+				return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+			}),
+			WithHighlighter(func(in string) []StyleSpan {
+				var spans []StyleSpan
+				for i := 0; i+1 < len([]rune(in)); i += 3 {
+					spans = append(spans, StyleSpan{Start: i, End: i + 2, Color: Color{R: 255}})
+				}
+				return spans
+			}),
+		)
+		p.output = &out
+		p.renderer = newRenderer(&out, ThemeDefault, terminal)
+
+		line, err := p.Run()
+		if err != nil {
+			if !errors.Is(err, ErrEOF) && !errors.Is(err, ErrInterrupted) {
+				t.Fatalf("iter %d: Run() error = %v script %q", iter, err, script.String())
+			}
+			continue
+		}
+
+		written := out.String()
+		cut := strings.LastIndex(written, "\r\n")
+		if cut < 0 {
+			t.Fatalf("iter %d: submitting wrote no line break", iter)
+		}
+		drawn := newScreenModel(width)
+		drawn.feed(written[:cut])
+
+		expected := newScreenModel(width)
+		for i, text := range strings.Split(line, "\n") {
+			if i == 0 {
+				expected.writeString("$ ")
+			} else {
+				expected.startRow()
+				expected.writeString("..> ")
+			}
+			expected.writeString(singleLine(text))
+		}
+
+		total := expected.row + 1
+		want := make([]string, total)
+		copy(want, expected.rows())
+		offset := 0
+		if total > height {
+			offset = total - height
+			want = want[offset:]
+		}
+		for len(want) > 0 && want[len(want)-1] == "" {
+			want = want[:len(want)-1]
+		}
+		if got := drawn.rows(); strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Fatalf("iter %d width=%d height=%d script=%q returned %q\n screen %q\n want   %q",
+				iter, width, height, script.String(), line, got, want)
+		}
+		if drawn.row != expected.row-offset || drawn.col != expected.col {
+			t.Fatalf("iter %d width=%d height=%d script=%q returned %q: the caret is at (%d,%d), the end of the entry is at (%d,%d)\n%q",
+				iter, width, height, script.String(), line, drawn.row, drawn.col, expected.row-offset, expected.col, drawn.rows())
+		}
+	}
+}
