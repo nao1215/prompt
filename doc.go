@@ -119,12 +119,23 @@
 //
 // With WithMultiline, an entry may hold line breaks: Enter inserts one while
 // the WithIsComplete predicate says the entry is not finished, and submits it
-// once it is. Up and Down then move between lines, and Home and End to the
+// once it is. A line ending in a backslash is continued whatever the predicate
+// says, and in either mode, and the backslash is taken out of the entry, so an
+// entry cannot end in one. Up and Down then move between lines, and Home and End to the
 // ends of the line the cursor is on. An entry taller than the terminal is
 // drawn as the rows around the cursor the terminal has room for, redrawn in
 // place, so what scrolls off the top of the screen is the program's output
 // rather than the prompt's. Whichever line the cursor was on, an entry ends at
 // its foot, so what the program prints next starts below it.
+//
+// # Pasting
+//
+// A terminal that supports bracketed paste wraps a paste in markers, and
+// between them every key is content: a newline does not submit, Tab does not
+// complete, and Ctrl+C does not interrupt. That is what keeps a pasted
+// statement from running itself a line at a time. An escape sequence inside a
+// paste -- which copied terminal output is full of -- keeps its text and loses
+// the ESC that introduced it.
 //
 // # Between prompts
 //

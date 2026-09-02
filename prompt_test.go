@@ -4139,6 +4139,92 @@ func TestAMultilineSessionLeavesTheScreenAgreeingWithTheEntry(t *testing.T) {
 // on the terminal, so a redraw is worth what it is worth; the count of them is
 // what was wrong, and the paste is drawn on its way in so that a long one still
 // shows something happening.
+// TestWhatABracketedPasteIsMadeOf pins what the read loop does between the two
+// markers a terminal wraps a paste in. Everything there is content rather than
+// a keystroke, which is the point of bracketed paste and the reason a pasted
+// statement does not run itself; the cases below are the edges of that rule.
+func TestWhatABracketedPasteIsMadeOf(t *testing.T) {
+	t.Parallel()
+
+	const (
+		start = "\x1b[200~"
+		end   = "\x1b[201~"
+	)
+
+	for _, tt := range []struct {
+		name   string
+		script string
+		want   string
+	}{
+		{name: "an ordinary paste", script: start + "hello" + end + "\r", want: "hello"},
+		// The whole point: a statement pasted with its line breaks is one entry
+		// waiting to be read, not several that ran as they arrived.
+		{name: "a newline inside a paste does not submit", script: start + "one\rtwo" + end + "\r", want: "one\ntwo"},
+		{name: "a tab inside a paste is not completion", script: start + "a\tb" + end + "\r", want: "a\tb"},
+		{name: "Ctrl+C inside a paste does not interrupt", script: start + "a\x03b" + end + "\r", want: "ab"},
+		// An escape sequence in the middle of a paste is content the terminal
+		// passed through -- copied terminal output is full of them. The ESC is a
+		// control byte and goes; what it introduced is text and stays.
+		{name: "a sequence inside a paste keeps its text", script: start + "a\x1b[31mb" + end + "\r", want: "a[31mb"},
+		{name: "an end marker with no start is not text", script: "ab" + end + "c\r", want: "abc"},
+		{name: "an empty paste", script: start + end + "ab\r", want: "ab"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p, err := newFromConfigOn(options{
+				Prefix:      "$ ",
+				ColorScheme: ThemeDefault,
+				KeyMap:      NewDefaultKeyMap(),
+				Multiline:   true,
+				IsComplete:  func(string) bool { return true },
+			}, newMockTerminal(tt.script), io.Discard)
+			if err != nil {
+				t.Fatalf("newFromConfigOn() error = %v", err)
+			}
+			defer p.Close()
+
+			got, err := p.Run(context.Background())
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("Run() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAPasteWithNoEndMarkerHoldsTheLine is the other side of that rule, and the
+// reason the godoc states it: while a paste is open every key is content, so
+// there is none left that ends the line. A terminal always closes a paste it
+// opened, but a program writing the input by hand may not, and what that looks
+// like is a prompt that ignores Enter.
+//
+// The line ends when the input does, which is what this asserts: ErrEOF rather
+// than the entry.
+func TestAPasteWithNoEndMarkerHoldsTheLine(t *testing.T) {
+	t.Parallel()
+
+	p, err := newFromConfigOn(options{
+		Prefix:      "$ ",
+		ColorScheme: ThemeDefault,
+		KeyMap:      NewDefaultKeyMap(),
+	}, newMockTerminal("\x1b[200~hello\r\x03\r"), io.Discard)
+	if err != nil {
+		t.Fatalf("newFromConfigOn() error = %v", err)
+	}
+	defer p.Close()
+
+	got, err := p.Run(context.Background())
+	if !errors.Is(err, ErrEOF) {
+		t.Fatalf("Run() error = %v, want ErrEOF: neither Enter nor Ctrl+C ends an open paste", err)
+	}
+	if got != "" {
+		t.Errorf("Run() = %q, want nothing", got)
+	}
+}
+
 func TestAPasteIsNotRedrawnOncePerCharacter(t *testing.T) {
 	t.Parallel()
 

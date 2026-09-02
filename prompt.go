@@ -257,8 +257,12 @@ func WithTheme(theme *ColorScheme) Option {
 
 // WithMultiline lets an entry hold line breaks. Enter opens a new line while
 // the WithIsComplete predicate says the entry is not finished, and submits it
-// once it is; Up and Down move between the lines. Without it Enter always
-// submits.
+// once it is; Up and Down move between the lines.
+//
+// Without it Enter submits, with one exception that holds in either mode: a
+// line ending in a backslash is continued rather than submitted, and the
+// backslash is taken out of the entry, since it said how to read the line
+// rather than being part of it. An entry therefore cannot end in a backslash.
 func WithMultiline() Option {
 	return func(c *options) {
 		c.Multiline = true
@@ -270,8 +274,9 @@ func WithMultiline() Option {
 // the whole buffer and returns true when the input is a complete statement ready
 // to run; when false, Enter inserts a newline so an embedding app can buffer
 // multi-line input (for example SQL until a trailing ";"). A trailing backslash
-// and bracketed paste still force a newline regardless of the predicate. When nil
-// (default) or when multiline mode is off, Enter always submits.
+// and bracketed paste still open a line regardless of the predicate, and the
+// backslash is taken out of the entry. When nil (default) or when multiline mode
+// is off, Enter submits whatever the predicate would have said.
 func WithIsComplete(isComplete func(input string) bool) Option {
 	return func(c *options) {
 		c.IsComplete = isComplete
@@ -553,6 +558,13 @@ func newFromConfigOn(config options, terminal terminalInterface, output io.Write
 // and Close from another goroutine return ErrEOF; the context ending returns its
 // error. A prompt that has been closed answers ErrEOF without touching the
 // terminal.
+//
+// None of those keys ends it while a bracketed paste is open, because between
+// the markers a terminal wraps a paste in, every key is content: that is what
+// keeps a pasted statement from running itself a line at a time. A terminal
+// closes a paste it opened, so what is left of that is the case where the input
+// is written by a program rather than sent by a terminal -- a paste opened and
+// never closed holds the line until the input ends or the context does.
 //
 // A key the terminal has not sent cannot be waited for with a deadline of its
 // own, so the context is how a caller bounds the wait:
