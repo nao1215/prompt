@@ -1,6 +1,8 @@
 package prompt
 
 import (
+	"context"
+	"io"
 	"testing"
 )
 
@@ -537,4 +539,60 @@ func TestWordBoundaryKeepsACombiningMarkWithItsLetter(t *testing.T) {
 			t.Errorf("findWordBoundary(1) ended at %d, want 2: the space still separates", end)
 		}
 	})
+}
+
+// TestATrailingBackslashContinuesTheLineInEitherMode pins the one exception to
+// "Enter submits": a line ending in a backslash opens a new line instead, with
+// or without WithMultiline and whatever the WithIsComplete predicate says, and
+// the backslash is taken out of the entry because it said how to read the line
+// rather than being part of it.
+//
+// The last case is the cost of that rule and is here so the cost is stated: an
+// entry cannot end in a backslash, and a line ending in two loses one of them.
+func TestATrailingBackslashContinuesTheLineInEitherMode(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		script string
+		opts   []Option
+		want   string
+	}{
+		{name: "without multiline", script: "a \\\rb\r", want: "a \nb"},
+		{name: "with multiline", script: "a \\\rb\r", opts: []Option{WithMultiline()}, want: "a \nb"},
+		{
+			name:   "whatever the predicate says",
+			script: "a \\\rb\r",
+			opts:   []Option{WithMultiline(), WithIsComplete(func(string) bool { return true })},
+			want:   "a \nb",
+		},
+		{
+			name:   "the whitespace after it does not hide it",
+			script: "a \\ \rb\r",
+			want:   "a \nb ",
+		},
+		{name: "a line of two backslashes keeps one", script: "a\\\\\rb\r", want: "a\\\nb"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			config := options{Prefix: "$ ", ColorScheme: ThemeDefault, KeyMap: NewDefaultKeyMap()}
+			for _, o := range tt.opts {
+				o(&config)
+			}
+			p, err := newFromConfigOn(config, newMockTerminal(tt.script), io.Discard)
+			if err != nil {
+				t.Fatalf("newFromConfigOn() error = %v", err)
+			}
+			defer p.Close()
+
+			got, err := p.Run(context.Background())
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("Run() = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }

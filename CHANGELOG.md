@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The documentation says what a trailing backslash does. A line ending in one is continued rather than submitted -- in either mode, with or without `WithMultiline`, and whatever the `WithIsComplete` predicate says -- and the backslash is taken out of the entry, since it said how to read the line rather than being part of it. It follows that an entry cannot end in a backslash and that a line ending in two loses one of them, which is the cost of the rule and is now stated beside it. `WithMultiline`'s godoc said "without it Enter always submits", which this is the exception to. The behavior is unchanged and is now covered by tests.
+
 - The documentation says what a bracketed paste does to the keys inside it: between the markers a terminal wraps a paste in, every key is content, so a newline does not submit, Tab does not complete and Ctrl+C does not interrupt, which is what keeps a pasted statement from running itself a line at a time. It follows that a paste opened and never closed -- which a terminal does not do, but a program writing the input by hand can -- holds the line until the input or the context ends, and `Run`'s godoc now says so beside the list of what ends a line. The behavior is unchanged and is now covered by tests.
 
 ### Fixed
