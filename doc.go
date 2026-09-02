@@ -119,9 +119,10 @@
 //
 // With WithMultiline, an entry may hold line breaks: Enter inserts one while
 // the WithIsComplete predicate says the entry is not finished, and submits it
-// once it is. A line ending in a backslash is continued whatever the predicate
-// says, and in either mode, and the backslash is taken out of the entry, so an
-// entry cannot end in one. Up and Down then move between lines, and Home and End to the
+// once it is. A line ending in an odd number of backslashes is continued
+// whatever the predicate says, and in either mode, with the last of them taken
+// out of the entry; an even number is data, so an entry that ends in a
+// backslash is written by typing two. Up and Down then move between lines, and Home and End to the
 // ends of the line the cursor is on. An entry taller than the terminal is
 // drawn as the rows around the cursor the terminal has room for, redrawn in
 // place, so what scrolls off the top of the screen is the program's output

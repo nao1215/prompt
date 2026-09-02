@@ -542,13 +542,10 @@ func TestWordBoundaryKeepsACombiningMarkWithItsLetter(t *testing.T) {
 }
 
 // TestATrailingBackslashContinuesTheLineInEitherMode pins the one exception to
-// "Enter submits": a line ending in a backslash opens a new line instead, with
-// or without WithMultiline and whatever the WithIsComplete predicate says, and
-// the backslash is taken out of the entry because it said how to read the line
-// rather than being part of it.
-//
-// The last case is the cost of that rule and is here so the cost is stated: an
-// entry cannot end in a backslash, and a line ending in two loses one of them.
+// "Enter submits": a line ending in an odd number of backslashes opens a new
+// line instead, with or without WithMultiline and whatever the WithIsComplete
+// predicate says, and the last backslash is taken out of the entry because it
+// said how to read the line rather than being part of it.
 func TestATrailingBackslashContinuesTheLineInEitherMode(t *testing.T) {
 	t.Parallel()
 
@@ -571,7 +568,7 @@ func TestATrailingBackslashContinuesTheLineInEitherMode(t *testing.T) {
 			script: "a \\ \rb\r",
 			want:   "a \nb ",
 		},
-		{name: "a line of two backslashes keeps one", script: "a\\\\\rb\r", want: "a\\\nb"},
+		{name: "two are an escaped backslash and submit", script: "a\\\\\r", want: `a\\`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -592,6 +589,59 @@ func TestATrailingBackslashContinuesTheLineInEitherMode(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("Run() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestEnterCountsTheBackslashesAtTheEndOfTheLine is the rule the case above is
+// one line of: how many backslashes there are, not whether there is one. An odd
+// number ends in a continuation marker and one is removed; an even number is
+// data and submits whole, which is the only way to end an entry in a backslash.
+func TestEnterCountsTheBackslashesAtTheEndOfTheLine(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name string
+		// typed is the first line, and what follows Enter is always "b".
+		typed      string
+		wantEntry  string
+		wantSubmit bool
+	}{
+		{name: "none", typed: "a", wantEntry: "a", wantSubmit: true},
+		{name: "one", typed: `a\`, wantEntry: "a\nb"},
+		{name: "two", typed: `a\\`, wantEntry: `a\\`, wantSubmit: true},
+		{name: "three", typed: `a\\\`, wantEntry: "a\\\\\nb"},
+		{name: "four", typed: `a\\\\`, wantEntry: `a\\\\`, wantSubmit: true},
+		{name: "one, with spaces after it", typed: `a\  `, wantEntry: "a\nb  "},
+		{name: "two, with spaces after it", typed: `a\\  `, wantEntry: `a\\  `, wantSubmit: true},
+		{name: "a line of one backslash", typed: `\`, wantEntry: "\nb"},
+		{name: "a line of two backslashes", typed: `\\`, wantEntry: `\\`, wantSubmit: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			script := tt.typed + "\r"
+			if !tt.wantSubmit {
+				script += "b\r"
+			}
+
+			p, err := newFromConfigOn(options{
+				Prefix:      "$ ",
+				ColorScheme: ThemeDefault,
+				KeyMap:      NewDefaultKeyMap(),
+			}, newMockTerminal(script), io.Discard)
+			if err != nil {
+				t.Fatalf("newFromConfigOn() error = %v", err)
+			}
+			defer p.Close()
+
+			got, err := p.Run(context.Background())
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != tt.wantEntry {
+				t.Errorf("typing %q then Enter gave %q, want %q", tt.typed, got, tt.wantEntry)
 			}
 		})
 	}
