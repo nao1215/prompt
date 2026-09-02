@@ -3862,3 +3862,67 @@ func TestCancelingFromALineAboveTheLastLeavesNoRowOfTheEntryBehind(t *testing.T)
 		t.Errorf("the screen shows\n%q\nwant\n%q", got, want)
 	}
 }
+
+// TestAKeyBoundToTheHistoryActionsWalksTheHistory binds Ctrl+P and Ctrl+N to
+// ActionHistoryUp and ActionHistoryDown, which is what a person reaches for when
+// the arrow keys are busy moving the cursor between the lines of an entry.
+//
+// Both actions are exported and neither had a case in the read loop, so a key
+// bound to them did nothing at all.
+func TestAKeyBoundToTheHistoryActionsWalksTheHistory(t *testing.T) {
+	t.Parallel()
+
+	const (
+		ctrlP = "\x10"
+		ctrlN = "\x0e"
+	)
+
+	tests := map[string]struct {
+		keys      string
+		multiline bool
+		want      string
+	}{
+		"one back":                     {keys: ctrlP + "\r", want: "second"},
+		"two back":                     {keys: ctrlP + ctrlP + "\r", want: "first"},
+		"back past the oldest entry":   {keys: strings.Repeat(ctrlP, 5) + "\r", want: "first"},
+		"back and forward again":       {keys: ctrlP + ctrlP + ctrlN + "\r", want: "second"},
+		"forward from the line typed":  {keys: ctrlN + "\r", want: ""},
+		"back and all the way forward": {keys: ctrlP + ctrlN + "\r", want: ""},
+		"on a multiline entry":         {keys: "a\rb" + ctrlP + "\r", multiline: true, want: "second"},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			keyMap := NewDefaultKeyMap()
+			keyMap.Bind('\x10', ActionHistoryUp)
+			keyMap.Bind('\x0e', ActionHistoryDown)
+
+			var out bytes.Buffer
+			terminal := newMockTerminal(tt.keys)
+			options := []Option{WithKeyMap(keyMap), WithMemoryHistory(10)}
+			if tt.multiline {
+				// The entry is complete only once it has been recalled from the
+				// history, so the Enters typed before that open lines instead of
+				// submitting and the cursor keys would be moving between them.
+				options = append(options,
+					WithMultiline(true),
+					WithIsComplete(func(in string) bool { return strings.HasPrefix(in, "second") }),
+				)
+			}
+			p := newTestPromptOn(terminal, options...)
+			p.output = &out
+			p.renderer = newRenderer(&out, ThemeDefault, terminal)
+			p.SetHistory([]string{"first", "second"})
+
+			line, err := p.Run()
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if line != tt.want {
+				t.Errorf("Run() = %q, want %q", line, tt.want)
+			}
+		})
+	}
+}

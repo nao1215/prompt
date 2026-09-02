@@ -679,6 +679,42 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 	selectedSuggestion := 0
 	suggestionOffset := 0 // Track the offset for scrolling through suggestions
 
+	// How the history is walked, in one place: the index into it, the line being
+	// typed (kept when the index leaves it so the way forward has something to
+	// come back to), and the completion menu, which stands for a line that is
+	// about to be replaced. The arrow keys walk it on a single-line entry, and a
+	// key bound to ActionHistoryUp or ActionHistoryDown walks it whatever the
+	// entry looks like -- on a multiline one the arrows are moving the cursor
+	// between lines, which is what those actions exist for.
+	historyBack := func() {
+		if historyIndex <= 0 {
+			return
+		}
+		if historyIndex == len(p.history) {
+			// Leaving the line being typed, rather than moving between entries:
+			// this is the last chance to keep it.
+			pendingLine = string(p.buffer)
+		}
+		historyIndex--
+		p.setBuffer(p.history[historyIndex])
+		suggestions = nil
+	}
+	historyForward := func() {
+		if historyIndex >= len(p.history) {
+			return
+		}
+		historyIndex++
+		if historyIndex == len(p.history) {
+			// Back past the newest entry, which is the line that was being
+			// typed. An edit made to a history entry along the way is dropped
+			// rather than carried here, the way a shell drops it.
+			p.setBuffer(pendingLine)
+		} else {
+			p.setBuffer(p.history[historyIndex])
+		}
+		suggestions = nil
+	}
+
 	for {
 		// Read key input
 		r, err := p.readRuneContext(ctx)
@@ -817,17 +853,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 				// Navigate up within multi-line input
 				p.cursor = p.findCursorUp()
 			} else {
-				// Navigate history
-				if historyIndex > 0 {
-					if historyIndex == len(p.history) {
-						// Leaving the line being typed, rather than moving
-						// between entries: this is the last chance to keep it.
-						pendingLine = string(p.buffer)
-					}
-					historyIndex--
-					p.setBuffer(p.history[historyIndex])
-					suggestions = nil
-				}
+				historyBack()
 			}
 
 		case ActionMoveDown:
@@ -840,21 +866,14 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 				// Navigate down within multi-line input
 				p.cursor = p.findCursorDown()
 			} else {
-				// Navigate history
-				if historyIndex < len(p.history) {
-					historyIndex++
-					if historyIndex == len(p.history) {
-						// Back past the newest entry, which is the line that was
-						// being typed. An edit made to a history entry along the
-						// way is dropped rather than carried here, the way a
-						// shell drops it.
-						p.setBuffer(pendingLine)
-					} else {
-						p.setBuffer(p.history[historyIndex])
-					}
-					suggestions = nil
-				}
+				historyForward()
 			}
+
+		case ActionHistoryUp:
+			historyBack()
+
+		case ActionHistoryDown:
+			historyForward()
 
 		case ActionMoveHome:
 			if p.isMultiLine() {
