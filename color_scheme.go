@@ -44,6 +44,15 @@ type StyleSpan struct {
 }
 
 // Color represents an RGB color with optional formatting.
+//
+// The zero Color is the terminal's own foreground: the prompt writes no color
+// for it and the text is drawn in whatever the user has configured. That is what
+// makes a scheme readable on a background it did not choose, and it is what a
+// field left unset in a ColorScheme literal means. Bold is not a color and still
+// applies on its own.
+//
+// Black is therefore one unit away rather than at the origin: Color{B: 1} is
+// black to any eye and is not the zero value.
 type Color struct {
 	R    uint8 `json:"r"`
 	G    uint8 `json:"g"`
@@ -51,13 +60,20 @@ type Color struct {
 	Bold bool  `json:"bold"`
 }
 
-// ThemeDefault is the default color scheme with green prefix and white text
+// ThemeDefault is what a prompt draws with when the application names no theme.
+//
+// The line being typed and the menu's candidates are the terminal's own
+// foreground, because a theme that has not been chosen cannot know the
+// background it is drawn on: white is invisible on a light terminal and black on
+// a dark one. What it does color is what carries meaning wherever it is drawn --
+// a green prefix, a cyan selection, and a mid gray for a description, which
+// reads on both.
 var ThemeDefault = &ColorScheme{
 	Name:   "default",
 	Prefix: Color{R: 0, G: 255, B: 0, Bold: true},
-	Input:  Color{R: 255, G: 255, B: 255, Bold: true},
+	Input:  Color{},
 	Suggestion: SuggestionColors{
-		Text:        Color{R: 200, G: 200, B: 200, Bold: false},
+		Text:        Color{},
 		Description: Color{R: 128, G: 128, B: 128, Bold: false},
 	},
 	Selected: Color{R: 0, G: 255, B: 255, Bold: true},
@@ -159,7 +175,9 @@ var ThemeMonokai = &ColorScheme{
 	Selected: Color{R: 102, G: 217, B: 239, Bold: true},
 }
 
-// ToANSI converts a Color to an ANSI escape sequence.
+// ToANSI converts a Color to an ANSI escape sequence. The zero Color names no
+// color, so it returns nothing at all and the terminal keeps drawing in its own
+// foreground; see Color.
 func (c Color) ToANSI() string {
 	var codes []string
 
@@ -168,9 +186,15 @@ func (c Color) ToANSI() string {
 		codes = append(codes, "1")
 	}
 
-	// RGB color (true color support)
-	codes = append(codes, fmt.Sprintf("38;2;%d;%d;%d", c.R, c.G, c.B))
+	// A color of its own, in true color. All three at zero names none: see
+	// Color.
+	if c.R != 0 || c.G != 0 || c.B != 0 {
+		codes = append(codes, fmt.Sprintf("38;2;%d;%d;%d", c.R, c.G, c.B))
+	}
 
+	if len(codes) == 0 {
+		return ""
+	}
 	return fmt.Sprintf("\x1b[%sm", strings.Join(codes, ";"))
 }
 

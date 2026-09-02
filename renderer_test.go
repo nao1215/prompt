@@ -2795,3 +2795,47 @@ func TestClearScreenKeepsTheScrollback(t *testing.T) {
 		t.Errorf("clearScreen() wrote %q, which erases the terminal's saved lines", drawn)
 	}
 }
+
+// TestTheZeroColorIsTheTerminalsOwnForeground pins what a color nobody set
+// means. Every foreground a theme can name is wrong on the background it did not
+// assume, so the one a prompt draws when the application says nothing has to be
+// the one the user already chose.
+func TestTheZeroColorIsTheTerminalsOwnForeground(t *testing.T) {
+	t.Parallel()
+
+	if got := (Color{}).ToANSI(); got != "" {
+		t.Errorf("the zero color is drawn as %q, want nothing at all: the terminal's own foreground", got)
+	}
+	// Bold is not a color, so it survives on its own.
+	if got, want := (Color{Bold: true}).ToANSI(), "\x1b[1m"; got != want {
+		t.Errorf("a bold color with no color of its own is drawn as %q, want %q", got, want)
+	}
+	// And a color that names itself is still written.
+	if got, want := (Color{R: 255}).ToANSI(), "\x1b[38;2;255;0;0m"; got != want {
+		t.Errorf("red is drawn as %q, want %q", got, want)
+	}
+	// Black is reachable, one unit away from the zero value.
+	if got, want := (Color{B: 1}).ToANSI(), "\x1b[38;2;0;0;1m"; got != want {
+		t.Errorf("near-black is drawn as %q, want %q", got, want)
+	}
+}
+
+// TestTheDefaultThemeDrawsTheInputInTheTerminalsColor is the reason for the
+// rule above. The default theme is what an application gets when it names none,
+// and it drew the line being typed in bold white, which cannot be seen on a
+// light background.
+func TestTheDefaultThemeDrawsTheInputInTheTerminalsColor(t *testing.T) {
+	t.Parallel()
+
+	if got := ThemeDefault.Input.ToANSI(); got != "" {
+		t.Errorf("the default theme draws the input as %q, want the terminal's own color", got)
+	}
+	if got := ThemeDefault.Suggestion.Text.ToANSI(); got != "" {
+		t.Errorf("the default theme draws a candidate as %q, want the terminal's own color", got)
+	}
+	// The prefix is still colored: green reads on both backgrounds, and it is
+	// what tells the prompt from the output above it.
+	if ThemeDefault.Prefix.ToANSI() == "" {
+		t.Error("the default theme draws the prefix in no color of its own")
+	}
+}
