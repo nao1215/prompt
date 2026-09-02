@@ -260,9 +260,10 @@ func WithTheme(theme *ColorScheme) Option {
 // once it is; Up and Down move between the lines.
 //
 // Without it Enter submits, with one exception that holds in either mode: a
-// line ending in a backslash is continued rather than submitted, and the
-// backslash is taken out of the entry, since it said how to read the line
-// rather than being part of it. An entry therefore cannot end in a backslash.
+// line ending in an odd number of backslashes is continued rather than
+// submitted, and the last of them is taken out of the entry, since it said how
+// to read the line rather than being part of it. An even number is data, so an
+// entry that ends in a backslash is written by typing two.
 func WithMultiline() Option {
 	return func(c *options) {
 		c.Multiline = true
@@ -273,9 +274,9 @@ func WithMultiline() Option {
 // pressing Enter submits the buffer or inserts a newline. The predicate receives
 // the whole buffer and returns true when the input is a complete statement ready
 // to run; when false, Enter inserts a newline so an embedding app can buffer
-// multi-line input (for example SQL until a trailing ";"). A trailing backslash
-// and bracketed paste still open a line regardless of the predicate, and the
-// backslash is taken out of the entry. When nil (default) or when multiline mode
+// multi-line input (for example SQL until a trailing ";"). An odd number of
+// trailing backslashes and a bracketed paste still open a line regardless of
+// the predicate, and the last backslash is taken out of the entry. When nil (default) or when multiline mode
 // is off, Enter submits whatever the predicate would have said.
 func WithIsComplete(isComplete func(input string) bool) Option {
 	return func(c *options) {

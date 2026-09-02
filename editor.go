@@ -131,19 +131,33 @@ func isWordChar(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r) || r == '_'
 }
 
-// isShiftEnter detects if we should add a newline instead of submitting
+// isShiftEnter reports whether Enter opens a line rather than submitting,
+// which it does when the line ends in a backslash.
+//
+// It is how many backslashes rather than whether there is one. An odd number
+// means the last is a continuation marker: it is removed and a line opens. An
+// even number means they are all data and the line submits with every one of
+// them, which is the rule a shell uses and the only way to end an entry in a
+// backslash -- doubling it. Answering on the last character alone left no way
+// at all, and ate one of the two.
 func (p *Prompt) isShiftEnter() bool {
-	currentLine := p.getCurrentLineText()
-
-	// Check for backslash continuation - if present, add newline
-	if strings.HasSuffix(strings.TrimRight(currentLine, " \t"), "\\") {
-		// Remove the backslash and add newline for continuation
-		p.removeTrailingBackslash()
-		return true // Add newline for continuation
+	if trailingBackslashes(p.getCurrentLineText())%2 == 0 {
+		return false
 	}
+	p.removeTrailingBackslash()
+	return true
+}
 
-	// If no backslash, Enter submits (both single-line and multiline modes)
-	return false
+// trailingBackslashes counts the backslashes at the end of a line, looking past
+// the trailing spaces and tabs, which is what the terminal leaves behind when
+// somebody types a space after the marker.
+func trailingBackslashes(line string) int {
+	line = strings.TrimRight(line, " \t")
+	n := 0
+	for n < len(line) && line[len(line)-1-n] == '\\' {
+		n++
+	}
+	return n
 }
 
 // isMultiLine checks if the current buffer contains newline characters
