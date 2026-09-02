@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.0.30] - 2026-09-02
 
 ### Fixed
 
@@ -57,9 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Ctrl+L clears the screen and leaves the scrollback ([#149](https://github.com/nao1215/prompt/issues/149)). It sent Erase Saved Lines along with the screen clear, so the output a person had Ctrl+L in front of them -- the results they had been reading -- could not be scrolled back to, and nothing undoes that. What a shell's Ctrl+L sends is the terminal's clear capability, which homes the cursor and erases the screen.
 
-		case ActionDeleteLine:
-			p.buffer = []rune{}
-			p.cursor = 0- The key map examples in the README and the godoc bind Ctrl+P and Ctrl+N to the history instead of rebinding Ctrl+L. Every one of them replaced a key the default map already uses, and one bound `ActionNewLine` under a comment that said it cleared the screen.
+- The key map examples in the README and the godoc bind Ctrl+P and Ctrl+N to the history instead of rebinding Ctrl+L. Every one of them replaced a key the default map already uses, and one bound `ActionNewLine` under a comment that said it cleared the screen.
 
 - `example/shell` hands the whole document to the file completer instead of cutting the command off and putting it back in front of every candidate. Those candidates were dropped by the prompt before they reached the screen, because a suggestion is measured against the word being typed and "cat /etc/hosts" does not start with "/etc/ho": the example's file completion did nothing at all.
 
