@@ -229,6 +229,24 @@ func WithKeyMap(keyMap *KeyMap) Option {
 	}
 }
 
+// WithoutHistory gives the prompt no history at all: nothing is remembered,
+// the arrow keys and Ctrl+R have nothing to walk, AddHistory and SetHistory do
+// nothing, and no file is read or written.
+//
+// It is for a prompt whose answer should not be kept. Run remembers every line
+// it returns, so without this a one-off question -- a password, a token, an
+// answer holding something private -- is walkable with the Up key for the rest
+// of the session, and written to disk if the prompt was given a file.
+//
+// Like the other history options it is last-wins: giving it after
+// WithFileHistory leaves the prompt with no history, and giving it before
+// leaves the prompt with the file.
+func WithoutHistory() Option {
+	return func(c *options) {
+		c.historyConfig = &historyConfig{}
+	}
+}
+
 // WithTheme sets the colors the prompt draws with. The Theme* variables are
 // the schemes this package ships; a nil scheme is ThemeDefault.
 func WithTheme(theme *ColorScheme) Option {

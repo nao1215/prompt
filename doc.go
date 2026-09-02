@@ -41,7 +41,9 @@
 // New takes options. WithCompleter names a function asked on Tab; WithTheme
 // names the colors, from the Theme* variables or a ColorScheme of the caller's;
 // WithKeyMap names the key bindings; WithMemoryHistory and WithFileHistory say
-// how many entries the arrow keys walk and whether they outlive the process;
+// how many entries the arrow keys walk and whether they outlive the process,
+// and WithoutHistory says to keep none, which is what a prompt asking for a
+// password or a token wants, since Run remembers every line it returns;
 // WithMultiline, WithIsComplete, WithAutoIndent and WithContinuationPrefix
 // shape an entry of several lines; WithHighlighter colors runs of the input as
 // it is drawn; WithWordEscape reads a backslash before a space as part of the

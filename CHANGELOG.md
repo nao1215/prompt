@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `WithoutHistory` builds a prompt that keeps no history: nothing is remembered, the arrow keys and Ctrl+R have nothing to walk, `AddHistory` and `SetHistory` do nothing, and no file is read or written. `Run` remembers every line it returns, so without it a one-off question -- a password, a token, an answer holding something private -- is walkable with the Up key for the rest of the session and written to disk if the prompt was given a file. Version 0.1.0 removed the only way to ask for this, which was the `Enabled` field of the `HistoryConfig` it unexported; this is that capability back, as one option rather than a five-field struct. Like the other history options it is last-wins.
+
 ## [0.1.0] - 2026-09-02
 
 ### Breaking Changes
