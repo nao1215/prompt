@@ -3,6 +3,7 @@ package prompt
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -384,6 +385,87 @@ func TestReadEscapeSequenceConsumesASequenceItCannotName(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("Run() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestEveryActionTheReadLoopAnswers binds each exported action to a key nothing
+// binds and drives it, so the table says what each one does to a line.
+//
+// The reason it exists: ActionHistoryUp and ActionHistoryDown were exported,
+// documented and bindable, and the read loop had no case for either, so a key
+// bound to one did nothing at all and nothing said so. An action is only real
+// where the loop answers it, and this is the list of the loop's answers.
+//
+// The line is "one two" with the cursor moved two places back into it, so an
+// action that moves or deletes has somewhere to move and something to delete on
+// both sides. The X is typed where the cursor ends up, which is what makes the
+// movements visible; the four rows that leave the line alone are the actions
+// that have nothing to do here, and each says why.
+func TestEveryActionTheReadLoopAnswers(t *testing.T) {
+	t.Parallel()
+
+	// Bound to nothing by default, so what changes is the action's doing.
+	const spare = '\x07'
+
+	for _, tt := range []struct {
+		name    string
+		action  KeyAction
+		want    string
+		wantErr error
+	}{
+		{name: "None", action: ActionNone, want: "one tXwo"}, // the key is dropped, as an unbound one is
+		{name: "Submit", action: ActionSubmit, want: "one two"},
+		{name: "Cancel", action: ActionCancel, wantErr: ErrInterrupted},
+		{name: "MoveLeft", action: ActionMoveLeft, want: "one Xtwo"},
+		{name: "MoveRight", action: ActionMoveRight, want: "one twXo"},
+		{name: "MoveUp", action: ActionMoveUp, want: "rememberedX"},  // one line, so Up is the history
+		{name: "MoveDown", action: ActionMoveDown, want: "one tXwo"}, // already at the newest entry
+		{name: "MoveHome", action: ActionMoveHome, want: "Xone two"},
+		{name: "MoveEnd", action: ActionMoveEnd, want: "one twoX"},
+		{name: "MoveWordLeft", action: ActionMoveWordLeft, want: "one Xtwo"},
+		{name: "MoveWordRight", action: ActionMoveWordRight, want: "one twoX"},
+		{name: "DeleteChar", action: ActionDeleteChar, want: "one tXo"},
+		{name: "DeleteLine", action: ActionDeleteLine, want: "X"},
+		{name: "DeleteToEnd", action: ActionDeleteToEnd, want: "one tX"},
+		{name: "DeleteWordBack", action: ActionDeleteWordBack, want: "one Xwo"},
+		{name: "Complete", action: ActionComplete, want: "one tXwo"}, // no completer, so nothing to offer
+		{name: "HistoryUp", action: ActionHistoryUp, want: "rememberedX"},
+		{name: "HistoryDown", action: ActionHistoryDown, want: "one tXwo"}, // already at the newest entry
+		{name: "HistorySearch", action: ActionHistorySearch, want: "one two"},
+		{name: "NewLine", action: ActionNewLine, want: "one t\nXwo"},
+		{name: "ClearScreen", action: ActionClearScreen, want: "one tXwo"}, // redraws, and leaves the line
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			keyMap := NewDefaultKeyMap()
+			keyMap.Bind(spare, tt.action)
+
+			config := options{Prefix: "$ ", ColorScheme: ThemeDefault, KeyMap: keyMap}
+			WithMemoryHistory(10)(&config)
+			// "one two", the cursor two places back, the key, an X, then Enter.
+			// The second Enter is for the actions that submit on the first.
+			p, err := newFromConfigOn(config, newMockTerminal("one two\x1b[D\x1b[D"+string(spare)+"X\r\r"), io.Discard)
+			if err != nil {
+				t.Fatalf("newFromConfigOn() error = %v", err)
+			}
+			defer p.Close()
+			p.SetHistory([]string{"remembered"})
+
+			got, runErr := p.Run(context.Background())
+			if tt.wantErr != nil {
+				if !errors.Is(runErr, tt.wantErr) {
+					t.Fatalf("Run() error = %v, want %v", runErr, tt.wantErr)
+				}
+				return
+			}
+			if runErr != nil {
+				t.Fatalf("Run() error = %v", runErr)
+			}
+			if got != tt.want {
+				t.Errorf("%s gave %q, want %q", tt.name, got, tt.want)
 			}
 		})
 	}
