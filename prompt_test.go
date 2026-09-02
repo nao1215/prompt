@@ -4359,3 +4359,183 @@ func TestCtrlUClearsTheLineTheCursorIsOn(t *testing.T) {
 		})
 	}
 }
+
+// TestWhatEveryControlByteDoesToALine is the whole of the read loop's answer to
+// a byte below a space, enumerated rather than sampled. Each row types "ab",
+// then the byte, then "c", then Enter, so what the byte did shows in the entry
+// that comes back or in the error that ended the line.
+//
+// The point of enumerating it is the rows with no comment: a control byte the
+// key map does not bind is dropped. That is the right answer -- putting a raw
+// control byte into the line would be worse -- but nothing said so, and nothing
+// held it, so a byte that started being inserted, or a binding that quietly
+// went missing, would have shown up as a wrong answer somewhere else.
+func TestWhatEveryControlByteDoesToALine(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		b       byte
+		want    string
+		wantErr error
+	}{
+		{b: 0x00, want: "abc"},
+		{b: 0x01, want: "cab"}, // Ctrl+A moves to the start of the line, so the c lands in front
+		{b: 0x02, want: "abc"},
+		{b: 0x03, want: "", wantErr: ErrInterrupted}, // Ctrl+C discards the line
+		{b: 0x04, want: "abc"},                       // Ctrl+D ends the line only when there is nothing on it
+		{b: 0x05, want: "abc"},                       // Ctrl+E moves to the end, which is where the cursor already was
+		{b: 0x06, want: "abc"},
+		{b: 0x07, want: "abc"},
+		{b: 0x08, want: "ac"},  // Backspace deletes the b
+		{b: 0x09, want: "abc"}, // Tab completes, and a prompt with no completer has nothing to offer
+		{b: 0x0a, want: "ab"},  // a line feed submits, as a carriage return does
+		{b: 0x0b, want: "abc"}, // Ctrl+K deletes to the end of the line, and the cursor is at it
+		{b: 0x0c, want: "abc"}, // Ctrl+L clears the screen and leaves the line alone
+		{b: 0x0d, want: "ab"},  // Enter submits
+		{b: 0x0e, want: "abc"},
+		{b: 0x0f, want: "abc"},
+		{b: 0x10, want: "abc"},
+		{b: 0x11, want: "abc"},
+		{b: 0x12, want: "", wantErr: ErrEOF}, // Ctrl+R opens the reverse search, which reads the rest of the input
+		{b: 0x13, want: "abc"},
+		{b: 0x14, want: "abc"},
+		{b: 0x15, want: "c"}, // Ctrl+U deletes the line the cursor is on
+		{b: 0x16, want: "abc"},
+		{b: 0x17, want: "c"}, // Ctrl+W deletes the word before the cursor
+		{b: 0x18, want: "abc"},
+		{b: 0x19, want: "abc"},
+		{b: 0x1a, want: "abc"},
+		{b: 0x1b, want: "abc"}, // a bare Escape closes the completion menu and keeps the key after it
+		{b: 0x1c, want: "abc"},
+		{b: 0x1d, want: "abc"},
+		{b: 0x1e, want: "abc"},
+		{b: 0x1f, want: "abc"},
+		{b: 0x7f, want: "ac"}, // Delete is Backspace here, which is what a terminal sends for it
+	} {
+		t.Run(fmt.Sprintf("0x%02x", tt.b), func(t *testing.T) {
+			t.Parallel()
+
+			p, err := newFromConfigOn(options{
+				Prefix:      "$ ",
+				ColorScheme: ThemeDefault,
+				KeyMap:      NewDefaultKeyMap(),
+			}, newMockTerminal("ab"+string([]byte{tt.b})+"c\r"), io.Discard)
+			if err != nil {
+				t.Fatalf("newFromConfigOn() error = %v", err)
+			}
+			defer p.Close()
+
+			got, runErr := p.Run(context.Background())
+			if tt.wantErr != nil {
+				if !errors.Is(runErr, tt.wantErr) {
+					t.Fatalf("Run() error = %v, want %v", runErr, tt.wantErr)
+				}
+				return
+			}
+			if runErr != nil {
+				t.Fatalf("Run() error = %v", runErr)
+			}
+			if got != tt.want {
+				t.Errorf("0x%02x gave %q, want %q", tt.b, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestWhatBytesThatAreNotUTF8DoToALine is the same enumeration one range up.
+// The reader decodes runes, so a byte that is not valid UTF-8 is decoded as
+// U+FFFD and typed: the entry an application receives holds a character nobody
+// pressed, and the byte that produced it is gone.
+//
+// That is the answer rather than dropping the byte, because a paste of
+// something that is not text should be visible in the line rather than silently
+// shorter, and rather than keeping the byte, because a caller reading the entry
+// would then hold a string that is not valid UTF-8. It is written down here
+// because it is a choice, and because the number of replacement characters is
+// what tells the cases apart: an overlong encoding is two bad bytes and a
+// surrogate is three.
+func TestWhatBytesThatAreNotUTF8DoToALine(t *testing.T) {
+	t.Parallel()
+
+	const bad = "\uFFFD"
+
+	for _, tt := range []struct {
+		name  string
+		bytes string
+		want  string
+	}{
+		{name: "a lone continuation byte", bytes: "\x80", want: "ab" + bad + "c"},
+		{name: "a byte no sequence starts with", bytes: "\xff", want: "ab" + bad + "c"},
+		{name: "a two-byte rune", bytes: "\xc3\xa9", want: "ab\u00e9c"},
+		{name: "a three-byte rune", bytes: "\xe5\x90\x8d", want: "ab\u540dc"},
+		{name: "an overlong encoding, one bad byte each", bytes: "\xc0\x80", want: "ab" + bad + bad + "c"},
+		{name: "a surrogate, one bad byte each", bytes: "\xed\xa0\x80", want: "ab" + bad + bad + bad + "c"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p, err := newFromConfigOn(options{
+				Prefix:      "$ ",
+				ColorScheme: ThemeDefault,
+				KeyMap:      NewDefaultKeyMap(),
+			}, newMockTerminal("ab"+tt.bytes+"c\r"), io.Discard)
+			if err != nil {
+				t.Fatalf("newFromConfigOn() error = %v", err)
+			}
+			defer p.Close()
+
+			got, err := p.Run(context.Background())
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("Run() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCtrlDEndsTheLineOnlyWhenItIsEmpty pins the one control byte whose answer
+// depends on what is already there.
+func TestCtrlDEndsTheLineOnlyWhenItIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		script  string
+		want    string
+		wantErr error
+	}{
+		{name: "on an empty line", script: "\x04", wantErr: ErrEOF},
+		{name: "on a line emptied by Backspace", script: "a\x7f\x04", wantErr: ErrEOF},
+		{name: "on a line with text", script: "ab\x04c\r", want: "abc"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p, err := newFromConfigOn(options{
+				Prefix:      "$ ",
+				ColorScheme: ThemeDefault,
+				KeyMap:      NewDefaultKeyMap(),
+			}, newMockTerminal(tt.script), io.Discard)
+			if err != nil {
+				t.Fatalf("newFromConfigOn() error = %v", err)
+			}
+			defer p.Close()
+
+			got, runErr := p.Run(context.Background())
+			if tt.wantErr != nil {
+				if !errors.Is(runErr, tt.wantErr) {
+					t.Errorf("Run() error = %v, want %v", runErr, tt.wantErr)
+				}
+				return
+			}
+			if runErr != nil {
+				t.Fatalf("Run() error = %v", runErr)
+			}
+			if got != tt.want {
+				t.Errorf("Run() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

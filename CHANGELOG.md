@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- The read loop's answer to every byte it can see, enumerated and held by tests. Each of the thirty-three bytes below a space types a line around it, so what it did shows in the entry that comes back or in the error that ended it; the same is done for the bytes that are not valid UTF-8, where the number of replacement characters is what tells an overlong encoding from a surrogate. Both rules are now in the package documentation as well: a control byte the key map binds to nothing is dropped, because putting a raw control byte into the line would be worse than losing it, and a byte that is not valid UTF-8 is typed as U+FFFD, which is visible where dropping it would be silent and leaves the entry valid UTF-8 where keeping the byte would not. Nothing here changed; what changed is that it is written down and checked, since the two bugs found in this surface last week were both in paths no test drove.
+
 ## [0.2.0] - 2026-09-02
 
 ### Changed
