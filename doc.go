@@ -99,7 +99,8 @@
 //   - Ctrl+A / Home: Move to beginning of line
 //   - Ctrl+E / End: Move to end of line
 //   - Ctrl+K: Delete from cursor to end of line
-//   - Ctrl+U: Delete entire line
+//   - Ctrl+U: Delete the line the cursor is on, which on an entry of one line
+//     is the whole of it. Ctrl+C is what discards an entry of several.
 //   - Ctrl+W: Delete word backwards
 //   - Ctrl+R: Reverse history search (like bash). Tab and the arrow keys move
 //     through the matches, Enter accepts the one the search names, Escape

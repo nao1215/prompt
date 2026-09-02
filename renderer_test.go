@@ -2777,3 +2777,21 @@ func TestMenuScrollsToItsLastCandidateOnAShortTerminal(t *testing.T) {
 		}
 	}
 }
+
+// TestClearScreenKeepsTheScrollback pins what Ctrl+L costs. The screen is the
+// prompt's to clear; the scrollback is the session's, and it holds whatever the
+// application printed before the prompt -- which is what a person presses Ctrl+L
+// with in front of them. A shell's Ctrl+L sends the terminal's clear capability,
+// which homes the cursor and erases the screen and nothing else.
+func TestClearScreenKeepsTheScrollback(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	renderer := newRenderer(&out, ThemeDefault, nil)
+	renderer.clearScreen()
+
+	// Erase Saved Lines, which is the scrollback rather than the screen.
+	if drawn := out.String(); strings.Contains(drawn, "\x1b[3J") {
+		t.Errorf("clearScreen() wrote %q, which erases the terminal's saved lines", drawn)
+	}
+}

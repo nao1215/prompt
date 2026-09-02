@@ -621,7 +621,7 @@ func (p *Prompt) Run() (string, error) {
 //   - Ctrl+A/Home: Move to beginning of line
 //   - Ctrl+E/End: Move to end of line
 //   - Ctrl+K: Delete from cursor to end of line
-//   - Ctrl+U: Delete entire line
+//   - Ctrl+U: Delete the line the cursor is on
 //   - Ctrl+W: Delete word backwards
 //   - Ctrl+R: Reverse history search
 //   - Tab: Auto-completion
@@ -950,8 +950,15 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			}
 
 		case ActionDeleteLine:
-			p.buffer = []rune{}
-			p.cursor = 0
+			// The line the cursor is on, which on an entry of one line is the
+			// whole of it. Emptying the buffer whatever the entry looked like
+			// meant the key that says "delete entire line" discarded a statement
+			// typed across several, and there is no undo. Ctrl+K beside it has
+			// asked which line it is on since multiline entries existed; the key
+			// for discarding the whole entry is Ctrl+C, which says so.
+			lineStart, lineEnd := p.findLineStart(), p.findLineEnd()
+			p.buffer = append(p.buffer[:lineStart], p.buffer[lineEnd:]...)
+			p.cursor = lineStart
 			// The line the menu was built for is gone. Leaving it open drew
 			// completions under an empty prompt, and the next accept put the
 			// discarded text back -- which is the opposite of what the key is for.

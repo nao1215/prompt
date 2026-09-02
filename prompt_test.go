@@ -4275,3 +4275,49 @@ func TestAPasteHoldingEscapeSequencesIsNotRedrawnPerSequence(t *testing.T) {
 			sequences, out.Len(), budget)
 	}
 }
+
+// TestCtrlUClearsTheLineOfAMultilineEntry pins what the key that says "delete
+// entire line" deletes. Ctrl+K beside it works on the current line when the
+// entry has more than one, and there is no undo: on a statement typed across
+// several lines, a key that looks like "clear this line" was discarding the
+// statement.
+func TestCtrlUClearsTheLineOfAMultilineEntry(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		keys string
+		want string
+	}{
+		// Ctrl+U on the third line, then the line is retyped and submitted.
+		"the line the cursor is on": {keys: "select 1,\r2,\r3\x15x;\r", want: "select 1,\n2,\nx;"},
+		// Ctrl+U with the cursor part way along the line takes the whole line,
+		// which is what it does on an entry of one.
+		"the whole of that line": {keys: "select 1,\rfrom t\x02\x02\x15x;\r", want: "select 1,\nx;"},
+		// An entry of one line is unchanged: the line is the entry.
+		"an entry of one line": {keys: "select 9\x15select 1;\r", want: "select 1;"},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			terminal := &sizedMockTerminal{width: 40, height: 24}
+			terminal.mockTerminal = *newMockTerminal(tt.keys)
+			p := newTestPromptOn(terminal,
+				WithMultiline(true),
+				WithIsComplete(func(in string) bool { return strings.HasSuffix(in, ";") }),
+			)
+			p.output = &out
+			p.renderer = newRenderer(&out, ThemeDefault, terminal)
+
+			line, err := p.Run()
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if line != tt.want {
+				t.Errorf("Run() = %q, want %q", line, tt.want)
+			}
+		})
+	}
+}

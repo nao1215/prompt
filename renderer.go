@@ -662,7 +662,12 @@ func multiLine(s string) string {
 // cursor, then resets the line-tracking state so the next render draws the
 // prompt at the top. It implements the Ctrl+L clear-screen behavior.
 func (r *renderer) clearScreen() {
-	fmt.Fprint(r.output, "\x1b[H\x1b[2J\x1b[3J")
+	// The screen and the cursor, and not the scrollback. Erase Saved Lines
+	// (\x1b[3J) took the session's history with it: what a person has Ctrl+L in
+	// front of them is the output they have been reading, and it cannot be
+	// scrolled back to once it is gone. A shell's Ctrl+L sends the terminal's
+	// clear capability, which is these two.
+	fmt.Fprint(r.output, "\x1b[H\x1b[2J")
 	r.forgetBlock()
 }
 
