@@ -344,6 +344,14 @@ lands where the character is. It never appears in the returned input. Use
 `SetContinuationPrefix` to change it between calls, as `SetPrefix` does for the
 main prefix.
 
+An entry taller than the terminal is drawn as the rows around the cursor that the
+terminal has room for, redrawn in place. The rows outside that window are left
+undrawn rather than drawn and scrolled away, because what scrolls off the top of
+the screen is the application's output rather than the prompt's, and the window
+moves only as far as the cursor makes it. A line ends at the foot of the entry
+whichever of its lines the cursor was on, so what the application prints next
+starts below the entry rather than on top of it.
+
 ### Persistent raw mode (REPL loops)
 
 A REPL that calls `Run` once per line normally enters raw mode at the start of
@@ -500,9 +508,16 @@ keeps working. Do not call `Run` while a watch is active — a line editor and a
 watcher cannot both own one terminal.
 
 While the watch is active, Ctrl+C no longer kills the application: it cancels
-the work instead, and `stop` restores the usual behavior. An interrupt sent any
-other way, such as `kill -INT` from another terminal, cancels the work too:
-nothing tells it apart from the key.
+the work instead, and `stop` restores the usual behavior. That holds for every
+interrupt the watch sees, not only the first — the work has been told to stop
+and has not finished stopping, which is exactly when the key gets pressed again.
+An interrupt sent any other way, such as `kill -INT` from another terminal,
+cancels the work too: nothing tells it apart from the key.
+
+Watches may be nested. There is one watcher for the prompt however many are
+active, and an interrupt cancels all of them: the work being watched is nested,
+so canceling the inner half alone would leave the outer half running with
+nothing left to stop it.
 
 ## Key bindings
 
