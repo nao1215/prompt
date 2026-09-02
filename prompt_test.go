@@ -4275,3 +4275,58 @@ func TestAPasteHoldingEscapeSequencesIsNotRedrawnPerSequence(t *testing.T) {
 			sequences, out.Len(), budget)
 	}
 }
+
+// TestCtrlUClearsTheLineTheCursorIsOn pins what the key that says "delete the
+// line" deletes. Ctrl+K beside it works on the current line when the entry has
+// more than one, and there is no undo: on a statement typed across several
+// lines, a key that looks like "clear this line" was discarding the statement.
+//
+// What discards a whole entry is Ctrl+C, which says so on screen and gives the
+// caller ErrInterrupted.
+func TestCtrlUClearsTheLineTheCursorIsOn(t *testing.T) {
+	t.Parallel()
+
+	const (
+		ctrlU = "\x15"
+		ctrlB = "\x02" // one character back, which is what the key map binds it to
+	)
+
+	tests := map[string]struct {
+		keys string
+		want string
+	}{
+		// On the third line, which is then retyped and submitted.
+		"the line the cursor is on": {keys: "select 1,\r2,\r3" + ctrlU + "x;\r", want: "select 1,\n2,\nx;"},
+		// Part way along a line takes the whole of that line, which is what it
+		// does on an entry of one.
+		"the whole of that line": {keys: "select 1,\rfrom t" + ctrlB + ctrlB + ctrlU + "x;\r", want: "select 1,\nx;"},
+		// The first line of several, leaving the lines under it alone.
+		"the first line of several": {keys: "one,\rtwo;" + strings.Repeat("\x1b[A", 1) + ctrlU + "select 1,\r", want: "select 1,\ntwo;"},
+		// An entry of one line is unchanged: there the line is the entry.
+		"an entry of one line": {keys: "select 9" + ctrlU + "select 1;\r", want: "select 1;"},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			terminal := &sizedMockTerminal{width: 40, height: 24}
+			terminal.mockTerminal = *newMockTerminal(tt.keys)
+			p := newTestPromptOn(terminal,
+				WithMultiline(true),
+				WithIsComplete(func(in string) bool { return strings.HasSuffix(in, ";") }),
+			)
+			p.output = &out
+			p.renderer = newRenderer(&out, ThemeDefault, terminal)
+
+			line, err := p.Run()
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if line != tt.want {
+				t.Errorf("Run() = %q, want %q", line, tt.want)
+			}
+		})
+	}
+}

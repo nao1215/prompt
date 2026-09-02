@@ -51,7 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Migration: a scheme that asked for black by leaving a `Color` at its zero value now draws in the terminal's foreground. Ask for `Color{B: 1}`, which is black to any eye.
 
-- Ctrl+U is documented as what it does: it deletes the whole entry, whichever of its lines the cursor is on ([#150](https://github.com/nao1215/prompt/issues/150)). "Delete entire line" said nothing about which line, and on a multiline entry the answer is all of them. The behavior is unchanged.
+- Ctrl+U deletes the line the cursor is on rather than the whole entry ([#150](https://github.com/nao1215/prompt/issues/150)). It emptied the buffer whatever the entry looked like, so on a statement typed across several lines the key that says "delete the line" discarded the statement, with no undo. Ctrl+K beside it has asked which line it is on since multiline entries existed.
+
+  Migration: the key that discards a whole entry is Ctrl+C, which ends the line and returns `ErrInterrupted`. On an entry of one line Ctrl+U is unchanged, because there the line is the entry.
 
 - Ctrl+L clears the screen and leaves the scrollback ([#149](https://github.com/nao1215/prompt/issues/149)). It sent Erase Saved Lines along with the screen clear, so the output a person had Ctrl+L in front of them -- the results they had been reading -- could not be scrolled back to, and nothing undoes that. What a shell's Ctrl+L sends is the terminal's clear capability, which homes the cursor and erases the screen.
 

@@ -17,6 +17,9 @@ const (
 	ActionMoveWordLeft
 	ActionMoveWordRight
 	ActionDeleteChar
+	// ActionDeleteLine deletes the line the cursor is on, which on an entry of
+	// one line is the whole of it. What discards an entry of several is
+	// ActionCancel, which ends the line and reports ErrInterrupted.
 	ActionDeleteLine
 	ActionDeleteToEnd
 	ActionDeleteWordBack
@@ -76,7 +79,7 @@ type KeyMap struct {
 //   - Ctrl+A: Move to beginning of line
 //   - Ctrl+E: Move to end of line
 //   - Ctrl+K: Delete from cursor to end of line
-//   - Ctrl+U: Delete the whole entry, whichever of its lines the cursor is on
+//   - Ctrl+U: Delete the line the cursor is on
 //   - Ctrl+W: Delete word backwards
 //   - Ctrl+R: Reverse history search
 //   - Ctrl+L: Clear the screen, keeping the scrollback
