@@ -237,7 +237,10 @@ func WithTheme(theme *ColorScheme) Option {
 	}
 }
 
-// WithMultiline enables or disables multiline input mode
+// WithMultiline lets an entry hold line breaks. Enter opens a new line while
+// the WithIsComplete predicate says the entry is not finished, and submits it
+// once it is; Up and Down move between the lines. Without it Enter always
+// submits.
 func WithMultiline() Option {
 	return func(c *options) {
 		c.Multiline = true
