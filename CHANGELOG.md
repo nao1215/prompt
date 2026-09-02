@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `ESC O` no longer eats the key pressed after it ([#165](https://github.com/nao1215/prompt/issues/165)). SS3 -- what a terminal sends for F1 through F4 and several keypad keys, and what Alt+O sends on its own -- was read as `ESC O` plus exactly one rune, whatever that rune was, and the rune was thrown away when it was not part of a sequence. Enter was the worst of them: pressing Alt+O and then Enter left the line unsubmittable, and the next Enter submitted it, so from the outside the first Enter did nothing. Ctrl+A and Backspace went the same way. The CSI branch beside it has had a case for this since a byte outside its grammar was found doing the same thing, and its comment names the same symptom; SS3 now shares the rule, so a rune outside the final-byte range ends no sequence and is pushed back for whoever typed it.
+
 ### Added
 
 - `WithoutHistory` builds a prompt that keeps no history: nothing is remembered, the arrow keys and Ctrl+R have nothing to walk, `AddHistory` and `SetHistory` do nothing, and no file is read or written. `Run` remembers every line it returns, so without it a one-off question -- a password, a token, an answer holding something private -- is walkable with the Up key for the rest of the session and written to disk if the prompt was given a file. Version 0.1.0 removed the only way to ask for this, which was the `Enabled` field of the `HistoryConfig` it unexported; this is that capability back, as one option rather than a five-field struct. Like the other history options it is last-wins.

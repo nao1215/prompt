@@ -55,6 +55,10 @@ const (
 	// csiParamFirst and csiParamLast bracket the parameter and intermediate
 	// bytes of a CSI sequence, and csiFinalFirst and csiFinalLast its final
 	// byte. A byte outside both ranges aborts the sequence.
+	//
+	// The final range is SS3's too: ESC O takes no parameters, and every key a
+	// terminal sends through it -- P to S for F1 to F4, A to D and M and j to y
+	// for the keypad -- is in it.
 	csiParamFirst = ' '
 	csiParamLast  = '?'
 	csiFinalFirst = '@'
@@ -216,11 +220,22 @@ func (p *Prompt) readEscapeSequence() (string, error) {
 		return "", nil
 	}
 
-	// SS3 is ESC O plus exactly one final character (F1-F4, keypad keys).
+	// SS3 is ESC O plus exactly one final character (F1-F4, keypad keys), and it
+	// has no parameters, so the rune after it is either that final character or
+	// nothing to do with the sequence.
+	//
+	// Reading it unconditionally threw away whatever the user typed after Alt+O,
+	// which is what a terminal sends ESC O for when no function key was pressed:
+	// Enter was eaten and the line could not be submitted, which is the symptom
+	// the CSI branch below already has a case for.
 	if r == 'O' {
 		final, err := p.readRune()
 		if err != nil {
 			return "", err
+		}
+		if final < csiFinalFirst || final > csiFinalLast {
+			p.unreadRune(final)
+			return "", nil
 		}
 		return string([]rune{r, final}), nil
 	}

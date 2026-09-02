@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 )
@@ -80,6 +81,108 @@ func TestReadEscapeSequenceBareEscape(t *testing.T) {
 			}
 			if next != tt.wantNex {
 				t.Errorf("next rune = %q, want %q", next, tt.wantNex)
+			}
+		})
+	}
+}
+
+// TestEscapeIntroducersAgreeOnWhatIsNotASequence holds the two introducers to
+// one rule. ESC [ read a byte outside its grammar as the end of the sequence
+// and pushed it back; ESC O read whatever followed it as the sequence's final
+// byte and threw it away, so the key pressed after Alt+O was eaten -- Enter
+// among them, which left the line unsubmittable.
+//
+// The table drives both, because the bug was that they disagreed. A byte in the
+// final range is a sequence under either introducer, and a control byte ends
+// neither and belongs to whoever typed it. The bytes between the two -- a space
+// and the other parameter and intermediate bytes -- are where the grammars
+// legitimately differ, since SS3 has no parameters, so they are not in here.
+func TestEscapeIntroducersAgreeOnWhatIsNotASequence(t *testing.T) {
+	t.Parallel()
+
+	for _, after := range []struct {
+		name  string
+		rune  rune
+		isSeq bool
+	}{
+		{name: "a final byte", rune: 'P', isSeq: true},
+		{name: "the first final byte", rune: '@', isSeq: true},
+		{name: "the last final byte", rune: '~', isSeq: true},
+		{name: "Enter", rune: '\r'},
+		{name: "Ctrl+A", rune: '\x01'},
+		{name: "Backspace", rune: '\x7f'},
+		{name: "Escape", rune: '\x1b'},
+	} {
+		for _, intro := range []rune{'[', 'O'} {
+			t.Run(string(intro)+"/"+after.name, func(t *testing.T) {
+				t.Parallel()
+
+				p := &Prompt{
+					config:   options{Prefix: "test> "},
+					terminal: newMockTerminal(string([]rune{intro, after.rune, 'x'})),
+					keyMap:   NewDefaultKeyMap(),
+				}
+
+				seq, err := p.readEscapeSequence()
+				if err != nil {
+					t.Fatalf("readEscapeSequence returned error: %v", err)
+				}
+
+				wantSeq, wantNext := "", after.rune
+				if after.isSeq {
+					wantSeq, wantNext = string([]rune{intro, after.rune}), 'x'
+				}
+				if seq != wantSeq {
+					t.Errorf("sequence = %q, want %q", seq, wantSeq)
+				}
+
+				next, err := p.readRune()
+				if err != nil {
+					t.Fatalf("reading the rune after the sequence: %v", err)
+				}
+				if next != wantNext {
+					t.Errorf("next rune = %q, want %q: the key after the introducer was eaten", next, wantNext)
+				}
+			})
+		}
+	}
+}
+
+// TestSS3DoesNotEatTheKeyAfterIt is the same fault seen from the read loop,
+// which is where it was reachable: Alt+O is ESC O and is bound to nothing, so a
+// user who presses it expects the next key to work.
+func TestSS3DoesNotEatTheKeyAfterIt(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		script string
+		want   string
+	}{
+		{name: "Enter still submits", script: "ab\x1bO\r", want: "ab"},
+		{name: "Ctrl+A still moves to the line start", script: "b\x1bO\x01a\r", want: "ab"},
+		{name: "Backspace still deletes", script: "abc\x1bO\x7f\r", want: "ab"},
+		{name: "F1 is still a sequence", script: "ab\x1bOP\r", want: "ab"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p, err := newFromConfigOn(options{
+				Prefix:      "$ ",
+				ColorScheme: ThemeDefault,
+				KeyMap:      NewDefaultKeyMap(),
+			}, newMockTerminal(tt.script), io.Discard)
+			if err != nil {
+				t.Fatalf("newFromConfigOn() error = %v", err)
+			}
+			defer p.Close()
+
+			got, err := p.Run(context.Background())
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("Run() = %q, want %q", got, tt.want)
 			}
 		})
 	}
