@@ -168,12 +168,10 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 	// Clear previous output using the CURRENT lastLines value
 	r.clearPreviousLines()
 
-	// Calculate the actual number of lines that will be rendered
-	// This accounts for both explicit newlines and terminal wrapping
+	// How many rows the input block occupies, explicit newlines and terminal
+	// wrapping included. It is at least one: a line holding nothing is still a
+	// row, because the prefix is drawn on it.
 	inputLines := r.calculateRenderedLines(prefix, input)
-	if inputLines == 0 {
-		inputLines = 1
-	}
 
 	// A menu with no room to be drawn is not drawn: the input block already
 	// fills the terminal, and a list under it would push the line being
@@ -243,10 +241,10 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 func (r *renderer) renderMainLine(prefix, input string, cursor int) (drawn, cursorRow int, err error) {
 	lines := r.splitIntoLines(input)
 	cursorLine, cursorCol := r.findCursorPosition([]rune(input), cursor)
-	row, col := r.cursorRowCol(lines, cursorLine, cursorCol, prefix)
 	total := r.blockRows(lines, prefix)
 
 	if total > r.terminalHeight() {
+		row, col := r.cursorRowCol(lines, cursorLine, cursorCol, prefix)
 		drawn, caret, err := r.renderClipped(prefix, input, row, r.spansFor(input))
 		if err != nil {
 			return 0, 0, err
@@ -255,12 +253,13 @@ func (r *renderer) renderMainLine(prefix, input string, cursor int) (drawn, curs
 		return drawn, caret, nil
 	}
 
+	// The terminal has room for the block, so it is written out whole and left
+	// to the terminal to wrap, which is one wrapping rule rather than two.
 	r.viewTop = 0
 	if err := r.renderLines(prefix, input); err != nil {
 		return 0, 0, err
 	}
-	r.placeCursor(total-1-row, col)
-	return total, row, nil
+	return total, r.positionCursor(lines, cursorLine, cursorCol, prefix), nil
 }
 
 // renderMainLineWithoutCursor renders the main prompt line without cursor positioning (for suggestions)

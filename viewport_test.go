@@ -232,7 +232,7 @@ func TestAClippedBlockShowsTheSameRowsAsAScreenWithRoomForIt(t *testing.T) {
 	const width, height = 20, 6
 
 	tests := map[string]string{
-		"lines of their own":     tallBlock(12),
+		"lines of their own":     tallBlock(14),
 		"a line that wraps":      "select " + strings.Repeat("x", 200),
 		"wide runes":             strings.Repeat("あ", 60),
 		"a tab across rows":      strings.Repeat("a\tb\t", 20),
@@ -303,8 +303,9 @@ func TestAClippedBlockColorsTheRunsTheHighlighterNamed(t *testing.T) {
 	r.setContinuationPrefix("...> ")
 	// Every line's two digits, and nothing else.
 	r.setHighlighter(func(in string) []StyleSpan {
-		var spans []StyleSpan
-		for i, line := range strings.Split(in, "\n") {
+		lines := strings.Split(in, "\n")
+		spans := make([]StyleSpan, 0, len(lines))
+		for i, line := range lines {
 			start := i * (len([]rune(line)) + 1)
 			spans = append(spans, StyleSpan{Start: start + 4, End: start + 6, Color: red})
 		}

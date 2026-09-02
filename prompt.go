@@ -1255,7 +1255,7 @@ func (p *Prompt) exitRawMode() error {
 // more than a tidy screen, and it is returned either way.
 func (p *Prompt) endEntry() {
 	p.cursor = len(p.buffer)
-	_ = p.render()
+	_ = p.render() //nolint:errcheck // the line, or the interrupt, is returned whether or not the screen took the redraw
 }
 
 func (p *Prompt) render() error {

@@ -61,8 +61,8 @@ func newRowSplitter(width int) *rowSplitter {
 
 // add places one rune, breaking the row first when the terminal would have.
 func (s *rowSplitter) add(r rune, origin int) {
-	switch {
-	case r == '\t':
+	switch r {
+	case '\t':
 		// A tab stops one column short of the margin rather than taking the
 		// wrap, so it never fills a row; a tab that starts on a filled one
 		// belongs to the row after it.
