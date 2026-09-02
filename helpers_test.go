@@ -462,8 +462,8 @@ func TestFuzzyCompleterSpanFollowsTheTextItMatched(t *testing.T) {
 // held anything but the path -- a command, which is what a shell line starts
 // with -- named a directory that does not exist and completed nothing.
 func TestFileCompleterCompletesTheWordBeforeTheCursor(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: one of the cases is a relative path, which is answered
+	// against the working directory.
 	dir := t.TempDir()
 	for _, name := range []string{"alpha.txt", "beta.txt"} {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
@@ -473,6 +473,13 @@ func TestFileCompleterCompletesTheWordBeforeTheCursor(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "gamma"), 0o750); err != nil {
 		t.Fatalf("writing the fixture: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, ".hidden"), nil, 0o600); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+
+	// A relative path is completed against the working directory, so the test
+	// works from the one it filled.
+	t.Chdir(dir)
 
 	completer := NewFileCompleter()
 	alpha := filepath.Join(dir, "alpha.txt")
@@ -497,6 +504,18 @@ func TestFileCompleterCompletesTheWordBeforeTheCursor(t *testing.T) {
 			text: "cd " + filepath.Join(dir, "ga"),
 			want: []string{filepath.Join(dir, "gamma") + "/"},
 		},
+		"a path written with a leading ./": {
+			text: "cat ./al",
+			want: []string{"./alpha.txt"},
+		},
+		"a path written with a doubled separator": {
+			text: "cat " + dir + "//al",
+			want: []string{dir + "//alpha.txt"},
+		},
+		"a name beginning with a dot, once the word does": {
+			text: "cat " + filepath.Join(dir, ".hid"),
+			want: []string{filepath.Join(dir, ".hidden")},
+		},
 		"everything in a directory named in full": {
 			text: "ls " + dir + "/",
 			want: []string{alpha, filepath.Join(dir, "beta.txt"), filepath.Join(dir, "gamma") + "/"},
@@ -505,8 +524,6 @@ func TestFileCompleterCompletesTheWordBeforeTheCursor(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
 			got := completer(Document{Text: tt.text, CursorPosition: len([]rune(tt.text))})
 			texts := make([]string, 0, len(got))
 			for _, suggestion := range got {

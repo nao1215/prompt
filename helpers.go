@@ -3,7 +3,6 @@ package prompt
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -104,30 +103,31 @@ func NewFileCompleter() func(Document) []Suggestion {
 	}
 }
 
-// completeFilePath provides file and directory completion for the given path (internal)
+// completeFilePath returns the files and directories whose names start with the
+// last component of path, offered as the path the user typed with that component
+// completed.
+//
+// The candidate is built from what was typed rather than from the parts the path
+// was taken apart into. filepath.Join cleans what it builds -- "./" goes, a
+// doubled separator goes -- and a candidate that comes back tidier than the word
+// it completes does not start with that word, which is what the prompt measures
+// a suggestion against when the completer does not name the span it replaces. It
+// was then dropped before it reached the screen, so the key appeared to do
+// nothing.
 func completeFilePath(path string) []Suggestion {
-	// Nothing typed yet: the current directory, with no name to filter by. It
-	// used to be read as the path ".", whose base is "." as well, and a base of
-	// "." keeps only the names that start with one -- so the case that should
-	// list everything listed the dot files alone.
-	dir, base := ".", ""
-	if path != "" {
-		dir = filepath.Dir(path)
-		base = filepath.Base(path)
-	}
+	// What was typed in front of the name being completed, kept exactly as it
+	// was, and the name itself. Nothing typed at all is the current directory
+	// with no name to filter by: reading that as the path "." made "." the name
+	// as well, and only a dot file starts with one, so the case that should list
+	// everything listed the dot files alone.
+	cut := strings.LastIndexAny(path, `/\`)
+	prefix, base := path[:cut+1], path[cut+1:]
 
-	// If path ends with separator, we're completing in that directory
-	if strings.HasSuffix(path, "/") || strings.HasSuffix(path, "\\") {
-		dir = path
-		base = ""
-	}
-
-	// Handle relative paths
-	if dir == "." && !strings.HasPrefix(path, "./") {
+	dir := prefix
+	if dir == "" {
 		dir = "."
 	}
 
-	// Read directory contents
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -137,31 +137,25 @@ func completeFilePath(path string) []Suggestion {
 	for _, entry := range entries {
 		name := entry.Name()
 
-		// Skip hidden files unless explicitly requested
+		// A name beginning with a dot is offered only once the word begins with
+		// one, the way a shell hides them until they are asked for.
 		if strings.HasPrefix(name, ".") && !strings.HasPrefix(base, ".") {
 			continue
 		}
-
-		// Filter by prefix
 		if base != "" && !strings.HasPrefix(name, base) {
 			continue
 		}
 
-		// Build full path
-		fullPath := filepath.Join(dir, name)
-		if dir == "." && !strings.HasPrefix(path, "./") {
-			fullPath = name
-		}
-
-		// Add trailing slash for directories
+		// A directory is offered with the separator after it, so the next Tab
+		// continues inside it rather than starting again on the same word.
 		description := "file"
 		if entry.IsDir() {
-			fullPath += "/"
+			name += "/"
 			description = "directory"
 		}
 
 		suggestions = append(suggestions, Suggestion{
-			Text:        fullPath,
+			Text:        prefix + name,
 			Description: description,
 		})
 	}
