@@ -4183,3 +4183,95 @@ func TestAMultilineSessionLeavesTheScreenAgreeingWithTheEntry(t *testing.T) {
 		}
 	}
 }
+
+// TestAPasteIsNotRedrawnOncePerCharacter pastes a statement of the length a
+// generated query reaches and counts what reached the terminal.
+//
+// The block is redrawn whole every time, so a redraw per pasted character cost
+// the terminal a copy of the block per character: fifty megabytes of escape
+// sequences for twenty thousand characters, and seconds of a terminal drawing
+// them, which from the outside is a shell that has hung.
+//
+// What is asserted is a bound rather than a number. The block's height depends
+// on the terminal, so a redraw is worth what it is worth; the count of them is
+// what was wrong, and the paste is drawn on its way in so that a long one still
+// shows something happening.
+func TestAPasteIsNotRedrawnOncePerCharacter(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 80, 24
+	const pasted = 20000
+
+	statement := strings.Repeat("select 1, 2, 3 from t where x = 1; ", pasted/34+1)[:pasted]
+
+	var out bytes.Buffer
+	terminal := &sizedMockTerminal{width: width, height: height}
+	terminal.mockTerminal = *newMockTerminal("\x1b[200~" + statement + "\x1b[201~\r")
+	p := newTestPromptOn(terminal)
+	p.output = &out
+	p.renderer = newRenderer(&out, ThemeDefault, terminal)
+
+	line, err := p.Run()
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len([]rune(line)) != pasted {
+		t.Fatalf("the paste of %d characters came back as %d", pasted, len([]rune(line)))
+	}
+
+	// One redraw of a full screen is about width*height cells plus the escape
+	// sequences between them. A hundred of those is room for the redraws a paste
+	// this long is worth and nowhere near the twenty thousand it used to take.
+	const budget = 100 * width * height * 4
+	if out.Len() > budget {
+		t.Errorf("pasting %d characters wrote %d bytes to the terminal, which is more than %d: the block is being redrawn per character",
+			pasted, out.Len(), budget)
+	}
+	// And it is drawn on the way in rather than only at the end, so a paste that
+	// takes a moment shows something happening.
+	if strings.Count(out.String(), showCursorSequence) < 2 {
+		t.Errorf("the paste was drawn %d time(s): a long one shows nothing arriving", strings.Count(out.String(), showCursorSequence))
+	}
+}
+
+// TestAPasteHoldingEscapeSequencesIsNotRedrawnPerSequence pastes what copying
+// colored terminal output gives you: text with an escape sequence every few
+// characters.
+//
+// Those arrive through the branch that reads a sequence rather than the one that
+// reads a rune, and that branch falls through to the render at the foot of the
+// read loop. Throttling only the rune branch left a paste of colored output
+// costing a redraw per sequence, which is the cost the throttle exists to remove.
+func TestAPasteHoldingEscapeSequencesIsNotRedrawnPerSequence(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 80, 24
+	const sequences = 2000
+
+	// "\x1b[31mword " repeated: a sequence and a word, the way a colored log
+	// reaches the clipboard.
+	colored := strings.Repeat("\x1b[31mword ", sequences)
+
+	var out bytes.Buffer
+	terminal := &sizedMockTerminal{width: width, height: height}
+	terminal.mockTerminal = *newMockTerminal("\x1b[200~" + colored + "\x1b[201~\r")
+	p := newTestPromptOn(terminal)
+	p.output = &out
+	p.renderer = newRenderer(&out, ThemeDefault, terminal)
+
+	line, err := p.Run()
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	// The ESC of each sequence is a control byte and is dropped; the rest of it
+	// is text and is kept, which is what the read loop documents.
+	if want := strings.Repeat("[31mword ", sequences); line != want {
+		t.Fatalf("the paste came back as %d characters, want %d", len([]rune(line)), len([]rune(want)))
+	}
+
+	const budget = 100 * width * height * 4
+	if out.Len() > budget {
+		t.Errorf("pasting %d escape sequences wrote %d bytes to the terminal, which is more than %d: the block is being redrawn per sequence",
+			sequences, out.Len(), budget)
+	}
+}
