@@ -2229,3 +2229,77 @@ func TestReverseSearchThatMatchedNothingLeavesTheLineAlone(t *testing.T) {
 		})
 	}
 }
+
+// TestReverseSearchFitsUnderTheEntryItSearchesFrom is the other half of
+// TestReverseSearchFitsTheTerminal. That one measures the block against the
+// terminal; this one measures it against the room the terminal has left, which
+// is what a multiline entry above the cursor takes away.
+//
+// The block is drawn from the row the caret was left on rather than from the top
+// of the screen, so a block that fits the terminal can still need rows below the
+// caret that the terminal does not have. What scrolls off the top then is the
+// entry the search is looking for a replacement for, and the session's output
+// above it.
+func TestReverseSearchFitsUnderTheEntryItSearchesFrom(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 20, 8
+	results := []string{"select 1", "select 2", "select 3", "select 4", "select 5"}
+
+	tests := map[string]struct {
+		entry string
+		rows  int // the rows the entry occupies
+	}{
+		"an entry of one line":   {entry: "one", rows: 1},
+		"an entry of five lines": {entry: "one\ntwo\nthree\nfour\nfive", rows: 5},
+		"an entry that fills it": {entry: "one\ntwo\nthree\nfour\nfive\nsix\nseven", rows: 7},
+		"an entry that wraps":    {entry: strings.Repeat("x", width*3), rows: 3},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			terminal := &sizedMockTerminal{width: width, height: height}
+			p := newTestPromptOn(terminal, WithMultiline(true))
+			p.output = &out
+			p.renderer = newRenderer(&out, ThemeDefault, terminal)
+			p.buffer = []rune(tt.entry)
+			p.cursor = len(p.buffer)
+
+			if err := p.render(); err != nil {
+				t.Fatalf("render: %v", err)
+			}
+			screen := newBoundedScreenModel(width, height)
+			screen.feed(out.String())
+			if screen.scrolled != 0 {
+				t.Fatalf("the entry alone scrolled the screen by %d rows", screen.scrolled)
+			}
+			caret := screen.row
+
+			out.Reset()
+			rows, err := p.renderHistorySearch("select", results, 0)
+			if err != nil {
+				t.Fatalf("renderHistorySearch: %v", err)
+			}
+			screen.feed(out.String())
+
+			if screen.scrolled != 0 {
+				t.Errorf("the search block scrolled the screen by %d rows: the entry it is searching from goes first\n%q",
+					screen.scrolled, screen.rows())
+			}
+			// The block starts on the caret's row and ends one row below its
+			// last, which is the row the erase moves up from.
+			if room := height - caret - 1; rows > room {
+				t.Errorf("the search drew %d rows with room for %d under a caret on row %d of a %d-row terminal",
+					rows, room, caret, height)
+			}
+			// The header is worth drawing however little room there is: a search
+			// that shows nothing cannot be steered.
+			if rows < 1 {
+				t.Errorf("the search drew nothing at all")
+			}
+		})
+	}
+}
