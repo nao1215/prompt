@@ -37,6 +37,10 @@ type SuggestionColors struct {
 // StyleSpan marks a run of the input to draw in a color of its own. Start and
 // End are rune offsets into the whole input, End exclusive, so a highlighter
 // reports positions in what it was given rather than in a line of it.
+//
+// A span whose Color is the zero value is drawn as ordinary input, in the
+// scheme's Input color, which is how a highlighter says it has nothing to say
+// about a run rather than leaving it out.
 type StyleSpan struct {
 	Start int
 	End   int

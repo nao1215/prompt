@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A `StyleSpan` whose `Color` is the zero value is drawn as ordinary input, in the scheme's `Input` color. It is how a highlighter says it has nothing to say about a run rather than leaving the run out, and it is the same thing the zero `Color` says in a scheme, one level down.
+
 - The zero `Color` is the terminal's own foreground rather than black ([#152](https://github.com/nao1215/prompt/issues/152)). `ToANSI` writes no color for it, which is what makes a `ColorScheme` literal that leaves a field out draw readable text rather than black on black. `Bold` is not a color and still applies on its own.
 
   Migration: a scheme that asked for black by leaving a `Color` at its zero value now draws in the terminal's foreground. Ask for `Color{B: 1}`, which is black to any eye.

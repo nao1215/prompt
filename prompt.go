@@ -327,9 +327,11 @@ func WithAutoIndent(indent func(before string) string) Option {
 // WithHighlighter sets the function that colors the input as it is drawn.
 //
 // It is given the whole input and returns the runs to draw in a color other
-// than the scheme's Input color, as rune offsets into that input. Everything
-// no run covers keeps the scheme's color. It is called on every render, which
-// is once per keystroke, so it should be cheap over a line's worth of text.
+// than the scheme's Input color, as rune offsets into that input. Everything no
+// run covers keeps the scheme's color, and so does a run whose Color is the zero
+// value, which is how a highlighter says it has nothing to say about that run.
+// It is called on every render, which is once per keystroke, so it should be
+// cheap over a line's worth of text.
 //
 // The prompt has no opinion about what the runs mean, which is what keeps this
 // out of any one language's business: a highlighter for SQL colors keywords
