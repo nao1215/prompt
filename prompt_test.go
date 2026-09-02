@@ -3948,3 +3948,65 @@ func TestAKeyBoundToTheHistoryActionsWalksTheHistory(t *testing.T) {
 		})
 	}
 }
+
+// TestCloseEndsTheSessionBelowTheEntryOnScreen closes a prompt whose caret is
+// on the first line of a three-line entry, then draws what a shell draws when
+// the program exits. The shell's prompt belongs under the entry: the rows below
+// the caret are still on screen and nothing redraws over them, because they
+// belong to no program any more.
+func TestCloseEndsTheSessionBelowTheEntryOnScreen(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 20, 10
+
+	tests := map[string]struct {
+		buffer string
+		cursor int
+		want   []string
+	}{
+		"the caret on the first line of three": {
+			buffer: "one\ntwo\nthree", cursor: 1,
+			want: []string{"$ one", "two", "three", "sh$"},
+		},
+		"the caret on the last line": {
+			buffer: "one\ntwo\nthree", cursor: 13,
+			want: []string{"$ one", "two", "three", "sh$"},
+		},
+		"a single line": {
+			buffer: "one", cursor: 1,
+			want: []string{"$ one", "sh$"},
+		},
+		"nothing typed": {
+			buffer: "", cursor: 0,
+			want: []string{"$", "sh$"},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			terminal := &sizedMockTerminal{width: width, height: height}
+			p := newTestPromptOn(terminal, WithMultiline(true))
+			p.output = &out
+			p.renderer = newRenderer(&out, ThemeDefault, terminal)
+			p.buffer = []rune(tt.buffer)
+			p.cursor = tt.cursor
+
+			if err := p.render(); err != nil {
+				t.Fatalf("render: %v", err)
+			}
+			if err := p.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			fmt.Fprint(&out, "sh$ ") // what the shell draws once the program is gone
+
+			screen := newBoundedScreenModel(width, height)
+			screen.feed(out.String())
+			if got := screen.rows(); strings.Join(got, "|") != strings.Join(tt.want, "|") {
+				t.Errorf("the screen shows\n%q\nwant\n%q", got, tt.want)
+			}
+		})
+	}
+}

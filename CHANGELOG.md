@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A second Ctrl+C while `WatchInterrupt` is still watching no longer kills the application ([#137](https://github.com/nao1215/prompt/issues/137)). The watcher returned as soon as it had something to cancel for, and the call that gives the signal's default action back was deferred inside it, so the protection ended on the first interrupt rather than when the caller stopped the watch. The window is the one a person presses the key in again: the work has been told to stop and has not finished stopping. The watch now runs until it is stopped, cancels once, and holds what comes after.
 
+- `Close` ends the session below the entry that was on screen ([#138](https://github.com/nao1215/prompt/issues/138)). It wrote its line break from wherever the caret was, so closing a prompt while a `Run` was in progress -- which is how a session is ended from another goroutine -- left the shell's next prompt drawn into the middle of a multiline entry with the rest of it below, and nothing redraws over that. It now moves to the foot of the block first, and writes a carriage return with the line break so the column is right even if the terminal was left in raw mode.
+
 ### Changed
 
 - The key map examples in the README and the godoc bind Ctrl+P and Ctrl+N to the history instead of rebinding Ctrl+L. Every one of them replaced a key the default map already uses, and one bound `ActionNewLine` under a comment that said it cleared the screen.

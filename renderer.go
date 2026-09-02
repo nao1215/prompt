@@ -785,6 +785,20 @@ func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol int, pre
 	return row, r.placeCursor(r.blockRows(lines, prefix)-1-row, col)
 }
 
+// moveToBlockFoot moves the cursor from the row the last render left it on to
+// the last row of what that render drew, so what is written next starts below
+// the block rather than inside it.
+//
+// It is a move rather than a redraw because its caller is Close: the prompt is
+// ending and the buffer is not being drawn again. A terminal clamps a move down
+// at its last row, which is where the foot of a block that fills the screen is
+// anyway.
+func (r *renderer) moveToBlockFoot() {
+	if down := r.lastLines - 1 - r.lastCursorRow; down > 0 {
+		fmt.Fprintf(r.output, "\x1b[%dB", down)
+	}
+}
+
 // placeCursor moves the cursor up from the foot of what was drawn and across to
 // its column.
 //

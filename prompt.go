@@ -1107,7 +1107,20 @@ func (p *Prompt) Close() error {
 	// restoreOnExit because a prompt can be closed without ever having run.
 	if p.output != nil {
 		p.showCursor()
-		fmt.Fprint(p.output, "\n") // Move to new line
+		// The session ends below whatever is on screen. A Close that ends a Run
+		// in progress -- which is how a session is ended from another goroutine
+		// -- leaves the caret wherever the last render put it, and that is the
+		// block's last row only when the cursor was on the entry's last line;
+		// the line break alone then put the shell's next prompt into the middle
+		// of the entry, with the rest of it below and nothing left to redraw
+		// over it.
+		if p.renderer != nil {
+			p.renderer.moveToBlockFoot()
+		}
+		// Carriage return as well as line feed: the terminal is out of raw mode
+		// by now and would translate the one into the other, but a restore that
+		// failed leaves it raw, where a line feed alone keeps the column.
+		fmt.Fprint(p.output, "\r\n")
 	}
 
 	// Save history before closing
