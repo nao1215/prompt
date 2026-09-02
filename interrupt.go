@@ -41,7 +41,10 @@ const ctrlC = '\x03'
 // WithPersistentRawMode sits between one line and the next. Both are watched.
 // While the watch is active the signal's default action is taken away, so the
 // interrupt cancels the work instead of killing the application; the stop
-// function gives it back. An interrupt sent any other way -- kill -INT from
+// function gives it back. That holds for every interrupt the watch sees, not
+// only the first: the work has been told to stop and has not finished stopping,
+// which is exactly when the key gets pressed again. The context is canceled
+// once; what comes after it is held rather than acted on. An interrupt sent any other way -- kill -INT from
 // another terminal -- cancels the work too, because there is nothing to tell it
 // apart from the key.
 //
@@ -68,22 +71,37 @@ func (p *Prompt) WatchInterrupt(parent context.Context) (context.Context, contex
 	go func() {
 		defer close(done)
 		defer signal.Stop(signals)
+		// The watch runs until it is stopped, not until it has something to
+		// cancel for. Returning on the first interrupt gave the signal's default
+		// action back while the caller's work was still winding down, so a
+		// second Ctrl+C -- which is what a person presses when the first one
+		// appears to have done nothing -- killed the application with its work
+		// half done and the prompt's own cleanup never run.
+		//
+		// After the first one there is nothing left to cancel: further signals
+		// are dropped, which is what a channel of one that nobody drains does,
+		// and further runes are the user's input for the next Run, as they were
+		// before it.
+		interrupted := false
 		for {
 			select {
 			case <-stop:
 				return
 			case <-signals:
-				cancel()
-				return
+				if !interrupted {
+					cancel()
+					interrupted = true
+				}
 			case res, ok := <-reads:
 				if !ok {
 					// Input ended. The next Run reports it; there is nothing here
 					// to cancel the work for, because no key was pressed.
 					return
 				}
-				if res.r == ctrlC {
+				if res.r == ctrlC && !interrupted {
 					cancel()
-					return
+					interrupted = true
+					continue
 				}
 				p.stashTypeAhead(res.r)
 			}

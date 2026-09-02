@@ -446,6 +446,32 @@ func helperScenario(name string) {
 		}
 		stop()
 		_ = p.Close()
+	case "watchsecondinterrupt":
+		// A watch is meant to hold the interrupt from the moment it starts until
+		// stop is called, so a second Ctrl+C while the work is winding down
+		// cancels nothing rather than killing the application. In the default
+		// mode Run has given raw mode back, so both arrive as SIGINT.
+		p, err := New("p1> ")
+		if err != nil {
+			fmt.Printf("new: %v\r\n", err)
+			os.Exit(1)
+		}
+		line, err := p.Run()
+		fmt.Printf("session1=%q err=%v\r\n", line, err)
+		ctx, stop := p.WatchInterrupt(context.Background())
+		fmt.Printf("watching\r\n")
+		select {
+		case <-ctx.Done():
+			fmt.Printf("interrupted\r\n")
+		case <-time.After(10 * time.Second):
+			fmt.Printf("watch-timed-out\r\n")
+		}
+		// The work is still winding down: stop has not been called, so the watch
+		// is still the thing that owns the interrupt.
+		time.Sleep(2 * time.Second)
+		fmt.Printf("survived\r\n")
+		stop()
+		_ = p.Close()
 	case "runafterclose":
 		start := sttySettings()
 		p := open(1)
@@ -562,6 +588,16 @@ func TestPromptLifecycleOrdersUnderAPTY(t *testing.T) {
 			scenario: "watchdefault",
 			steps:    []ptyStep{{await: "p1> ", send: "one\r"}, {await: "watching", send: "\x03"}},
 			want:     []string{`session1="one"`, "interrupted"},
+		},
+		{
+			name:     "a second interrupt while the watch is still on does not kill the application",
+			scenario: "watchsecondinterrupt",
+			steps: []ptyStep{
+				{await: "p1> ", send: "one\r"},
+				{await: "watching", send: "\x03"},
+				{await: "interrupted", send: "\x03"},
+			},
+			want: []string{`session1="one"`, "interrupted", "survived"},
 		},
 		{
 			name:     "a Run on a closed prompt leaves the terminal as it found it",
