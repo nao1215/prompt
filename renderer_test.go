@@ -2854,3 +2854,51 @@ func TestTheAccessibleThemeDoesNotAssumeABackground(t *testing.T) {
 		t.Errorf("the accessible theme draws a candidate as %q, want the terminal's own color", got)
 	}
 }
+
+// FuzzLayoutMatchesTheScreen holds the measurement against the terminal it
+// measures. layout says how many rows a string advances and which column it ends
+// on; the screen model draws the string the way a terminal does and says where
+// the cursor is left. Every number the renderer works with -- the height it
+// erases, the row the caret goes on, the column it lands at -- comes out of
+// layout, so a disagreement here is all three of them wrong at once.
+//
+// The two are written apart: one walks cells, the other writes them into a grid.
+// That is what makes this worth fuzzing rather than asserting.
+func FuzzLayoutMatchesTheScreen(f *testing.F) {
+	for _, seed := range []struct {
+		s     string
+		width int
+	}{
+		{"", 10}, {"abc", 3}, {"あいう", 4}, {"a\tb", 8}, {"x", 1},
+		{"aaaaaaaaaa", 10}, {"aaaaaaaaaab", 10}, {"é́", 5}, {"😀😀", 3},
+	} {
+		f.Add(seed.s, seed.width)
+	}
+	f.Fuzz(func(t *testing.T, s string, width int) {
+		if width < 1 || width > 200 {
+			t.Skip()
+		}
+		s = singleLine(s) // what the renderer measures is the flattened text
+		for _, r := range s {
+			// A glyph wider than the whole row does not fit anywhere. layout
+			// says so by returning a column past the margin, which every reader
+			// of it clamps; the screen keeps the cursor on the last cell. They
+			// disagree by design there.
+			if runewidth.RuneWidth(r) > width {
+				t.Skip()
+			}
+		}
+		rows, col := layout(s, width)
+
+		screen := newScreenModel(width)
+		screen.writeString(s)
+		wantRows, wantCol := screen.row, screen.col
+		if screen.pending {
+			wantCol++
+		}
+		if rows != wantRows || col != wantCol {
+			t.Fatalf("layout(%q, %d) = (%d, %d), the terminal ends at (%d, %d) pending=%v",
+				s, width, rows, col, wantRows, wantCol, screen.pending)
+		}
+	})
+}

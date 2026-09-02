@@ -479,3 +479,51 @@ func TestARenderThatCannotPlaceTheCursorSaysSo(t *testing.T) {
 		}
 	}
 }
+
+// FuzzBlockRowsAgreeWithTheHeight is the invariant of
+// TestBlockRowsAgreeWithTheHeightTheRendererCounts, left open to whatever the
+// fuzzer can think of: the rows the block is cut into are the rows it was
+// counted as, and they hold the text of the block and nothing else.
+//
+// The two are read as one number by the erase, the caret and the window, so a
+// disagreement is a caret on a row holding something else and rows left behind
+// on the screen.
+func FuzzBlockRowsAgreeWithTheHeight(f *testing.F) {
+	for _, seed := range []struct {
+		prefix, input string
+		width         int
+	}{
+		{"$ ", "", 80},
+		{"$ ", "select 1", 20},
+		{"> ", "one\ntwo\nthree", 8},
+		{"データ> ", "あいうえお", 7},
+		{"", "a\tb\tc", 10},
+		{"", strings.Repeat("x", 200), 3},
+		{"pppppppppp", "\n\n\n", 4},
+		{"$ ", "é́x", 2},
+	} {
+		f.Add(seed.prefix, seed.input, seed.width)
+	}
+
+	f.Fuzz(func(t *testing.T, prefix, input string, width int) {
+		// A width the terminal could report: the renderer falls back to eighty
+		// when it is told nothing, and nothing above a few hundred is a terminal.
+		if width < 1 || width > 500 {
+			t.Skip()
+		}
+		r := newRenderer(io.Discard, ThemeDefault, &sizedMockTerminal{width: width, height: 24})
+		r.setContinuationPrefix("..> ")
+		r.measureTerminal()
+
+		prefix, input = singleLine(prefix), multiLine(input)
+		rows := r.blockRowsOf(prefix, input)
+		if counted := r.calculateRenderedLines(prefix, input); len(rows) != counted {
+			t.Fatalf("width %d prefix %q input %q: cut into %d rows, counted as %d",
+				width, prefix, input, len(rows), counted)
+		}
+		if got, want := textOf(rows), r.linePrefixesOf(prefix, input); got != want {
+			t.Fatalf("width %d prefix %q input %q: the rows hold %q, the block is %q",
+				width, prefix, input, got, want)
+		}
+	})
+}
