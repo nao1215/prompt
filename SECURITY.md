@@ -1,21 +1,31 @@
 # Security Policy
 
-## Reporting a Vulnerability
+## Reporting
 
-If you discover any security-related issues or vulnerabilities, please contact us at [n.chika156@gmail.com](mailto:n.chika156@gmail.com). We appreciate your responsible disclosure and will work with you to address the issue promptly.
+If you believe you found a vulnerability, email
+[`n.chika156@gmail.com`](mailto:n.chika156@gmail.com). Please do not open a
+public GitHub issue first.
+
+Include the affected version or commit, reproduction steps, the impact, and any
+workaround you already found. Valid reports are acknowledged and handled as
+priority work; follow-up questions come if the reproduction is missing details.
 
 ## Supported Versions
 
-We recommend using the latest release for the most up-to-date and secure experience. Security updates are provided for the latest stable version.
+Security fixes are provided for the latest published release series only.
 
-## Security Policy
+| Version | Supported | Notes |
+|---------|-----------|-------|
+| `0.1.x` | Yes | Current published release series as of September 2, 2026 |
+| `0.0.x` | No | Upgrade to the latest `0.1.x` release |
 
-- Security issues are treated with the highest priority.
-- We follow responsible disclosure practices.
-- Fixes for security vulnerabilities will be provided in a timely manner.
+Security fixes are not backported to unsupported release series. When the next
+series is published, support moves to it.
 
-## Acknowledgments
+## What the library touches
 
-We would like to thank the security researchers and contributors who responsibly report security issues and work with us to make our project more secure.
-
-Thank you for your help in making our project safe and secure for everyone.
+prompt reads the terminal, writes escape sequences to it, and, when
+`WithFileHistory` is used, reads and writes one file. That file holds what the
+user typed, so it is created readable by its owner alone, and its backups are
+kept beside it under the same permissions. Nothing is sent anywhere, and no
+other file is opened.
