@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
 )
@@ -598,7 +599,15 @@ func suggestionCells(indicator string, s Suggestion) string {
 }
 
 // singleLine returns s with every rune that would take the cursor off the row
-// replaced by a space.
+// replaced by a space, and with any byte that is not part of a valid UTF-8
+// sequence replaced by U+FFFD.
+//
+// The replacement matters for the same reason the flattening does. Everything
+// here is measured by decoding runes, which turns an invalid byte into U+FFFD
+// and counts it as the one cell that glyph occupies; text handed to the terminal
+// unchanged would have been the raw byte, so what was drawn and what was
+// measured were two different strings. An application builds the prefix, and it
+// can build one out of a name that is not UTF-8.
 //
 // A menu row and a search result are one row each, and their height is measured
 // by walking the text for cells. A newline occupies no cells and moves the
@@ -611,7 +620,7 @@ func suggestionCells(indicator string, s Suggestion) string {
 // A tab is kept, because layout measures it against tab stops and a terminal
 // keeps it on the row.
 func singleLine(s string) string {
-	if strings.IndexFunc(s, leavesRow) < 0 {
+	if utf8.ValidString(s) && strings.IndexFunc(s, leavesRow) < 0 {
 		return s
 	}
 	return strings.Map(func(r rune) rune {
