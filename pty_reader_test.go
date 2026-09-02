@@ -144,8 +144,16 @@ func runHelperUnderPTY(t *testing.T, watch, child bool) string {
 
 // runPromptUnderPTY re-executes the test binary as the prompt program with env
 // added to its environment, walks it through steps, and returns everything the
-// terminal showed.
+// terminal showed. The terminal is large enough that nothing a scenario types
+// reaches its edges; runPromptOnAPTYOf takes a size for a scenario whose point
+// is that it does.
 func runPromptUnderPTY(t *testing.T, env []string, steps []ptyStep) string {
+	t.Helper()
+	return runPromptOnAPTYOf(t, pty.Winsize{Rows: 30, Cols: 120}, env, steps)
+}
+
+// runPromptOnAPTYOf is runPromptUnderPTY on a terminal of the given size.
+func runPromptOnAPTYOf(t *testing.T, size pty.Winsize, env []string, steps []ptyStep) string {
 	t.Helper()
 
 	cmd := exec.CommandContext(t.Context(), os.Args[0]) //nolint:gosec // the test binary re-executing itself
@@ -157,7 +165,7 @@ func runPromptUnderPTY(t *testing.T, env []string, steps []ptyStep) string {
 		t.Skipf("cannot allocate a pty here: %v", err)
 	}
 	defer func() { _ = ptmx.Close() }()
-	if err := pty.Setsize(ptmx, &pty.Winsize{Rows: 30, Cols: 120}); err != nil {
+	if err := pty.Setsize(ptmx, &size); err != nil {
 		t.Logf("could not set the pty size (continuing): %v", err)
 	}
 
@@ -206,7 +214,7 @@ func runPromptUnderPTY(t *testing.T, env []string, steps []ptyStep) string {
 		}
 		seen[step.await] = strings.Count(transcript(), step.await)
 		if step.resizeTo > 0 {
-			if err := pty.Setsize(ptmx, &pty.Winsize{Rows: 30, Cols: step.resizeTo}); err != nil {
+			if err := pty.Setsize(ptmx, &pty.Winsize{Rows: size.Rows, Cols: step.resizeTo}); err != nil {
 				t.Logf("could not resize the pty (continuing): %v", err)
 			}
 		}
@@ -472,6 +480,27 @@ func helperScenario(name string) {
 		fmt.Printf("survived\r\n")
 		stop()
 		_ = p.Close()
+	case "tallentry":
+		// A statement typed across more lines than the terminal has rows, which
+		// is what a SQL shell collects in a split pane. The prompt draws the
+		// window of it the terminal has room for; what must not happen is the
+		// terminal scrolling on every keystroke, taking the session with it.
+		p, err := New("sql> ",
+			WithMultiline(true),
+			WithContinuationPrefix("..> "),
+			WithIsComplete(func(in string) bool { return strings.HasSuffix(in, ";") }),
+			WithPersistentRawMode(),
+		)
+		if err != nil {
+			fmt.Printf("new: %v\r\n", err)
+			os.Exit(1)
+		}
+		line, err := p.Run()
+		fmt.Printf("entry=%q err=%v\r\n", line, err)
+		if err := p.Close(); err != nil {
+			fmt.Printf("close: %v\r\n", err)
+			os.Exit(1)
+		}
 	case "runafterclose":
 		start := sttySettings()
 		p := open(1)
@@ -673,5 +702,84 @@ func TestPromptSurvivesTheTerminalChangingUnderIt(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestATallEntryUnderAPTY types a statement across more lines than the terminal
+// has rows, on a real terminal.
+//
+// The screen model tests measure the renderer's arithmetic; this measures what a
+// terminal is actually sent, through raw mode, the real size the kernel reports,
+// and the output path the platform uses. What is asked of it is the property the
+// viewport exists for: the entry comes back whole, the screen never holds more
+// rows than the terminal has, and what the program prints afterwards is below
+// the entry rather than in the middle of it.
+func TestATallEntryUnderAPTY(t *testing.T) {
+	t.Parallel()
+
+	const rows, cols = 8, 40
+	const lines = 12
+
+	steps := []ptyStep{{await: "sql> ", send: "select 1,\r"}}
+	for i := 2; i < lines; i++ {
+		steps = append(steps, ptyStep{await: "..> ", send: fmt.Sprintf("line%02d,\r", i)})
+	}
+	steps = append(steps, ptyStep{await: "..> ", send: "done;\r"})
+
+	out := runPromptOnAPTYOf(t,
+		pty.Winsize{Rows: rows, Cols: cols},
+		[]string{"PROMPT_PTY_SCENARIO=tallentry"},
+		steps,
+	)
+
+	// Every line reached the buffer, in order, with nothing lost to a redraw.
+	// The entry is compared as the helper prints it, which is quoted, so the
+	// line breaks in it are two characters.
+	entry := make([]string, 0, lines)
+	entry = append(entry, "select 1,")
+	for i := 2; i < lines; i++ {
+		entry = append(entry, fmt.Sprintf("line%02d,", i))
+	}
+	entry = append(entry, "done;")
+	want := strings.Join(entry, "\\n")
+	if !strings.Contains(out, `entry="`+want+`"`) {
+		t.Errorf("the entry came back as something else\n--- transcript ---\n%s", out)
+	}
+
+	screen := newBoundedScreenModel(cols, rows)
+	screen.feed(out)
+	if drawn := len(screen.rows()); drawn > rows {
+		t.Errorf("the screen holds %d rows on a terminal of %d\n%q", drawn, rows, screen.rows())
+	}
+	// What the terminal scrolled while the entry was typed. An entry taller
+	// than the screen has to scroll it: every line added at the foot pushes the
+	// screen up by one, and there are four more lines than rows. What must not
+	// happen is scrolling per redraw -- drawing the whole block on every
+	// keystroke costs the difference each time, which for this entry is
+	// eighty-two rows of the session rather than six.
+	if screen.scrolled > 2*rows {
+		t.Errorf("the terminal scrolled %d rows for an entry %d rows taller than it: the block is being drawn whole",
+			screen.scrolled, lines-rows)
+	}
+	// What the program printed starts on the row after the entry's last, which
+	// is what ending a line at the foot of the block is for. It is longer than
+	// the terminal is wide, so it is the row it starts on that is asked about
+	// rather than the last row on screen.
+	shown := screen.rows()
+	last := -1
+	for i, row := range shown {
+		// The entry's last line as it is drawn, which is the continuation
+		// prefix and the text. The printed line holds "done;" as well, inside
+		// the quoted entry, so the prefix is what tells them apart.
+		if strings.HasPrefix(row, "..> done;") {
+			last = i
+			break
+		}
+	}
+	if last < 0 {
+		t.Fatalf("the entry's last line is not on screen\n%q", shown)
+	}
+	if last+1 >= len(shown) || !strings.HasPrefix(shown[last+1], `entry="`) {
+		t.Errorf("what the program printed does not start on the row under the entry\n%q", shown)
 	}
 }
