@@ -137,6 +137,11 @@ func (r *renderer) setHighlighter(highlighter func(string) []StyleSpan) {
 	r.highlighter = highlighter
 }
 
+// setColorScheme changes the colors the next render draws with.
+func (r *renderer) setColorScheme(scheme *ColorScheme) {
+	r.colorScheme = scheme
+}
+
 func (r *renderer) setContinuationPrefix(prefix string) {
 	r.continuationPrefix = singleLine(prefix)
 }

@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `NewFileCompleter` offers the path as it was typed ([#143](https://github.com/nao1215/prompt/issues/143)). The candidate was built with `filepath.Join`, which cleans what it builds, so completing `./al` offered `alpha.txt` and completing a path with a doubled separator offered one without it. Neither starts with the word being completed, and a suggestion that does not is dropped before it is drawn, so the key appeared to do nothing. The candidate is now what was typed up to the last separator, exactly as it was written, with the entry's name after it, and a directory is offered with the separator the path was written with rather than always a forward slash.
 
+- `SetTheme(nil)` takes the default theme rather than panicking on the next render ([#145](https://github.com/nao1215/prompt/issues/145)). `New` normalizes a nil scheme, because the renderer reads colors off it on every render without checking, and the setter wrote the value straight through. It also built a whole new renderer to change a color, which threw away what that renderer knew about the screen: a theme changed between one keystroke and the next left the next redraw erasing from the wrong row, drawing the entry a second time under the first.
+
 ### Changed
 
 - The key map examples in the README and the godoc bind Ctrl+P and Ctrl+N to the history instead of rebinding Ctrl+L. Every one of them replaced a key the default map already uses, and one bound `ActionNewLine` under a comment that said it cleared the screen.

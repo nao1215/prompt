@@ -1211,9 +1211,23 @@ func (p *Prompt) SetHistory(history []string) {
 
 // SetTheme changes the color theme of the prompt
 func (p *Prompt) SetTheme(theme *ColorScheme) {
+	// A nil scheme means the default one, which is what New makes of it. The
+	// renderer reads colors off the scheme on every render without checking, so
+	// writing a nil one through panicked on the next keystroke -- the same value
+	// that is accepted at construction.
+	if theme == nil {
+		theme = ThemeDefault
+	}
 	p.config.ColorScheme = theme
 	p.config.Theme = theme
-	p.renderer = newRenderer(p.output, theme, p.terminal)
+	// The scheme changes on the renderer that is there rather than by replacing
+	// it. What a renderer holds is what it knows about the screen -- how tall
+	// the block on it is, which row the caret is on -- and a new one knows none
+	// of that, so a theme changed between one keystroke and the next would have
+	// left the next redraw erasing from the wrong row.
+	if p.renderer != nil {
+		p.renderer.setColorScheme(theme)
+	}
 }
 
 // SetPrefix changes the prompt prefix, which takes effect on the next render.
