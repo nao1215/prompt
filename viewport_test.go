@@ -417,3 +417,65 @@ func TestARandomEntryIsDrawnAsTheWindowOfItselfTheTerminalHasRoomFor(t *testing.
 		}
 	}
 }
+
+// writerFailingOn fails one chosen write and takes every other. A writer that
+// stays broken cannot tell a swallowed error from a reported one, because the
+// write after the swallow fails too and that one is checked; failing exactly
+// once puts the question to the write being tested.
+type writerFailingOn struct {
+	taken int
+	at    int
+}
+
+func (w *writerFailingOn) Write(p []byte) (int, error) {
+	w.taken++
+	if w.taken-1 == w.at {
+		return 0, io.ErrClosedPipe
+	}
+	return len(p), nil
+}
+
+// TestARenderThatCannotPlaceTheCursorSaysSo fails the first write of the moves
+// that put the cursor where the caret belongs, after every row has been drawn.
+// A render that returns nil there has told the read loop the screen is right
+// while the caret is at the foot of the block, which is not where the next
+// keystroke will appear to go.
+func TestARenderThatCannotPlaceTheCursorSaysSo(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 20, 8
+	input := tallBlock(12)
+
+	for _, clipped := range []bool{false, true} {
+		terminalHeight := height
+		if !clipped {
+			terminalHeight = 100
+		}
+
+		// Where the placement starts: one write erases what was on screen, and
+		// the rest of what comes before it draws the rows. Counting the rows by
+		// drawing them is what keeps the number right when the drawing changes.
+		rows := &writerFailingOn{at: -1}
+		counted := newRenderer(rows, ThemeDefault, &sizedMockTerminal{width: width, height: terminalHeight})
+		counted.setContinuationPrefix("...> ")
+		counted.measureTerminal()
+		var err error
+		if clipped {
+			_, _, err = counted.renderClipped("sql> ", input, 0, nil)
+		} else {
+			err = counted.renderLines("sql> ", input)
+		}
+		if err != nil {
+			t.Fatalf("clipped=%v: drawing the rows: %v", clipped, err)
+		}
+
+		failing := &writerFailingOn{at: rows.taken + 1}
+		r := newRenderer(failing, ThemeDefault, &sizedMockTerminal{width: width, height: terminalHeight})
+		r.setContinuationPrefix("...> ")
+		// The caret is at the start of the entry, so the placement is a move up
+		// from the foot of what was drawn, which is where the failing write is.
+		if err := r.render("sql> ", input, 0); err == nil {
+			t.Errorf("clipped=%v: the render could not place the cursor and returned no error", clipped)
+		}
+	}
+}

@@ -219,7 +219,9 @@ func TestRendererPositionCursor(t *testing.T) {
 	lines := []string{"line1", "line2", "line3"}
 
 	// This mainly tests that the method doesn't crash
-	renderer.positionCursor(lines, 1, 2, "$ ")
+	if _, err := renderer.positionCursor(lines, 1, 2, "$ "); err != nil {
+		t.Fatalf("positionCursor: %v", err)
+	}
 
 	// Check that some output was written
 	result := output.String()
@@ -1061,7 +1063,9 @@ func TestRendererDisplayWidth(t *testing.T) {
 
 			var output bytes.Buffer
 			renderer := newRenderer(&output, ThemeDefault, nil)
-			renderer.positionCursor(tt.lines, tt.line, tt.col, tt.prefix)
+			if _, err := renderer.positionCursor(tt.lines, tt.line, tt.col, tt.prefix); err != nil {
+				t.Fatalf("positionCursor: %v", err)
+			}
 
 			if got := output.String(); !strings.Contains(got, tt.want) {
 				t.Errorf("positionCursor() wrote %q, want it to contain %q (%s)", got, tt.want, tt.why)
@@ -1092,7 +1096,9 @@ func TestRendererDisplayWidth(t *testing.T) {
 		renderer := newRenderer(&output, ThemeDefault, nil)
 		renderer.setContinuationPrefix("続き> ")
 
-		renderer.positionCursor([]string{"a", "bc"}, 1, 2, "$ ")
+		if _, err := renderer.positionCursor([]string{"a", "bc"}, 1, 2, "$ "); err != nil {
+			t.Fatalf("positionCursor: %v", err)
+		}
 		if got := output.String(); !strings.Contains(got, "\x1b[8C") {
 			t.Errorf("positionCursor() wrote %q, want it to contain %q (6 columns of prefix plus 2 of text)", got, "\x1b[8C")
 		}
@@ -1847,6 +1853,12 @@ func (s *screenModel) control(runes []rune, start int) int {
 		s.row, s.pending = max(s.row-count, 0), false
 	case 'B':
 		s.row, s.pending = s.row+count, false
+		// A terminal clamps a cursor-down at its last row. Only a line break and
+		// a wrap move the screen, so a move that reaches past the foot of a
+		// bounded screen stops there rather than scrolling it.
+		if s.bound > 0 {
+			s.row = min(s.row, s.bound-1)
+		}
 		s.growTo(s.row + 1)
 	case 'C':
 		s.col, s.pending = min(s.col+count, s.width-1), false
@@ -1864,6 +1876,32 @@ func (s *screenModel) control(runes []rune, start int) int {
 		}
 	}
 	return end
+}
+
+// TestABoundedScreenClampsACursorDownAtItsLastRow pins the model against the
+// terminal it stands for. A cursor-down that reaches past the foot of the screen
+// stops there; it is a line break and a filled row that scroll. A model that
+// scrolled here would report rows lost that a terminal never lost, and the
+// counts the render tests read off it are only worth what the model is faithful
+// to.
+func TestABoundedScreenClampsACursorDownAtItsLastRow(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 20, 8
+
+	screen := newBoundedScreenModel(width, height)
+	screen.feed(strings.Repeat("x\n", height-1)) // fill it, cursor on the last row
+	if screen.scrolled != 0 || screen.row != height-1 {
+		t.Fatalf("filling the screen left the cursor on row %d having scrolled %d", screen.row, screen.scrolled)
+	}
+
+	screen.feed("\x1b[9B")
+	if screen.scrolled != 0 {
+		t.Errorf("a cursor-down past the last row scrolled the screen by %d rows", screen.scrolled)
+	}
+	if screen.row != height-1 {
+		t.Errorf("a cursor-down past the last row left the cursor on row %d, want %d", screen.row, height-1)
+	}
 }
 
 // rows returns what is on screen, without the blank rows below it.

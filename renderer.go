@@ -249,7 +249,9 @@ func (r *renderer) renderMainLine(prefix, input string, cursor int) (drawn, curs
 		if err != nil {
 			return 0, 0, err
 		}
-		r.placeCursor(drawn-1-caret, col)
+		if err := r.placeCursor(drawn-1-caret, col); err != nil {
+			return 0, 0, err
+		}
 		return drawn, caret, nil
 	}
 
@@ -259,7 +261,8 @@ func (r *renderer) renderMainLine(prefix, input string, cursor int) (drawn, curs
 	if err := r.renderLines(prefix, input); err != nil {
 		return 0, 0, err
 	}
-	return total, r.positionCursor(lines, cursorLine, cursorCol, prefix), nil
+	row, err := r.positionCursor(lines, cursorLine, cursorCol, prefix)
+	return total, row, err
 }
 
 // renderMainLineWithoutCursor renders the main prompt line without cursor positioning (for suggestions)
@@ -770,7 +773,7 @@ func (r *renderer) findCursorPosition(inputRunes []rune, cursor int) (line, col 
 // cursorCol is a rune index within its line; every distance written here is the
 // display width of the text it spans, so a wide or zero-width character lands the
 // cursor on the cell the user sees.
-func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol int, prefix string) int {
+func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol int, prefix string) (int, error) {
 	row, col := r.cursorRowCol(lines, cursorLine, cursorCol, prefix)
 
 	// Rendering ends at the foot of the block, so the move is from there up to
@@ -779,20 +782,32 @@ func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol int, pre
 	// of the text after the cursor: a backward move stops at the left margin of
 	// the row it is on, so on a line long enough to wrap it could never reach the
 	// row above.
-	r.placeCursor(r.blockRows(lines, prefix)-1-row, col)
-	return row
+	return row, r.placeCursor(r.blockRows(lines, prefix)-1-row, col)
 }
 
 // placeCursor moves the cursor up from the foot of what was drawn and across to
 // its column.
-func (r *renderer) placeCursor(up, col int) {
+//
+// It reports what the writes reported, like the rest of the render. A render
+// that drew its rows and then failed to place the cursor has left the terminal
+// showing the block with the caret at its foot, which is a partial update rather
+// than a finished one, and saying so is what lets Run stop rather than read the
+// next key against a screen that is wrong.
+func (r *renderer) placeCursor(up, col int) error {
 	if up > 0 {
-		fmt.Fprintf(r.output, "\x1b[%dA", up)
+		if _, err := fmt.Fprintf(r.output, "\x1b[%dA", up); err != nil {
+			return err
+		}
 	}
-	fmt.Fprint(r.output, "\r")
+	if _, err := fmt.Fprint(r.output, "\r"); err != nil {
+		return err
+	}
 	if col > 0 {
-		fmt.Fprintf(r.output, "\x1b[%dC", col)
+		if _, err := fmt.Fprintf(r.output, "\x1b[%dC", col); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // cursorRowCol returns where the cursor sits inside the rendered block: the row
