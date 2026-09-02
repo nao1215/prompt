@@ -367,7 +367,14 @@ func (r *renderer) renderLineContent(line string, lineStart int, spans []StyleSp
 				return err
 			}
 		}
-		if err := write(span.Color.ToANSI(), string(runes[start:end])); err != nil {
+		// A run given no color of its own is drawn as ordinary input, which is
+		// how a highlighter says "leave this one alone" -- the same thing the
+		// zero Color says in a scheme, one level down.
+		color := base
+		if span.Color != (Color{}) {
+			color = span.Color.ToANSI()
+		}
+		if err := write(color, string(runes[start:end])); err != nil {
 			return err
 		}
 		pos = end

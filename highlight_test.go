@@ -267,3 +267,33 @@ func FuzzHighlightingDoesNotMoveAnything(f *testing.F) {
 		}
 	})
 }
+
+// TestASpanWithNoColorIsDrawnAsOrdinaryInput pins what the zero Color means in a
+// span. A highlighter that has nothing to say about a run says it by naming no
+// color, and what that run should look like is the rest of the line.
+func TestASpanWithNoColorIsDrawnAsOrdinaryInput(t *testing.T) {
+	t.Parallel()
+
+	scheme := &ColorScheme{
+		Name:   "test",
+		Prefix: Color{R: 1, G: 2, B: 3},
+		Input:  Color{R: 10, G: 20, B: 30},
+	}
+
+	var out bytes.Buffer
+	r := newRenderer(&out, scheme, newMockTerminal(""))
+	r.setHighlighter(func(string) []StyleSpan {
+		return []StyleSpan{{Start: 0, End: 3}, {Start: 3, End: 6, Color: Color{R: 255}}}
+	})
+	if err := r.render("$ ", "abcdef", 6); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	drawn := out.String()
+	if want := scheme.Input.ToANSI() + "abc" + ansiReset(); !strings.Contains(drawn, want) {
+		t.Errorf("the run with no color of its own is drawn as %q, want %q", drawn, want)
+	}
+	if want := (Color{R: 255}).ToANSI() + "def" + ansiReset(); !strings.Contains(drawn, want) {
+		t.Errorf("the run that named a color lost it: %q, want %q", drawn, want)
+	}
+}
