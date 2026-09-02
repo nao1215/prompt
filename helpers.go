@@ -73,8 +73,9 @@ func calculateFuzzyScore(input, candidate string) int {
 
 // NewFileCompleter returns a completer that offers the files and directories the
 // word before the cursor names the start of. A directory is offered with a
-// trailing separator, so the next Tab continues inside it, and a name beginning
-// with a dot is offered only once the word begins with one.
+// trailing separator -- the one the path was written with -- so the next Tab
+// continues inside it, and a name beginning with a dot is offered only once the
+// word begins with one.
 //
 // It completes the word rather than the line, so it can be used on a line that
 // holds more than the path -- a command and its arguments, which is what a shell
@@ -128,6 +129,14 @@ func completeFilePath(path string) []Suggestion {
 		dir = "."
 	}
 
+	// A directory is offered with the separator the path was written with, so a
+	// path typed the way Windows writes them stays one. A path with no separator
+	// in it yet has no style to follow, and both platforms take the slash.
+	separator := "/"
+	if cut >= 0 {
+		separator = path[cut : cut+1]
+	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -150,7 +159,7 @@ func completeFilePath(path string) []Suggestion {
 		// continues inside it rather than starting again on the same word.
 		description := "file"
 		if entry.IsDir() {
-			name += "/"
+			name += separator
 			description = "directory"
 		}
 

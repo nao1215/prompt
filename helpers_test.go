@@ -500,9 +500,9 @@ func TestFileCompleterCompletesTheWordBeforeTheCursor(t *testing.T) {
 			text: "cat -n " + filepath.Join(dir, "al"),
 			want: []string{alpha},
 		},
-		"a directory, which is listed with the separator": {
+		"a directory, which is listed with the separator it was written with": {
 			text: "cd " + filepath.Join(dir, "ga"),
-			want: []string{filepath.Join(dir, "gamma") + "/"},
+			want: []string{filepath.Join(dir, "gamma") + string(filepath.Separator)},
 		},
 		"a path written with a leading ./": {
 			text: "cat ./al",
@@ -517,8 +517,10 @@ func TestFileCompleterCompletesTheWordBeforeTheCursor(t *testing.T) {
 			want: []string{filepath.Join(dir, ".hidden")},
 		},
 		"everything in a directory named in full": {
+			// Written with a forward slash, which every platform takes, so
+			// that is the separator the directory comes back with.
 			text: "ls " + dir + "/",
-			want: []string{alpha, filepath.Join(dir, "beta.txt"), filepath.Join(dir, "gamma") + "/"},
+			want: []string{dir + "/alpha.txt", dir + "/beta.txt", dir + "/gamma/"},
 		},
 	}
 
