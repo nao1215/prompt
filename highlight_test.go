@@ -208,3 +208,62 @@ func renderCursorRow(t *testing.T, input string, cursor int, highlight func(stri
 	}
 	return row
 }
+
+// FuzzHighlightingDoesNotMoveAnything holds the contract WithHighlighter is
+// written under: a highlighter decides colors and touches neither the text nor
+// where anything sits. Spans arrive from application code, so they are fuzzed
+// the way application code writes them wrong -- inverted, overlapping, past
+// either end of the input.
+//
+// The screen and the caret have to come out where they are without a
+// highlighter. It is a contract nothing enforces on its own: the colors are
+// escape sequences written between the runes, and every one of them is a chance
+// for a measurement to be taken over text that has them in it.
+func FuzzHighlightingDoesNotMoveAnything(f *testing.F) {
+	f.Add("select 1", 3, []byte{0, 4, 200})
+	f.Add("one\ntwo", 5, []byte{1, 6, 30, 0, 2, 90})
+	f.Add("あいうえお", 2, []byte{0, 3, 7, 200, 250, 1})
+	f.Fuzz(func(t *testing.T, input string, cursor int, raw []byte) {
+		const width, height = 20, 24
+		runes := []rune(input)
+		if len(runes) > 200 || len(raw) > 60 {
+			t.Skip()
+		}
+		if cursor < 0 || cursor > len(runes) {
+			t.Skip()
+		}
+
+		spans := make([]StyleSpan, 0, len(raw)/3)
+		for i := 0; i+2 < len(raw); i += 3 {
+			spans = append(spans, StyleSpan{
+				Start: int(raw[i]) - 20,
+				End:   int(raw[i+1]) - 20,
+				Color: Color{R: raw[i+2], G: raw[i+2], B: raw[i+2]},
+			})
+		}
+
+		render := func(highlight func(string) []StyleSpan) (*screenModel, int, int) {
+			var out bytes.Buffer
+			r := newRenderer(&out, ThemeDefault, &sizedMockTerminal{width: width, height: height})
+			r.setContinuationPrefix(".. ")
+			r.setHighlighter(highlight)
+			if err := r.render("$ ", input, cursor); err != nil {
+				t.Fatalf("render: %v", err)
+			}
+			screen := newScreenModel(width)
+			screen.feed(out.String())
+			return screen, screen.row, screen.col
+		}
+
+		plain, plainRow, plainCol := render(nil)
+		colored, coloredRow, coloredCol := render(func(string) []StyleSpan { return spans })
+
+		if got, want := strings.Join(colored.rows(), "|"), strings.Join(plain.rows(), "|"); got != want {
+			t.Fatalf("input %q cursor %d spans %v: colored screen %q, plain screen %q", input, cursor, spans, got, want)
+		}
+		if coloredRow != plainRow || coloredCol != plainCol {
+			t.Fatalf("input %q cursor %d spans %v: caret at (%d,%d) colored, (%d,%d) plain",
+				input, cursor, spans, coloredRow, coloredCol, plainRow, plainCol)
+		}
+	})
+}
