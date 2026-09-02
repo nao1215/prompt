@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The documentation says what a bracketed paste does to the keys inside it: between the markers a terminal wraps a paste in, every key is content, so a newline does not submit, Tab does not complete and Ctrl+C does not interrupt, which is what keeps a pasted statement from running itself a line at a time. It follows that a paste opened and never closed -- which a terminal does not do, but a program writing the input by hand can -- holds the line until the input or the context ends, and `Run`'s godoc now says so beside the list of what ends a line. The behavior is unchanged and is now covered by tests.
+
 ### Fixed
 
 - `ESC O` no longer eats the key pressed after it ([#165](https://github.com/nao1215/prompt/issues/165)). SS3 -- what a terminal sends for F1 through F4 and several keypad keys, and what Alt+O sends on its own -- was read as `ESC O` plus exactly one rune, whatever that rune was, and the rune was thrown away when it was not part of a sequence. Enter was the worst of them: pressing Alt+O and then Enter left the line unsubmittable, and the next Enter submitted it, so from the outside the first Enter did nothing. Ctrl+A and Backspace went the same way. The CSI branch beside it has had a case for this since a byte outside its grammar was found doing the same thing, and its comment names the same symptom; SS3 now shares the rule, so a rune outside the final-byte range ends no sequence and is pushed back for whoever typed it.

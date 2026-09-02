@@ -554,6 +554,13 @@ func newFromConfigOn(config options, terminal terminalInterface, output io.Write
 // error. A prompt that has been closed answers ErrEOF without touching the
 // terminal.
 //
+// None of those keys ends it while a bracketed paste is open, because between
+// the markers a terminal wraps a paste in, every key is content: that is what
+// keeps a pasted statement from running itself a line at a time. A terminal
+// closes a paste it opened, so what is left of that is the case where the input
+// is written by a program rather than sent by a terminal -- a paste opened and
+// never closed holds the line until the input ends or the context does.
+//
 // A key the terminal has not sent cannot be waited for with a deadline of its
 // own, so the context is how a caller bounds the wait:
 //

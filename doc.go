@@ -126,6 +126,15 @@
 // rather than the prompt's. Whichever line the cursor was on, an entry ends at
 // its foot, so what the program prints next starts below it.
 //
+// # Pasting
+//
+// A terminal that supports bracketed paste wraps a paste in markers, and
+// between them every key is content: a newline does not submit, Tab does not
+// complete, and Ctrl+C does not interrupt. That is what keeps a pasted
+// statement from running itself a line at a time. An escape sequence inside a
+// paste -- which copied terminal output is full of -- keeps its text and loses
+// the ESC that introduced it.
+//
 // # Between prompts
 //
 // A REPL spends most of its time not reading the terminal. During that time
