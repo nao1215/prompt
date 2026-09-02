@@ -687,6 +687,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 	pendingLine := ""
 	inPaste := false
 	lastPasted := rune(0)
+	pastedSinceDraw := 0
 	var suggestions []Suggestion
 	selectedSuggestion := 0
 	suggestionOffset := 0 // Track the offset for scrolling through suggestions
@@ -780,8 +781,20 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			// (Ctrl+C), or submitting (Enter).
 			lastPasted = p.insertPastedRune(r, lastPasted)
 			suggestions = nil
-			if err := p.renderWithSuggestionsOffset(nil, 0, 0); err != nil {
-				return "", fmt.Errorf("failed to render: %w", err)
+			// Drawn on its way in, but not once per character. Every render
+			// draws the block whole, so a paste of n characters cost n copies of
+			// a block that was growing: a twenty-thousand-character statement
+			// wrote fifty megabytes of escape sequences and took seconds, which
+			// from the outside is a shell that has hung. The end of the paste
+			// redraws it either way -- ActionPasteEnd falls through to the
+			// render at the foot of this loop -- so what is left to do here is
+			// show that something is arriving.
+			pastedSinceDraw++
+			if pastedSinceDraw >= pasteDrawInterval {
+				pastedSinceDraw = 0
+				if err := p.renderWithSuggestionsOffset(nil, 0, 0); err != nil {
+					return "", fmt.Errorf("failed to render: %w", err)
+				}
 			}
 			continue
 		default:
@@ -1038,6 +1051,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 
 		case ActionPasteEnd:
 			inPaste = false
+			pastedSinceDraw = 0
 
 		case ActionClearScreen:
 			// Clear the whole screen and redraw the prompt at the top with the
@@ -1323,6 +1337,13 @@ func (p *Prompt) exitRawMode() error {
 //
 // A render that fails changes nothing here. The line the user typed is worth
 // more than a tidy screen, and it is returned either way.
+// pasteDrawInterval is how many pasted characters go into the buffer between
+// redraws. It is a compromise between two costs that are both the terminal's: a
+// redraw per character, and a long paste with nothing on screen while it
+// arrives. A few hundred is under a tenth of a second of typing at any speed a
+// person reaches, and a few percent of the drawing a redraw per character did.
+const pasteDrawInterval = 512
+
 func (p *Prompt) endEntry() {
 	p.cursor = len(p.buffer)
 	_ = p.render() //nolint:errcheck // the line, or the interrupt, is returned whether or not the screen took the redraw
