@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -206,5 +207,107 @@ func TestWatchInterruptCancelsOnSIGINT(t *testing.T) {
 	waitForDone(ctx, t, "SIGINT during watched work")
 	if !errors.Is(ctx.Err(), context.Canceled) {
 		t.Errorf("ctx.Err() = %v, want context.Canceled", ctx.Err())
+	}
+}
+
+// TestNestedWatchesKeepTheOrderOfWhatWasTyped types through two watches at once.
+//
+// Every watch used to run a receiver of its own on the shared reader's channel.
+// A channel hands its receivers the runes in order, but what a receiver does
+// next is the scheduler's business, so the goroutine that took the second rune
+// could stash it before the goroutine that took the first: the keys reached the
+// next Run in an order nobody typed them in. The race detector sees nothing --
+// every access is under the lock the type-ahead is kept behind -- so it takes a
+// test that reads the line back.
+func TestNestedWatchesKeepTheOrderOfWhatWasTyped(t *testing.T) {
+	t.Parallel()
+
+	const typed = "abcdef"
+
+	// Enough runs that a scheduling order which only sometimes goes wrong is
+	// caught: at two watches the failure showed up about once in twenty-five.
+	for i := range 300 {
+		var out bytes.Buffer
+		terminal := newMockTerminal(typed + "\r")
+		p := newTestPromptOn(terminal)
+		p.output = &out
+		p.renderer = newRenderer(&out, ThemeDefault, terminal)
+
+		_, stopOuter := p.WatchInterrupt(context.Background())
+		_, stopInner := p.WatchInterrupt(context.Background())
+		stopInner()
+		stopOuter()
+
+		line, err := p.Run()
+		if err != nil {
+			t.Fatalf("run %d: Run() error = %v", i, err)
+		}
+		if line != typed {
+			t.Fatalf("run %d: %q was typed through two watches and came back as %q", i, typed, line)
+		}
+	}
+}
+
+// TestCloseEndsAWatchNobodyStopped closes a prompt whose watch was never
+// stopped. The watch holds the interrupt away from its default action and reads
+// the terminal on the prompt's behalf, so one left running after the session is
+// over holds the interrupt for the rest of the process.
+func TestCloseEndsAWatchNobodyStopped(t *testing.T) {
+	t.Parallel()
+
+	terminal := newBlockingTerminal(true)
+	p := newTestPromptOn(terminal)
+	// The stop function is deliberately dropped, which is what a caller that
+	// returns early does.
+	_, _ = p.WatchInterrupt(context.Background())
+
+	p.watchMu.Lock()
+	done := p.watchDone
+	p.watchMu.Unlock()
+	if done == nil {
+		t.Fatal("the watch started no watcher, so this test would prove nothing")
+	}
+
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	select {
+	case <-done:
+	default:
+		t.Error("Close left the watcher running, so the interrupt is still held away from its default action")
+	}
+}
+
+// TestAWatchOutlivesTheInputItWatches ends the input under an active watch. What
+// the watch promised about the interrupt lasts until the caller stops it: the
+// keyboard having nothing more to say is not the caller saying its work is done.
+func TestAWatchOutlivesTheInputItWatches(t *testing.T) {
+	t.Parallel()
+
+	terminal := newMockTerminal("") // end of input on the first read
+	p := newTestPromptOn(terminal)
+	_, stop := p.WatchInterrupt(context.Background())
+
+	p.watchMu.Lock()
+	done := p.watchDone
+	p.watchMu.Unlock()
+	if done == nil {
+		t.Fatal("the watch started no watcher, so this test would prove nothing")
+	}
+	// The reader goroutine is gone, which means the channel the watcher reads
+	// from is closed and it has had every chance to act on that.
+	<-p.readerDone
+
+	select {
+	case <-done:
+		t.Error("the watch ended with the input, so the signal went back to its default while the caller still held the watch")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	stop()
+	select {
+	case <-done:
+	default:
+		t.Error("stopping the watch left the watcher running")
 	}
 }
