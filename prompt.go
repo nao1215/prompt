@@ -762,6 +762,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 					if result != "" && (len(p.history) == 0 || p.history[len(p.history)-1] != result) {
 						p.addToHistory(result)
 					}
+					p.endEntry()
 					fmt.Fprint(p.output, "\r\n")
 					// The deferred cleanup restores the terminal in the default
 					// mode; in persistent mode it is kept for the next Run.
@@ -775,6 +776,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			// released only when this call owns it. A persistent session keeps raw
 			// mode, so the mode-switch window that loses input does not reopen on
 			// every Ctrl+C; Close and EOF restore it.
+			p.endEntry()
 			if !p.config.PersistentRawMode {
 				p.restoreOnExit()
 			}
@@ -1236,6 +1238,24 @@ func (p *Prompt) exitRawMode() error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// endEntry redraws the entry with the caret after its last character, which
+// leaves the cursor at the foot of the block. What is written next -- the
+// application's output, the ^C of an interrupt, the next prompt -- then starts
+// below the entry instead of on top of the rows the cursor was above.
+//
+// It is a redraw rather than a move down by the rows between the cursor and the
+// foot, because a terminal clamps a move down at its last row: a block that
+// fills the screen would end the line inside itself. The redraw also brings the
+// end of a block taller than the terminal onto the screen, which is where the
+// output belongs.
+//
+// A render that fails changes nothing here. The line the user typed is worth
+// more than a tidy screen, and it is returned either way.
+func (p *Prompt) endEntry() {
+	p.cursor = len(p.buffer)
+	_ = p.render()
 }
 
 func (p *Prompt) render() error {
