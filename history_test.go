@@ -1865,12 +1865,9 @@ func TestDisabledHistoryStaysEmpty(t *testing.T) {
 
 	newDisabled := func(t *testing.T, script string) *Prompt {
 		t.Helper()
-		p, err := newFromConfigOn(options{
-			Prefix:        "$ ",
-			historyConfig: &historyConfig{Enabled: false, MaxEntries: 10},
-			ColorScheme:   ThemeDefault,
-			KeyMap:        NewDefaultKeyMap(),
-		}, newMockTerminal(script), io.Discard)
+		config := options{Prefix: "$ ", ColorScheme: ThemeDefault, KeyMap: NewDefaultKeyMap()}
+		WithoutHistory()(&config)
+		p, err := newFromConfigOn(config, newMockTerminal(script), io.Discard)
 		if err != nil {
 			t.Fatalf("newFromConfigOn() error = %v", err)
 		}
@@ -1914,6 +1911,51 @@ func TestDisabledHistoryStaysEmpty(t *testing.T) {
 		}
 		if len(p.history) != 0 {
 			t.Errorf("the history the arrow keys walk holds %q, want nothing", p.history)
+		}
+	})
+
+	// The reason the option exists: Run remembers every line it returns, so a
+	// prompt that asks for something the user does not want remembered has to
+	// be able to say so.
+	t.Run("a submitted line is not remembered", func(t *testing.T) {
+		t.Parallel()
+
+		p := newDisabled(t, "hunter2\r")
+		got, err := p.Run(context.Background())
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if got != "hunter2" {
+			t.Errorf("Run() = %q, want the line that was typed", got)
+		}
+		if h := p.History(); len(h) != 0 {
+			t.Errorf("History() = %q after submitting, want nothing", h)
+		}
+		if len(p.history) != 0 {
+			t.Errorf("the history the arrow keys walk holds %q, want nothing", p.history)
+		}
+	})
+
+	t.Run("nothing reaches a file the option was given after", func(t *testing.T) {
+		t.Parallel()
+
+		file := filepath.Join(t.TempDir(), "history")
+		config := options{Prefix: "$ ", ColorScheme: ThemeDefault, KeyMap: NewDefaultKeyMap()}
+		WithFileHistory(file, 10)(&config)
+		WithoutHistory()(&config)
+
+		p, err := newFromConfigOn(config, newMockTerminal("hunter2\r"), io.Discard)
+		if err != nil {
+			t.Fatalf("newFromConfigOn() error = %v", err)
+		}
+		if _, err := p.Run(context.Background()); err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if err := p.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+		if _, err := os.Stat(file); !os.IsNotExist(err) {
+			t.Errorf("os.Stat(%s) = %v, want the file never to have been written", file, err)
 		}
 	})
 }

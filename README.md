@@ -297,6 +297,20 @@ p, err := prompt.New("$ ",
 )
 ```
 
+### No history at all
+
+`Run` remembers every line it returns, so a one-off question whose answer should
+not be kept — a password, a token — asks for no history:
+
+```go
+p, err := prompt.New("password: ",
+    prompt.WithoutHistory(),
+)
+```
+
+Nothing is remembered, the arrow keys and Ctrl+R have nothing to walk, and no
+file is read or written.
+
 The file is loaded when the prompt is built and written when an entry is added.
 A save writes at most one megabyte of entries, and a file that would lose
 entries to that limit is moved aside first, as `file.1` through `file.3`.

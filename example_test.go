@@ -155,6 +155,23 @@ func ExampleWithFileHistory() {
 	defer p.Close()
 }
 
+func ExampleWithoutHistory() {
+	// Run remembers every line it returns, so a prompt whose answer should not
+	// be walkable with the Up key for the rest of the session, or written to a
+	// history file, asks for no history.
+	p, err := prompt.New("token: ", prompt.WithoutHistory())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer p.Close()
+
+	token, err := p.Run(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(len(token))
+}
+
 func ExampleWithHighlighter() {
 	keyword := prompt.Color{R: 198, G: 120, B: 221, Bold: true}
 
