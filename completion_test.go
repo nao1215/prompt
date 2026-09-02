@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -825,5 +826,72 @@ func TestFuzzyCompleterCompletesWhatItMatched(t *testing.T) {
 				t.Errorf("Run() = %q, want %q: the completer answered and the read loop threw the answer away", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestCompletingIsTyping holds the completion path to the only thing it is for:
+// a candidate accepted must leave the line the candidate typed would have left.
+//
+// It is the property the accept path keeps breaking in a different place --
+// a suffix inserted twice, a space added in front of a candidate that was
+// already the word, a candidate dropped by a filter it did not need to pass --
+// and each of those was found by a person noticing the line was wrong. Typing
+// the whole candidate is what the line should be, so it is the oracle.
+//
+// Only a prefix that names one candidate is used: the rest open a menu, which is
+// a different question.
+func TestCompletingIsTyping(t *testing.T) {
+	t.Parallel()
+
+	candidates := []string{"create", "credit", "select", "テーブル", "a_b", "x.y", "SELECT"}
+	random := rand.New(rand.NewSource(31337)) //nolint:gosec // test input, not a secret
+
+	run := func(script string) (string, error) {
+		var out bytes.Buffer
+		terminal := &sizedMockTerminal{width: 60, height: 24}
+		terminal.mockTerminal = *newMockTerminal(script)
+		p := newTestPromptOn(terminal, WithCompleter(func(d Document) []Suggestion {
+			word := d.GetWordBeforeCursor()
+			var s []Suggestion
+			for _, c := range candidates {
+				if word != "" && strings.HasPrefix(c, word) {
+					s = append(s, Suggestion{Text: c})
+				}
+			}
+			return s
+		}))
+		p.output = &out
+		p.renderer = newRenderer(&out, ThemeDefault, terminal)
+		return p.Run()
+	}
+
+	for iter := range 2000 {
+		candidate := candidates[random.Intn(len(candidates))]
+		runes := []rune(candidate)
+		cut := 1 + random.Intn(len(runes))
+		typed := string(runes[:cut])
+
+		// Only the prefixes that name exactly one candidate complete on Tab;
+		// the rest open a menu, which is a different question.
+		matches := 0
+		for _, c := range candidates {
+			if strings.HasPrefix(c, typed) {
+				matches++
+			}
+		}
+		if matches != 1 {
+			continue
+		}
+
+		lead := []string{"", "x ", "select "}[random.Intn(3)]
+		completed, err1 := run(lead + typed + "\t\r")
+		wholly, err2 := run(lead + candidate + "\r")
+		if err1 != nil || err2 != nil {
+			t.Fatalf("iter %d: %v / %v", iter, err1, err2)
+		}
+		if completed != wholly {
+			t.Fatalf("iter %d: typing %q and completing gives %q, typing %q gives %q",
+				iter, lead+typed, completed, lead+candidate, wholly)
+		}
 	}
 }
