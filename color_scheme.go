@@ -14,24 +14,24 @@ import (
 // application using this library.
 type ColorScheme struct {
 	// Name is what an application calls this scheme. Nothing here reads it.
-	Name string `json:"name"`
+	Name string
 	// Prefix is the color of the prompt's prefix.
-	Prefix Color `json:"prefix"`
+	Prefix Color
 	// Input is the color of the text being typed, except where a highlighter
 	// asks for another one.
-	Input Color `json:"input"`
+	Input Color
 	// Suggestion is the colors of the completion menu.
-	Suggestion SuggestionColors `json:"suggestion"`
+	Suggestion SuggestionColors
 	// Selected is the color of the suggestion the menu is pointing at.
-	Selected Color `json:"selected"`
+	Selected Color
 }
 
 // SuggestionColors defines colors for completion suggestions.
 type SuggestionColors struct {
 	// Text is the color of a suggestion in the menu.
-	Text Color `json:"text"`
+	Text Color
 	// Description is the color of the description beside it.
-	Description Color `json:"description"`
+	Description Color
 }
 
 // StyleSpan marks a run of the input to draw in a color of its own. Start and
@@ -58,10 +58,10 @@ type StyleSpan struct {
 // Black is therefore one unit away rather than at the origin: Color{B: 1} is
 // black to any eye and is not the zero value.
 type Color struct {
-	R    uint8 `json:"r"`
-	G    uint8 `json:"g"`
-	B    uint8 `json:"b"`
-	Bold bool  `json:"bold"`
+	R    uint8
+	G    uint8
+	B    uint8
+	Bold bool
 }
 
 // ThemeDefault is what a prompt draws with when the application names no theme.

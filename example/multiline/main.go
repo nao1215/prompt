@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -22,7 +23,7 @@ func main() {
 	// that are still being buffered, so a continued entry cannot be mistaken for
 	// a hung program.
 	p, err := prompt.New("multi> ",
-		prompt.WithMultiline(true),
+		prompt.WithMultiline(),
 		prompt.WithContinuationPrefix("  ...> "),
 	)
 	if err != nil {
@@ -34,7 +35,7 @@ func main() {
 		fmt.Println("Enter your text:")
 
 		// Run the prompt
-		result, err := p.Run()
+		result, err := p.Run(context.Background())
 		if err != nil {
 			if errors.Is(err, prompt.ErrEOF) {
 				fmt.Println("\nGoodbye!")

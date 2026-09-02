@@ -170,7 +170,7 @@ func TestCompleterOwnsMatchingWhenItNamesTheReplacedSpan(t *testing.T) {
 			t.Parallel()
 
 			p := newTestPrompt(newMockTerminal(tt.input), WithCompleter(tt.suggestion))
-			got, err := p.RunWithContext(context.Background())
+			got, err := p.Run(context.Background())
 			if err != nil {
 				t.Fatalf("RunWithContext returned error: %v", err)
 			}
@@ -193,7 +193,7 @@ func TestCompleterWithoutReplaceSpanKeepsPromptFiltering(t *testing.T) {
 		return []Suggestion{{Text: "SELECT"}}
 	}))
 
-	got, err := p.RunWithContext(context.Background())
+	got, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("RunWithContext returned error: %v", err)
 	}

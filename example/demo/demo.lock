@@ -2,5 +2,5 @@
 # The digests of the animation in the README and of the tape and program it
 # was recorded from. TestDemoGIFIsCurrent fails when they no longer agree.
 demo.tape cfc33bbc7a44eb9c0c9036cfba0c009ce187f180d35e1a5983cd77bb7f28feb5
-main.go 3d8fb4d277002174d71b9869756e0c2f92b38470aef7e617c3afadd6643e4637
-../../doc/img/demo.gif 2cbff31752a92982dd21cc9e27bd7979a1b509f764de31910335a88592af3e6e
+main.go 746e48d80c68b4c88dffee4bbe13579b78f88ea780e0af25f7874d03dfce3f33
+../../doc/img/demo.gif 344658329e7b0dba1b1fd0e087bdd3765e384d4a94db79cdc0f988eadd617e77

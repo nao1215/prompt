@@ -41,8 +41,8 @@ func (d *Document) TextAfterCursor() string {
 	return string(runes[d.CursorPosition:])
 }
 
-// GetWordBeforeCursor returns the word before the cursor
-func (d *Document) GetWordBeforeCursor() string {
+// WordBeforeCursor returns the word before the cursor
+func (d *Document) WordBeforeCursor() string {
 	runes := []rune(d.TextBeforeCursor())
 	if len(runes) == 0 {
 		return ""
@@ -63,12 +63,12 @@ func (d *Document) GetWordBeforeCursor() string {
 	return string(runes[start:])
 }
 
-// GetWordBeforeCursorEscaped is like GetWordBeforeCursor but treats whitespace
+// WordBeforeCursorEscaped is like WordBeforeCursor but treats whitespace
 // that is backslash-escaped as part of the word, so a shell-style path such as
 // "my\ data.csv" counts as a single word rather than two. A whitespace character
 // is a word boundary only when an even number of backslashes precede it. The
 // prompt uses it for completion when WithWordEscape is set.
-func (d *Document) GetWordBeforeCursorEscaped() string {
+func (d *Document) WordBeforeCursorEscaped() string {
 	text := d.TextBeforeCursor()
 	if len(text) == 0 {
 		return ""
@@ -91,7 +91,7 @@ func (d *Document) GetWordBeforeCursorEscaped() string {
 }
 
 // isWordSeparator reports whether r ends a word for completion purposes. It
-// matches the separators GetWordBeforeCursor recognizes.
+// matches the separators WordBeforeCursor recognizes.
 func isWordSeparator(r rune) bool {
 	return r == ' ' || r == '\t' || r == '\n'
 }

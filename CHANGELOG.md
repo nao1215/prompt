@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking Changes
+
+- The exported surface is what a program uses, and the rest is unexported or gone (PR [#162](https://github.com/nao1215/prompt/pull/162)). It carried go-prompt's vocabulary and this package's own history: a `Suggest` alias, a `Config` struct whose every field was API because `Option` was a function over it, a `Theme` field beside `ColorScheme` with `WithTheme` and `WithColorScheme` writing to either, three ways to ask for a history, Get-prefixed accessors and two entry points for reading a line. Exported top-level names go from 44 to 37 and methods from 26 to 19.
+
+  Migration, one line each: `p.Run()` is `p.Run(context.Background())`, and `p.RunWithContext(ctx)` is `p.Run(ctx)`. `prompt.WithColorScheme(t)` is `prompt.WithTheme(t)`. `prompt.WithMultiline(true)` is `prompt.WithMultiline()`. `prompt.WithHistory(&prompt.HistoryConfig{MaxEntries: n, File: f})` is `prompt.WithFileHistory(f, n)`, and without a file `prompt.WithMemoryHistory(n)`; the file history keeps a megabyte and three backups, which were the defaults, and a history can no longer be disabled, which nothing did. `p.GetHistory()` is `p.History()`, and `p.ClearHistory()` is `p.SetHistory(nil)`. `d.GetWordBeforeCursor()` is `d.WordBeforeCursor()` and `d.GetWordBeforeCursorEscaped()` is `d.WordBeforeCursorEscaped()`. `prompt.Suggest` is `prompt.Suggestion`. `prompt.GetDefaultHistoryFile()` is `filepath.Join(dir, "prompt", "history")` over `os.UserConfigDir()`, which is what it computed. A program that built a `prompt.Config` by hand passes the same values to `New` as options. `SetCompleter` and `SetContinuationPrefix` have no replacement: the completer and the continuation prefix are set when the prompt is built. `KeyMap.GetAction` and `GetSequenceAction` are `Action` and `SequenceAction`. `ActionPasteStart` and `ActionPasteEnd` are unexported, and the JSON tags on `Color`, `ColorScheme` and `SuggestionColors` are gone, since nothing read them.
+
+### Added
+
+- Godoc examples for the exported surface (PR [#162](https://github.com/nao1215/prompt/pull/162)). The ones that open a terminal are compiled and not run, so they cannot rot; the ones over `Document`, the two completers, `Suggestion.Replace` and `Color.ToANSI` run with an output.
+
+### Changed
+
+- The package documentation is written around what the package does rather than around go-prompt (PR [#162](https://github.com/nao1215/prompt/pull/162)): reading a line, the options, completion, keys, multiline entries, the gap between prompts, and goroutines, with what `Run` returns and why in one place.
+
+- `SECURITY.md` names the supported release series, the way filesql's does, and says what the library touches (PR [#162](https://github.com/nao1215/prompt/pull/162)).
+
+- The mock terminal lives in a test file (PR [#162](https://github.com/nao1215/prompt/pull/162)). It was compiled into every program that imported the package.
+
 ## [0.0.30] - 2026-09-02
 
 ### Fixed

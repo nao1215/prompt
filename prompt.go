@@ -45,7 +45,7 @@ func (eofError) Unwrap() error { return io.EOF }
 
 // Prompt represents an interactive terminal prompt.
 type Prompt struct {
-	config         Config
+	config         options
 	output         io.Writer
 	history        []string
 	historyManager *historyManager
@@ -101,21 +101,9 @@ type Prompt struct {
 	closed atomic.Bool
 }
 
-// HistoryConfig holds all history-related configuration.
-//
-// This struct consolidates all history settings for memory limits
-// and file persistence options. History data is loaded from files
-// or accumulated during runtime usage.
-//
-// File path supports multiple formats:
-// - Empty string: Memory-only history (no persistence)
-// - Absolute path: "/home/user/.app_history"
-// - Home directory: "~/.app_history"
-// - Relative path: "./app_history" (converted to absolute)
-// - XDG compliant: Use GetDefaultHistoryFile() for "~/.config/prompt/history"
-//
-// The implementation follows XDG Base Directory Specification when possible.
-type HistoryConfig struct {
+// historyConfig is the history a prompt keeps: how many entries, and whether
+// they outlive the process. WithMemoryHistory and WithFileHistory build one.
+type historyConfig struct {
 	// Enabled turns history on. A disabled history holds nothing: it is not
 	// loaded, not added to, and not saved.
 	Enabled bool
@@ -141,29 +129,24 @@ type HistoryConfig struct {
 	//
 	// Zero keeps none, and is a setting rather than an omission: what the
 	// history file holds is what the user typed, and an application may not want
-	// copies of it left on disk. A HistoryConfig built with this field left out
-	// therefore keeps no backups; passing no HistoryConfig at all is the case
+	// copies of it left on disk. A historyConfig built with this field left out
+	// therefore keeps no backups; passing no historyConfig at all is the case
 	// that takes the defaults, backups included, and WithFileHistory asks for
 	// three.
 	MaxBackups int
 }
 
-// Config holds the configuration for a prompt.
-type Config struct {
-	// Prefix is drawn in front of the line being edited (for example "$ ").
-	//
-	// It is text. The color scheme colors it, so an escape sequence written
-	// here is not a second color -- it is drawn as a space, one space per rune
-	// the terminal would act on, because the prompt measures its own layout
-	// from what it draws and a sequence the terminal obeys occupies no cells to
-	// measure. A newline is a space for the same reason: the block's height is
-	// counted from the input's line breaks, not the prefix's.
+// options is what New builds from its arguments. It is not exported: an
+// Option is the only way to set one of these, so a field can change without
+// anyone outside the package having named it.
+type options struct {
+	// Prefix is drawn in front of the line being edited, on the terms New
+	// describes.
 	Prefix        string
 	Completer     func(Document) []Suggestion // Completion function (accepts Document for context)
-	HistoryConfig *HistoryConfig              // History configuration (nil for default)
+	historyConfig *historyConfig              // History configuration (nil for default)
 	ColorScheme   *ColorScheme                // Color scheme (nil for default)
 	KeyMap        *KeyMap                     // Key bindings (nil for default)
-	Theme         *ColorScheme                // Alias for ColorScheme for compatibility
 	Multiline     bool                        // Enable multiline input mode
 	IsComplete    func(input string) bool     // Decides whether Enter submits in multiline mode (nil = always submit)
 	AutoIndent    func(before string) string  // Decides what a new line opens with (nil = nothing)
@@ -181,7 +164,7 @@ type Config struct {
 }
 
 // Option represents a configuration option for prompt
-type Option func(*Config)
+type Option func(*options)
 
 // WithCompleter sets the completion function.
 //
@@ -192,38 +175,22 @@ type Option func(*Config)
 // Enter, and Right accept the highlighted suggestion; Up and Down move through
 // them; Escape closes the menu.
 func WithCompleter(completer func(Document) []Suggestion) Option {
-	return func(c *Config) {
+	return func(c *options) {
 		c.Completer = completer
 	}
 }
 
-// WithHistory configures history settings with the provided configuration.
-// This is the recommended way to configure all history-related options.
-//
-// Example:
-//
-//	prompt.New("$ ", prompt.WithHistory(&prompt.HistoryConfig{
-//		Enabled:     true,
-//		MaxEntries:  100,
-//		File:        "~/.myapp_history",
-//	}))
-func WithHistory(historyConfig *HistoryConfig) Option {
-	return func(c *Config) {
-		c.HistoryConfig = historyConfig
-	}
-}
-
-// WithMemoryHistory is a convenience function for memory-only history setup.
-//
-// Example:
-//
-//	prompt.New("$ ", prompt.WithMemoryHistory(100))
+// WithMemoryHistory keeps the last maxEntries entries for the life of the
+// process, for the arrow keys and Ctrl+R to walk. A prompt built without
+// either history option keeps a thousand. A maxEntries of zero or less asks
+// for the same thousand, because a history of no entries is not a setting
+// anyone wants.
 func WithMemoryHistory(maxEntries int) Option {
-	return func(c *Config) {
+	return func(c *options) {
 		if maxEntries <= 0 {
 			maxEntries = 1000 // Default
 		}
-		c.HistoryConfig = &HistoryConfig{
+		c.historyConfig = &historyConfig{
 			Enabled:    true,
 			MaxEntries: maxEntries,
 			File:       "", // Memory only
@@ -231,17 +198,21 @@ func WithMemoryHistory(maxEntries int) Option {
 	}
 }
 
-// WithFileHistory is a convenience function for history with file persistence.
+// WithFileHistory is WithMemoryHistory with the entries kept in file between
+// sessions. The file is loaded when the prompt is built and written when an
+// entry is added; it is created readable by its owner alone, because it holds
+// what the user typed. A path may be absolute, relative to the working
+// directory, or begin with "~" for the home directory.
 //
-// Example:
-//
-//	prompt.New("$ ", prompt.WithFileHistory("~/.myapp_history", 100))
+// A save writes at most one megabyte of entries, newest first, and a file that
+// would lose entries to that limit or to maxEntries is moved aside first, as
+// file.1 through file.3, so what the limit leaves out is not deleted.
 func WithFileHistory(file string, maxEntries int) Option {
-	return func(c *Config) {
+	return func(c *options) {
 		if maxEntries <= 0 {
 			maxEntries = 1000 // Default
 		}
-		c.HistoryConfig = &HistoryConfig{
+		c.historyConfig = &historyConfig{
 			Enabled:     true,
 			MaxEntries:  maxEntries,
 			File:        file,
@@ -251,31 +222,28 @@ func WithFileHistory(file string, maxEntries int) Option {
 	}
 }
 
-// WithColorScheme sets the color scheme
-func WithColorScheme(colorScheme *ColorScheme) Option {
-	return func(c *Config) {
-		c.ColorScheme = colorScheme
-	}
-}
-
 // WithKeyMap sets the key bindings
 func WithKeyMap(keyMap *KeyMap) Option {
-	return func(c *Config) {
+	return func(c *options) {
 		c.KeyMap = keyMap
 	}
 }
 
-// WithTheme sets the color scheme (alias for compatibility)
+// WithTheme sets the colors the prompt draws with. The Theme* variables are
+// the schemes this package ships; a nil scheme is ThemeDefault.
 func WithTheme(theme *ColorScheme) Option {
-	return func(c *Config) {
-		c.Theme = theme
+	return func(c *options) {
+		c.ColorScheme = theme
 	}
 }
 
-// WithMultiline enables or disables multiline input mode
-func WithMultiline(multiline bool) Option {
-	return func(c *Config) {
-		c.Multiline = multiline
+// WithMultiline lets an entry hold line breaks. Enter opens a new line while
+// the WithIsComplete predicate says the entry is not finished, and submits it
+// once it is; Up and Down move between the lines. Without it Enter always
+// submits.
+func WithMultiline() Option {
+	return func(c *options) {
+		c.Multiline = true
 	}
 }
 
@@ -287,7 +255,7 @@ func WithMultiline(multiline bool) Option {
 // and bracketed paste still force a newline regardless of the predicate. When nil
 // (default) or when multiline mode is off, Enter always submits.
 func WithIsComplete(isComplete func(input string) bool) Option {
-	return func(c *Config) {
+	return func(c *options) {
 		c.IsComplete = isComplete
 	}
 }
@@ -319,7 +287,7 @@ func WithIsComplete(isComplete func(input string) bool) Option {
 //		return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
 //	})
 func WithAutoIndent(indent func(before string) string) Option {
-	return func(c *Config) {
+	return func(c *options) {
 		c.AutoIndent = indent
 	}
 }
@@ -358,7 +326,7 @@ func WithAutoIndent(indent func(before string) string) Option {
 //		return spans
 //	})
 func WithHighlighter(highlighter func(input string) []StyleSpan) Option {
-	return func(c *Config) {
+	return func(c *options) {
 		c.Highlighter = highlighter
 	}
 }
@@ -379,13 +347,13 @@ func WithHighlighter(highlighter func(input string) []StyleSpan) Option {
 // mode, where there is only ever one line. The default is empty, which preserves
 // the previous appearance.
 func WithContinuationPrefix(prefix string) Option {
-	return func(c *Config) {
+	return func(c *options) {
 		c.ContinuationPrefix = prefix
 	}
 }
 
 // WithPersistentRawMode keeps the terminal in raw mode across consecutive Run
-// (RunWithContext) calls instead of entering raw mode at the start of every call
+// (Run) calls instead of entering raw mode at the start of every call
 // and restoring it when the call returns.
 //
 // A REPL that calls Run once per line otherwise toggles the terminal between raw
@@ -407,7 +375,7 @@ func WithContinuationPrefix(prefix string) Option {
 // rather than "\n". It is off by default so the classic single-shot usage keeps
 // cooked-mode output after each Run.
 func WithPersistentRawMode() Option {
-	return func(c *Config) {
+	return func(c *options) {
 		c.PersistentRawMode = true
 	}
 }
@@ -419,7 +387,7 @@ func WithPersistentRawMode() Option {
 // whose .import command honors backslash escapes). Off by default; default word
 // boundaries are unchanged.
 func WithWordEscape() Option {
-	return func(c *Config) {
+	return func(c *options) {
 		c.WordEscape = true
 	}
 }
@@ -460,69 +428,37 @@ type Suggestion struct {
 	Replace *Range
 }
 
-// Suggest is what go-prompt calls a Suggestion. It is an alias, so a completer
-// written against go-prompt keeps compiling.
-type Suggest = Suggestion
-
-// New creates a new prompt with the specified prefix and optional configuration.
+// New opens the terminal and returns a prompt that draws prefix in front of
+// the line being edited. Close gives the terminal back.
 //
-// This is the recommended way to create a new prompt as it provides a clean API
-// with sensible defaults and allows for flexible configuration through options.
+// The prefix is text. The theme colors it, so an escape sequence written into
+// it is not a second color: it is drawn as a space, one space per rune the
+// terminal would act on, because the prompt measures its own layout from what
+// it draws and a sequence the terminal obeys occupies no cells to measure. A
+// newline in it is a space for the same reason. SetPrefix changes it later,
+// and WithContinuationPrefix names the text drawn in front of the lines after
+// the first of a multiline entry, on the same terms.
 //
-// Example:
-//
-//	// Basic prompt with just a prefix
-//	p, err := prompt.New("$ ")
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//	defer p.Close()
-//
-//	// Prompt with completion and history
-//	p, err := prompt.New("$ ",
-//		prompt.WithCompleter(func(d prompt.Document) []prompt.Suggestion {
-//			if strings.HasPrefix(d.Text, "git") {
-//				return []prompt.Suggestion{
-//					{Text: "git status", Description: "Show working tree status"},
-//					{Text: "git commit", Description: "Record changes to repository"},
-//				}
-//			}
-//			return nil
-//		}),
-//		prompt.WithMemoryHistory(100),
-//	)
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//	defer p.Close()
-//
-//	result, err := p.Run()
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//	fmt.Printf("You entered: %s\n", result)
-func New(prefix string, options ...Option) (*Prompt, error) {
-	config := Config{
+// The options say what else the prompt does; a prompt built with none reads
+// one line at a time, keeps a thousand entries of history in memory, and draws
+// with ThemeDefault.
+func New(prefix string, opts ...Option) (*Prompt, error) {
+	config := options{
 		Prefix: prefix,
 	}
 
-	// Apply options
-	for _, option := range options {
+	for _, option := range opts {
 		option(&config)
 	}
 
 	return newFromConfig(config)
 }
 
-func newFromConfig(config Config) (*Prompt, error) {
-	if config.HistoryConfig == nil {
-		config.HistoryConfig = defaultHistoryConfig()
+func newFromConfig(config options) (*Prompt, error) {
+	if config.historyConfig == nil {
+		config.historyConfig = defaultHistoryConfig()
 	} else {
-		normalizeHistoryConfig(config.HistoryConfig)
-	}
-	// Handle Theme alias
-	if config.Theme != nil && config.ColorScheme == nil {
-		config.ColorScheme = config.Theme
+		normalizeHistoryConfig(config.historyConfig)
 	}
 	if config.ColorScheme == nil {
 		config.ColorScheme = ThemeDefault
@@ -554,7 +490,7 @@ func newFromConfig(config Config) (*Prompt, error) {
 //
 // The close is deferred rather than written into each path so that a fallible
 // step added later is covered too, which is how the history load came to leak.
-func newFromConfigOn(config Config, terminal terminalInterface, output io.Writer) (_ *Prompt, err error) {
+func newFromConfigOn(config options, terminal terminalInterface, output io.Writer) (_ *Prompt, err error) {
 	defer func() {
 		if err != nil {
 			if cerr := terminal.Close(); cerr != nil {
@@ -564,7 +500,7 @@ func newFromConfigOn(config Config, terminal terminalInterface, output io.Writer
 	}()
 
 	// Initialize history manager
-	historyManager := newHistoryManager(config.HistoryConfig)
+	historyManager := newHistoryManager(config.historyConfig)
 
 	// Load history from file if configured
 	if err = historyManager.loadHistory(); err != nil {
@@ -589,63 +525,29 @@ func newFromConfigOn(config Config, terminal terminalInterface, output io.Writer
 	return p, nil
 }
 
-// Run starts the interactive prompt and returns the user input.
+// Run reads one entry and returns it without its line break.
 //
-// This is a convenience method that calls RunWithContext with a background context.
-// The prompt will accept user input until Enter is pressed or an error occurs.
+// It takes the terminal into raw mode for the read and gives it back before
+// returning, unless WithPersistentRawMode was asked for. Every configured key
+// binding, the completion menu, the history and multiline editing happen inside
+// it. What ends it: Enter returns the entry; Ctrl+C discards the entry and
+// returns ErrInterrupted; Ctrl+D on an empty entry, the input reaching its end,
+// and Close from another goroutine return ErrEOF; the context ending returns its
+// error. A prompt that has been closed answers ErrEOF without touching the
+// terminal.
 //
-// Example:
-//
-//	p, _ := prompt.New(prompt.Config{Prefix: "Enter command: "})
-//	defer p.Close()
-//
-//	input, err := p.Run()
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//	fmt.Printf("User entered: %s\n", input)
-func (p *Prompt) Run() (string, error) {
-	return p.RunWithContext(context.Background())
-}
-
-// RunWithContext starts the interactive prompt with context support.
-//
-// The prompt can be canceled via the provided context, allowing for timeouts
-// or cancellation from other goroutines. The function supports all configured
-// key bindings, multi-line input, completion, and history navigation.
-//
-// Supported key bindings include:
-//   - Enter: Submit input (or add newline in multi-line mode)
-//   - Ctrl+C: Discard the current line and return ErrInterrupted
-//   - Ctrl+D: EOF when buffer is empty
-//   - Esc: Close the completion popup
-//   - Arrow keys: Navigate history or move cursor
-//   - Ctrl+A/Home: Move to beginning of line
-//   - Ctrl+E/End: Move to end of line
-//   - Ctrl+K: Delete from cursor to end of line
-//   - Ctrl+U: Delete the line the cursor is on
-//   - Ctrl+W: Delete word backwards
-//   - Ctrl+R: Reverse history search
-//   - Tab: Auto-completion
-//
-// Example with timeout:
+// A key the terminal has not sent cannot be waited for with a deadline of its
+// own, so the context is how a caller bounds the wait:
 //
 //	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 //	defer cancel()
 //
-//	p, _ := prompt.New(prompt.Config{Prefix: "Command: "})
-//	defer p.Close()
-//
-//	input, err := p.RunWithContext(ctx)
-//	if err == context.DeadlineExceeded {
+//	input, err := p.Run(ctx)
+//	if errors.Is(err, context.DeadlineExceeded) {
 //		fmt.Println("Timeout reached")
 //		return
 //	}
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//	fmt.Printf("Input: %s\n", input)
-func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
+func (p *Prompt) Run(ctx context.Context) (string, error) {
 	// A closed prompt has no input left to read, which is what ErrEOF says. This
 	// is answered before the read rather than by it, because reaching the read
 	// means entering raw mode first: doing that on a terminal the session has
@@ -765,12 +667,12 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 				// popup with no way out left the line unrunnable.
 				suggestions = nil
 			}
-			action = p.keyMap.GetSequenceAction(seq)
+			action = p.keyMap.SequenceAction(seq)
 			// Inside a paste only the end marker is a signal. Anything else is
 			// content the terminal passed through: the ESC that introduced it is a
 			// control byte and is dropped, while the rest of the sequence is text
 			// and is kept, so pasting a colored log does not lose its words.
-			if inPaste && action != ActionPasteEnd {
+			if inPaste && action != actionPasteEnd {
 				for _, pasted := range seq {
 					lastPasted = p.insertPastedRune(pasted, lastPasted)
 					pastedSinceDraw++
@@ -797,7 +699,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			// a block that was growing: a twenty-thousand-character statement
 			// wrote fifty megabytes of escape sequences and took seconds, which
 			// from the outside is a shell that has hung. The end of the paste
-			// redraws it either way -- ActionPasteEnd falls through to the
+			// redraws it either way -- actionPasteEnd falls through to the
 			// render at the foot of this loop -- so what is left to do here is
 			// show that something is arriving.
 			pastedSinceDraw++
@@ -809,7 +711,7 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			}
 			continue
 		default:
-			action = p.keyMap.GetAction(r)
+			action = p.keyMap.Action(r)
 		}
 
 		// Execute action
@@ -1061,14 +963,14 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			p.insertNewline()
 			suggestions = nil
 
-		case ActionPasteStart:
+		case actionPasteStart:
 			inPaste = true
 			// Each paste starts its own CRLF state: a paste ending in CR must not
 			// swallow the newline a later paste begins with.
 			lastPasted = 0
 			suggestions = nil
 
-		case ActionPasteEnd:
+		case actionPasteEnd:
 			inPaste = false
 			pastedSinceDraw = 0
 
@@ -1192,8 +1094,8 @@ func (p *Prompt) Close() error {
 
 // History management methods
 
-// GetHistory returns the current command history
-func (p *Prompt) GetHistory() []string {
+// History returns the entries the arrow keys walk, oldest first.
+func (p *Prompt) History() []string {
 	if p.historyManager != nil {
 		// A disabled manager holds nothing, and getHistory says so.
 		return p.historyManager.getHistory()
@@ -1204,16 +1106,6 @@ func (p *Prompt) GetHistory() []string {
 // AddHistory adds a command to the history
 func (p *Prompt) AddHistory(command string) {
 	p.addToHistory(command)
-}
-
-// ClearHistory clears the command history
-func (p *Prompt) ClearHistory() {
-	if p.historyManager != nil && p.historyManager.isEnabled() {
-		p.historyManager.clearHistory()
-	}
-	// Emptying it is right whether or not there is a manager: with one, this
-	// mirrors what the manager now holds; without one, this is the history.
-	p.history = []string{}
 }
 
 // SetHistory replaces the entire history
@@ -1252,7 +1144,6 @@ func (p *Prompt) SetTheme(theme *ColorScheme) {
 		theme = ThemeDefault
 	}
 	p.config.ColorScheme = theme
-	p.config.Theme = theme
 	// The scheme changes on the renderer that is there rather than by replacing
 	// it. What a renderer holds is what it knows about the screen -- how tall
 	// the block on it is, which row the caret is on -- and a new one knows none
@@ -1264,21 +1155,9 @@ func (p *Prompt) SetTheme(theme *ColorScheme) {
 }
 
 // SetPrefix changes the prompt prefix, which takes effect on the next render.
-// It is text on the terms Config.Prefix describes.
+// It is text on the terms New describes.
 func (p *Prompt) SetPrefix(prefix string) {
 	p.config.Prefix = prefix
-}
-
-// SetContinuationPrefix changes the string drawn in front of every line after
-// the first while a multiline entry is still being typed. See
-// WithContinuationPrefix.
-func (p *Prompt) SetContinuationPrefix(prefix string) {
-	p.config.ContinuationPrefix = prefix
-}
-
-// SetCompleter changes the completion function
-func (p *Prompt) SetCompleter(completer func(Document) []Suggestion) {
-	p.config.Completer = completer
 }
 
 // enterRawMode puts the terminal into raw mode and enables bracketed paste. It is

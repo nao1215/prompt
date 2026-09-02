@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -580,7 +581,7 @@ func TestFileCompleterCompletesInsideAPrompt(t *testing.T) {
 	p.output = &out
 	p.renderer = newRenderer(&out, ThemeDefault, terminal)
 
-	line, err := p.Run()
+	line, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}

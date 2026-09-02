@@ -234,14 +234,14 @@ func TestRunWithContextReturnsWhileWaitingForAKey(t *testing.T) {
 
 			returned := make(chan error, 1)
 			go func() {
-				_, err := p.RunWithContext(ctx)
+				_, err := p.Run(ctx)
 				returned <- err
 			}()
 
 			select {
 			case err := <-returned:
 				if !errors.Is(err, tt.want) {
-					t.Errorf("RunWithContext() error = %v, want %v", err, tt.want)
+					t.Errorf("Run() error = %v, want %v", err, tt.want)
 				}
 			case <-time.After(5 * time.Second):
 				t.Fatal("RunWithContext did not return: the context was never noticed while the read was waiting")
@@ -265,8 +265,8 @@ func TestRunWithContextTakesTheContextOverInputAlreadyHeld(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	if _, err := p.RunWithContext(ctx); !errors.Is(err, context.Canceled) {
-		t.Errorf("RunWithContext() error = %v, want context.Canceled", err)
+	if _, err := p.Run(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("Run() error = %v, want context.Canceled", err)
 	}
 }
 
@@ -325,8 +325,8 @@ func TestCloseLeavesNoGoroutineBehind(t *testing.T) {
 		terminal := newBlockingTerminal(true)
 		p := newTestPromptOn(terminal)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
-		if _, err := p.RunWithContext(ctx); !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("RunWithContext() error = %v, want the deadline to have fired", err)
+		if _, err := p.Run(ctx); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Run() error = %v, want the deadline to have fired", err)
 		}
 		cancel()
 		if err := p.Close(); err != nil {
@@ -357,7 +357,7 @@ func TestCloseWhileRunWaitsReportsEOF(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		line, err := p.RunWithContext(context.Background())
+		line, err := p.Run(context.Background())
 		done <- result{line, err}
 	}()
 

@@ -37,7 +37,7 @@ func TestNewHistoryManager(t *testing.T) {
 	}
 
 	// Test with custom config
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled:     false,
 		File:        "/tmp/test_history",
 		MaxFileSize: 2048,
@@ -50,7 +50,7 @@ func TestNewHistoryManager(t *testing.T) {
 }
 
 func TestHistoryManagerBasicOperations(t *testing.T) {
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled:     true,
 		File:        "", // Memory only
 		MaxFileSize: 1024,
@@ -98,7 +98,7 @@ func TestHistoryManagerBasicOperations(t *testing.T) {
 }
 
 func TestHistoryManagerDisabled(t *testing.T) {
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled: false,
 	}
 	hm := newHistoryManager(config)
@@ -125,7 +125,7 @@ func TestHistoryFilePersistence(t *testing.T) {
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "test_history")
 
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled:     true,
 		File:        historyFile,
 		MaxFileSize: 1024,
@@ -175,7 +175,7 @@ func TestHistoryFileRotation(t *testing.T) {
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "test_history")
 
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled:     true,
 		File:        historyFile,
 		MaxFileSize: 50, // Very small size to trigger rotation
@@ -224,7 +224,7 @@ func TestHistoryFileRotationNoBackups(t *testing.T) {
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "test_history")
 
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled:     true,
 		File:        historyFile,
 		MaxFileSize: 50,
@@ -255,9 +255,9 @@ func TestPromptHistoryIntegration(t *testing.T) {
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "prompt_history")
 
-	config := Config{
+	config := options{
 		Prefix: "test> ",
-		HistoryConfig: &HistoryConfig{
+		historyConfig: &historyConfig{
 			Enabled:     true,
 			MaxEntries:  100,
 			File:        historyFile,
@@ -273,14 +273,14 @@ func TestPromptHistoryIntegration(t *testing.T) {
 	p.AddHistory("command2")
 	p.AddHistory("command3")
 
-	history := p.GetHistory()
+	history := p.History()
 	if len(history) != 3 {
 		t.Errorf("Expected 3 history entries, got %d", len(history))
 	}
 
 	// Clear history
-	p.ClearHistory()
-	history = p.GetHistory()
+	p.SetHistory(nil)
+	history = p.History()
 	if len(history) != 0 {
 		t.Error("Expected empty history after clear")
 	}
@@ -288,7 +288,7 @@ func TestPromptHistoryIntegration(t *testing.T) {
 	// Set new history
 	newHistory := []string{"new1", "new2", "new3", "new4"}
 	p.SetHistory(newHistory)
-	history = p.GetHistory()
+	history = p.History()
 	if len(history) != len(newHistory) {
 		t.Errorf("Expected %d entries, got %d", len(newHistory), len(history))
 	}
@@ -301,9 +301,9 @@ func TestPromptHistoryIntegration(t *testing.T) {
 }
 
 func TestPromptHistoryDisabled(t *testing.T) {
-	config := Config{
+	config := options{
 		Prefix: "test> ",
-		HistoryConfig: &HistoryConfig{
+		historyConfig: &historyConfig{
 			Enabled: false,
 		},
 	}
@@ -313,14 +313,14 @@ func TestPromptHistoryDisabled(t *testing.T) {
 
 	// Adding history should be no-op when disabled
 	p.AddHistory("command1")
-	history := p.GetHistory()
+	history := p.History()
 	if len(history) != 0 {
 		t.Error("Expected empty history when disabled")
 	}
 }
 
 func TestHistoryLoadNonExistentFile(t *testing.T) {
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled: true,
 		File:    "/tmp/non_existent_history_file_12345",
 	}
@@ -341,7 +341,7 @@ func TestHistoryFileRotationDetailed(t *testing.T) {
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "detailed_history")
 
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled:     true,
 		File:        historyFile,
 		MaxFileSize: 100, // Very small to trigger rotation
@@ -395,7 +395,7 @@ func TestHistoryRotationWithMultipleBackups(t *testing.T) {
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "multi_backup_history")
 
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled:     true,
 		File:        historyFile,
 		MaxFileSize: 50, // Small size
@@ -441,7 +441,7 @@ func TestHistoryRotationEdgeCases(t *testing.T) {
 
 	t.Run("ZeroBackups", func(t *testing.T) {
 		historyFile := filepath.Join(tmpDir, "zero_backup_history")
-		config := &HistoryConfig{
+		config := &historyConfig{
 			Enabled:     true,
 			File:        historyFile,
 			MaxFileSize: 30,
@@ -474,7 +474,7 @@ func TestHistoryRotationEdgeCases(t *testing.T) {
 
 		// Try to create history file in a path where parent is a file (not directory)
 		invalidPath := filepath.Join(filePath, "history") // This should fail because parent is a file
-		config := &HistoryConfig{
+		config := &historyConfig{
 			Enabled:     true,
 			File:        invalidPath,
 			MaxFileSize: 1024,
@@ -491,7 +491,7 @@ func TestHistoryRotationEdgeCases(t *testing.T) {
 	})
 
 	t.Run("RotationIfNeededNoFile", func(_ *testing.T) {
-		config := &HistoryConfig{
+		config := &historyConfig{
 			Enabled:     true,
 			File:        "", // No file
 			MaxFileSize: 1024,
@@ -511,7 +511,7 @@ func TestHistoryRotationBoundsTheFile(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "history")
 	const maxFileSize = 200
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled:     true,
 		File:        file,
 		MaxEntries:  1000,
@@ -560,7 +560,7 @@ func TestHistoryRotationBoundsTheFile(t *testing.T) {
 	}
 
 	// What was written reads back.
-	reloaded := newHistoryManager(&HistoryConfig{Enabled: true, File: file, MaxEntries: 1000})
+	reloaded := newHistoryManager(&historyConfig{Enabled: true, File: file, MaxEntries: 1000})
 	if err := reloaded.loadHistory(); err != nil {
 		t.Fatalf("loadHistory() error = %v", err)
 	}
@@ -585,7 +585,7 @@ func TestHistoryFileIsCreatedForItsOwnerAlone(t *testing.T) {
 	}
 
 	file := filepath.Join(t.TempDir(), "history")
-	hm := newHistoryManager(&HistoryConfig{Enabled: true, File: file, MaxEntries: 100})
+	hm := newHistoryManager(&historyConfig{Enabled: true, File: file, MaxEntries: 100})
 	hm.addEntry("psql -h db -U admin -W hunter2")
 	if err := hm.saveHistory(); err != nil {
 		t.Fatalf("saveHistory() error = %v", err)
@@ -804,9 +804,9 @@ func TestRenderHistorySearch(t *testing.T) {
 	// Create a buffer to capture output
 	var output bytes.Buffer
 	p := &Prompt{
-		config: Config{
+		config: options{
 			Prefix: "test> ",
-			HistoryConfig: &HistoryConfig{
+			historyConfig: &historyConfig{
 				Enabled:    true,
 				MaxEntries: 100,
 			},
@@ -886,9 +886,9 @@ func TestHistorySearchErrorCases(t *testing.T) {
 	t.Run("ReadRuneError", func(t *testing.T) {
 		// Create a mock terminal that returns an error on read
 		p := &Prompt{
-			config: Config{
+			config: options{
 				Prefix: "test> ",
-				HistoryConfig: &HistoryConfig{
+				historyConfig: &historyConfig{
 					Enabled:    true,
 					MaxEntries: 100,
 				},
@@ -910,9 +910,9 @@ func TestHistorySearchErrorCases(t *testing.T) {
 
 func createPromptWithHistory(history []string, mockInput string) *Prompt {
 	return &Prompt{
-		config: Config{
+		config: options{
 			Prefix: "test> ",
-			HistoryConfig: &HistoryConfig{
+			historyConfig: &historyConfig{
 				Enabled:    true,
 				MaxEntries: 100,
 			},
@@ -1041,7 +1041,7 @@ func TestExpandHistoryPath(t *testing.T) {
 
 func TestNewHistoryManagerPathExpansion(t *testing.T) {
 	t.Run("WithHomePath", func(t *testing.T) {
-		config := &HistoryConfig{
+		config := &historyConfig{
 			Enabled:     true,
 			File:        "~/.test_history_manager",
 			MaxFileSize: 1024,
@@ -1061,7 +1061,7 @@ func TestNewHistoryManagerPathExpansion(t *testing.T) {
 	})
 
 	t.Run("WithRelativePath", func(t *testing.T) {
-		config := &HistoryConfig{
+		config := &historyConfig{
 			Enabled:     true,
 			File:        "./relative_history",
 			MaxFileSize: 1024,
@@ -1086,7 +1086,7 @@ func TestNewHistoryManagerPathExpansion(t *testing.T) {
 		} else {
 			absPath = "/tmp/absolute_history"
 		}
-		config := &HistoryConfig{
+		config := &historyConfig{
 			Enabled:     true,
 			File:        absPath,
 			MaxFileSize: 1024,
@@ -1111,7 +1111,7 @@ func TestHistoryFileOperationsWithExpandedPaths(t *testing.T) {
 	// Test with a path that needs expansion
 	relativeFile := "./test_expanded_history"
 
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled:     true,
 		File:        relativeFile,
 		MaxFileSize: 1024,
@@ -1156,20 +1156,6 @@ func TestHistoryFileOperationsWithExpandedPaths(t *testing.T) {
 	}
 }
 
-func TestGetDefaultHistoryFile(t *testing.T) {
-	result := GetDefaultHistoryFile()
-
-	// Should return an expanded path
-	if !filepath.IsAbs(result) {
-		t.Errorf("Expected absolute path, got %q", result)
-	}
-
-	// Should contain .config/prompt/history pattern
-	if !strings.Contains(result, filepath.Join(".config", "prompt", "history")) {
-		t.Errorf("Expected path to contain .config/prompt/history, got %q", result)
-	}
-}
-
 func TestRotateHistoryFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	historyFile := filepath.Join(tmpDir, "rotate_test_history")
@@ -1181,7 +1167,7 @@ func TestRotateHistoryFile(t *testing.T) {
 		t.Fatalf("Failed to create initial file: %v", err)
 	}
 
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled:     true,
 		File:        historyFile,
 		MaxFileSize: 100,
@@ -1257,7 +1243,7 @@ func TestLoadHistoryCorruptedFile(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled:     true,
 		File:        historyFile,
 		MaxFileSize: 1024,
@@ -1304,7 +1290,7 @@ func TestSaveHistoryPermissionError(t *testing.T) {
 	defer os.Chmod(readOnlyDir, 0755) // #nosec G302 - test cleanup
 
 	historyFile := filepath.Join(readOnlyDir, "history")
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled:     true,
 		File:        historyFile,
 		MaxFileSize: 1024,
@@ -1331,7 +1317,7 @@ func TestHistoryManagerEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to create empty file: %v", err)
 		}
 
-		config := &HistoryConfig{
+		config := &historyConfig{
 			Enabled:     true,
 			File:        historyFile,
 			MaxFileSize: 1024,
@@ -1361,7 +1347,7 @@ func TestHistoryManagerEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to create file: %v", err)
 		}
 
-		config := &HistoryConfig{
+		config := &historyConfig{
 			Enabled:     true,
 			File:        historyFile,
 			MaxFileSize: 1024,
@@ -1386,7 +1372,7 @@ func TestHistoryManagerEdgeCases(t *testing.T) {
 		tmpDir := t.TempDir()
 		historyFile := filepath.Join(tmpDir, "no_entries_history")
 
-		config := &HistoryConfig{
+		config := &historyConfig{
 			Enabled:     true,
 			File:        historyFile,
 			MaxFileSize: 1024,
@@ -1440,7 +1426,7 @@ func TestRotationWithZeroMaxBackups(t *testing.T) {
 		t.Fatalf("Failed to create initial file: %v", err)
 	}
 
-	config := &HistoryConfig{
+	config := &historyConfig{
 		Enabled:     true,
 		File:        historyFile,
 		MaxFileSize: 10, // Very small to trigger rotation
@@ -1508,7 +1494,7 @@ func TestHistoryFileRoundTrip(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			config := &HistoryConfig{
+			config := &historyConfig{
 				Enabled:     true,
 				File:        filepath.Join(t.TempDir(), "history"),
 				MaxFileSize: 1024 * 1024,
@@ -1549,7 +1535,7 @@ func TestLoadHistorySkipsEmptyLinesAndCRLF(t *testing.T) {
 		t.Fatalf("failed to write history file: %v", err)
 	}
 
-	hm := newHistoryManager(&HistoryConfig{
+	hm := newHistoryManager(&historyConfig{
 		Enabled:     true,
 		File:        historyFile,
 		MaxFileSize: 1024 * 1024,
@@ -1634,13 +1620,13 @@ func TestHistoryManagerKeepsAtMostMaxEntries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			hm := newHistoryManager(&HistoryConfig{Enabled: true, MaxEntries: tt.maxEntries})
+			hm := newHistoryManager(&historyConfig{Enabled: true, MaxEntries: tt.maxEntries})
 			for _, entry := range tt.added {
 				hm.addEntry(entry)
 			}
 			got := hm.getHistory()
 			if !slices.Equal(got, tt.want) {
-				t.Errorf("GetHistory() = %q, want %q", got, tt.want)
+				t.Errorf("History() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -1653,14 +1639,14 @@ func TestHistoryManagerLoadHistoryReplacesWhatItHolds(t *testing.T) {
 	t.Parallel()
 
 	file := filepath.Join(t.TempDir(), "history")
-	saved := newHistoryManager(&HistoryConfig{Enabled: true, File: file})
+	saved := newHistoryManager(&historyConfig{Enabled: true, File: file})
 	saved.addEntry("one")
 	saved.addEntry("two")
 	if err := saved.saveHistory(); err != nil {
 		t.Fatalf("SaveHistory() error = %v", err)
 	}
 
-	loaded := newHistoryManager(&HistoryConfig{Enabled: true, File: file})
+	loaded := newHistoryManager(&historyConfig{Enabled: true, File: file})
 	for range 2 {
 		if err := loaded.loadHistory(); err != nil {
 			t.Fatalf("LoadHistory() error = %v", err)
@@ -1669,7 +1655,7 @@ func TestHistoryManagerLoadHistoryReplacesWhatItHolds(t *testing.T) {
 
 	want := []string{"one", "two"}
 	if got := loaded.getHistory(); !slices.Equal(got, want) {
-		t.Errorf("GetHistory() = %q, want %q", got, want)
+		t.Errorf("History() = %q, want %q", got, want)
 	}
 }
 
@@ -1679,13 +1665,13 @@ func TestHistoryManagerLoadHistoryReplacesWhatItHolds(t *testing.T) {
 func TestHistoryManagerLoadHistoryKeepsTheHistoryWhenThereIsNoFile(t *testing.T) {
 	t.Parallel()
 
-	hm := newHistoryManager(&HistoryConfig{Enabled: true, File: filepath.Join(t.TempDir(), "absent")})
+	hm := newHistoryManager(&historyConfig{Enabled: true, File: filepath.Join(t.TempDir(), "absent")})
 	hm.addEntry("kept")
 	if err := hm.loadHistory(); err != nil {
 		t.Fatalf("LoadHistory() error = %v", err)
 	}
 	if got := hm.getHistory(); !slices.Equal(got, []string{"kept"}) {
-		t.Errorf("GetHistory() = %q, want [kept]", got)
+		t.Errorf("History() = %q, want [kept]", got)
 	}
 }
 
@@ -1700,13 +1686,13 @@ func TestHistoryManagerLoadHistoryKeepsAtMostMaxEntries(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	hm := newHistoryManager(&HistoryConfig{Enabled: true, File: file, MaxEntries: 2})
+	hm := newHistoryManager(&historyConfig{Enabled: true, File: file, MaxEntries: 2})
 	if err := hm.loadHistory(); err != nil {
 		t.Fatalf("LoadHistory() error = %v", err)
 	}
 	want := []string{"d", "e"}
 	if got := hm.getHistory(); !slices.Equal(got, want) {
-		t.Errorf("GetHistory() = %q, want %q", got, want)
+		t.Errorf("History() = %q, want %q", got, want)
 	}
 }
 
@@ -1779,7 +1765,7 @@ func TestSearchHistoryConsumesEscapeSequences(t *testing.T) {
 
 			p := newTestPrompt(newMockTerminal(tt.input), WithMemoryHistory(10))
 			p.SetHistory([]string{"select 1", "select 2"})
-			got, err := p.Run()
+			got, err := p.Run(context.Background())
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -1801,7 +1787,7 @@ func TestLoadHistoryReadsAnEntryOfAnyLength(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "history")
 	long := "INSERT INTO t VALUES ('" + strings.Repeat("x", 70000) + "');"
 
-	saved := newHistoryManager(&HistoryConfig{Enabled: true, File: file, MaxEntries: 100, MaxFileSize: 1 << 30})
+	saved := newHistoryManager(&historyConfig{Enabled: true, File: file, MaxEntries: 100, MaxFileSize: 1 << 30})
 	saved.addEntry("select 1;")
 	saved.addEntry(long)
 	saved.addEntry("select 2;")
@@ -1809,7 +1795,7 @@ func TestLoadHistoryReadsAnEntryOfAnyLength(t *testing.T) {
 		t.Fatalf("saveHistory() error = %v", err)
 	}
 
-	loaded := newHistoryManager(&HistoryConfig{Enabled: true, File: file, MaxEntries: 100})
+	loaded := newHistoryManager(&historyConfig{Enabled: true, File: file, MaxEntries: 100})
 	if err := loaded.loadHistory(); err != nil {
 		t.Fatalf("loadHistory() error = %v", err)
 	}
@@ -1831,7 +1817,7 @@ func TestLoadHistoryKeepsALastLineWithoutANewline(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	hm := newHistoryManager(&HistoryConfig{Enabled: true, File: file, MaxEntries: 100})
+	hm := newHistoryManager(&historyConfig{Enabled: true, File: file, MaxEntries: 100})
 	if err := hm.loadHistory(); err != nil {
 		t.Fatalf("loadHistory() error = %v", err)
 	}
@@ -1879,9 +1865,9 @@ func TestDisabledHistoryStaysEmpty(t *testing.T) {
 
 	newDisabled := func(t *testing.T, script string) *Prompt {
 		t.Helper()
-		p, err := newFromConfigOn(Config{
+		p, err := newFromConfigOn(options{
 			Prefix:        "$ ",
-			HistoryConfig: &HistoryConfig{Enabled: false, MaxEntries: 10},
+			historyConfig: &historyConfig{Enabled: false, MaxEntries: 10},
 			ColorScheme:   ThemeDefault,
 			KeyMap:        NewDefaultKeyMap(),
 		}, newMockTerminal(script), io.Discard)
@@ -1896,8 +1882,8 @@ func TestDisabledHistoryStaysEmpty(t *testing.T) {
 
 		p := newDisabled(t, "")
 		p.SetHistory([]string{"set while disabled"})
-		if got := p.GetHistory(); len(got) != 0 {
-			t.Errorf("GetHistory() = %q, want nothing", got)
+		if got := p.History(); len(got) != 0 {
+			t.Errorf("History() = %q, want nothing", got)
 		}
 		if len(p.history) != 0 {
 			t.Errorf("the history the arrow keys walk holds %q, want nothing", p.history)
@@ -1909,7 +1895,7 @@ func TestDisabledHistoryStaysEmpty(t *testing.T) {
 
 		p := newDisabled(t, "\x1b[A\x1b[A\r")
 		p.SetHistory([]string{"set while disabled"})
-		got, err := p.Run()
+		got, err := p.Run(context.Background())
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
 		}
@@ -1923,8 +1909,8 @@ func TestDisabledHistoryStaysEmpty(t *testing.T) {
 
 		p := newDisabled(t, "")
 		p.AddHistory("added while disabled")
-		if got := p.GetHistory(); len(got) != 0 {
-			t.Errorf("GetHistory() = %q, want nothing", got)
+		if got := p.History(); len(got) != 0 {
+			t.Errorf("History() = %q, want nothing", got)
 		}
 		if len(p.history) != 0 {
 			t.Errorf("the history the arrow keys walk holds %q, want nothing", p.history)
@@ -2095,7 +2081,7 @@ func TestSavingDoesNotDeleteWhatTheFileHeldWithoutABackup(t *testing.T) {
 		t.Fatalf("writing the history file: %v", err)
 	}
 
-	hm := newHistoryManager(&HistoryConfig{
+	hm := newHistoryManager(&historyConfig{
 		Enabled: true, MaxEntries: 100, File: file, MaxFileSize: 1024 * 1024, MaxBackups: 3,
 	})
 	if err := hm.loadHistory(); err != nil {
@@ -2139,31 +2125,31 @@ func TestSavingDoesNotDeleteWhatTheFileHeldWithoutABackup(t *testing.T) {
 // backups is what a caller says when they do not want copies of what the user
 // typed left beside the history file.
 //
-// A caller who passes no HistoryConfig at all is a different case and takes
+// A caller who passes no historyConfig at all is a different case and takes
 // defaultHistoryConfig, backups included: this is about a literal somebody
 // wrote, where a field left out was left out on purpose.
 func TestNormalizeHistoryConfigKeepsAValueTheCallerMeant(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
-		in   HistoryConfig
-		want HistoryConfig
+		in   historyConfig
+		want historyConfig
 	}{
 		"the counts whose zero is not a setting take their defaults": {
-			in:   HistoryConfig{Enabled: true},
-			want: HistoryConfig{Enabled: true, MaxEntries: 1000, MaxFileSize: 1024 * 1024, MaxBackups: 0},
+			in:   historyConfig{Enabled: true},
+			want: historyConfig{Enabled: true, MaxEntries: 1000, MaxFileSize: 1024 * 1024, MaxBackups: 0},
 		},
 		"no backups is kept": {
-			in:   HistoryConfig{Enabled: true, MaxEntries: 10, MaxFileSize: 20, MaxBackups: 0},
-			want: HistoryConfig{Enabled: true, MaxEntries: 10, MaxFileSize: 20, MaxBackups: 0},
+			in:   historyConfig{Enabled: true, MaxEntries: 10, MaxFileSize: 20, MaxBackups: 0},
+			want: historyConfig{Enabled: true, MaxEntries: 10, MaxFileSize: 20, MaxBackups: 0},
 		},
 		"a negative count is not a setting": {
-			in:   HistoryConfig{Enabled: true, MaxEntries: -1, MaxFileSize: -1, MaxBackups: -1},
-			want: HistoryConfig{Enabled: true, MaxEntries: 1000, MaxFileSize: 1024 * 1024, MaxBackups: 3},
+			in:   historyConfig{Enabled: true, MaxEntries: -1, MaxFileSize: -1, MaxBackups: -1},
+			want: historyConfig{Enabled: true, MaxEntries: 1000, MaxFileSize: 1024 * 1024, MaxBackups: 3},
 		},
 		"values the caller set are left alone": {
-			in:   HistoryConfig{Enabled: true, MaxEntries: 7, MaxFileSize: 11, MaxBackups: 2},
-			want: HistoryConfig{Enabled: true, MaxEntries: 7, MaxFileSize: 11, MaxBackups: 2},
+			in:   historyConfig{Enabled: true, MaxEntries: 7, MaxFileSize: 11, MaxBackups: 2},
+			want: historyConfig{Enabled: true, MaxEntries: 7, MaxFileSize: 11, MaxBackups: 2},
 		},
 	}
 
@@ -2222,9 +2208,9 @@ func TestReverseSearchThatMatchedNothingLeavesTheLineAlone(t *testing.T) {
 			p.renderer = newRenderer(&out, ThemeDefault, mock)
 			p.SetHistory(tt.history)
 
-			got, err := p.RunWithContext(context.Background())
+			got, err := p.Run(context.Background())
 			if err != nil {
-				t.Fatalf("RunWithContext() error = %v", err)
+				t.Fatalf("Run() error = %v", err)
 			}
 			if got != tt.want {
 				t.Errorf("the search left %q on the line, want %q", got, tt.want)
@@ -2265,7 +2251,7 @@ func TestReverseSearchFitsUnderTheEntryItSearchesFrom(t *testing.T) {
 
 			var out bytes.Buffer
 			terminal := &sizedMockTerminal{width: width, height: height}
-			p := newTestPromptOn(terminal, WithMultiline(true))
+			p := newTestPromptOn(terminal, WithMultiline())
 			p.output = &out
 			p.renderer = newRenderer(&out, ThemeDefault, terminal)
 			p.buffer = []rune(tt.entry)
@@ -2382,7 +2368,7 @@ func TestCancelingTheContextEndsAnOpenReverseSearch(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
-		_, err := p.RunWithContext(ctx)
+		_, err := p.Run(ctx)
 		done <- err
 	}()
 
@@ -2395,7 +2381,7 @@ func TestCancelingTheContextEndsAnOpenReverseSearch(t *testing.T) {
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.Canceled) {
-			t.Errorf("RunWithContext() error = %v, want context.Canceled", err)
+			t.Errorf("Run() error = %v, want context.Canceled", err)
 		}
 	// Long enough that a busy runner is not what failed it: what is being
 	// asked is whether the call returns at all.

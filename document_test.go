@@ -25,12 +25,12 @@ func TestDocumentIndexesByRune(t *testing.T) {
 
 	t.Run("GetWordBeforeCursor returns the word being typed after a multi-byte one", func(t *testing.T) {
 		t.Parallel()
-		assert.Equal(t, "na", doc.GetWordBeforeCursor())
+		assert.Equal(t, "na", doc.WordBeforeCursor())
 	})
 
 	t.Run("GetWordBeforeCursorEscaped returns the same word", func(t *testing.T) {
 		t.Parallel()
-		assert.Equal(t, "na", doc.GetWordBeforeCursorEscaped())
+		assert.Equal(t, "na", doc.WordBeforeCursorEscaped())
 	})
 
 	t.Run("TextAfterCursor is empty at the end of the text", func(t *testing.T) {
@@ -48,7 +48,7 @@ func TestDocumentSplitsAtARuneBoundary(t *testing.T) {
 
 	assert.Equal(t, "日本", doc.TextBeforeCursor())
 	assert.Equal(t, "語", doc.TextAfterCursor())
-	assert.Equal(t, "日本", doc.GetWordBeforeCursor())
+	assert.Equal(t, "日本", doc.WordBeforeCursor())
 }
 
 func TestDocumentMethods(t *testing.T) {
@@ -144,9 +144,9 @@ func TestDocumentMethods(t *testing.T) {
 				t.Errorf("TextAfterCursor() = %q, want %q", after, tt.expectedAfter)
 			}
 
-			word := doc.GetWordBeforeCursor()
+			word := doc.WordBeforeCursor()
 			if word != tt.expectedWord {
-				t.Errorf("GetWordBeforeCursor() = %q, want %q", word, tt.expectedWord)
+				t.Errorf("WordBeforeCursor() = %q, want %q", word, tt.expectedWord)
 			}
 
 			line := doc.CurrentLine()
@@ -303,9 +303,9 @@ func TestDocumentTextMethodsAdvanced(t *testing.T) {
 			}
 
 			// Test GetWordBeforeCursor
-			word := doc.GetWordBeforeCursor()
+			word := doc.WordBeforeCursor()
 			if word != tt.expectedWord {
-				t.Errorf("GetWordBeforeCursor() = %q, want %q", word, tt.expectedWord)
+				t.Errorf("WordBeforeCursor() = %q, want %q", word, tt.expectedWord)
 			}
 
 			// Test CurrentLine

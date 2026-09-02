@@ -16,28 +16,14 @@ import (
 )
 
 // defaultHistoryConfig returns a default history configuration following XDG Base Directory Specification
-func defaultHistoryConfig() *HistoryConfig {
-	return &HistoryConfig{
+func defaultHistoryConfig() *historyConfig {
+	return &historyConfig{
 		Enabled:     true,
 		MaxEntries:  defaultMaxHistoryEntries,
 		File:        "",          // Empty by default, can be set to use XDG config directory
 		MaxFileSize: 1024 * 1024, // 1MB
 		MaxBackups:  3,
 	}
-}
-
-// GetDefaultHistoryFile returns the default history file path following XDG Base Directory Specification.
-// Returns ~/.config/prompt/history or $XDG_CONFIG_HOME/prompt/history if XDG_CONFIG_HOME is set.
-func GetDefaultHistoryFile() string {
-	configDir := os.Getenv("XDG_CONFIG_HOME")
-	if configDir == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		configDir = filepath.Join(homeDir, ".config")
-	}
-	return filepath.Join(configDir, "prompt", "history")
 }
 
 // defaultMaxHistoryEntries is how many entries are kept when the configuration
@@ -53,7 +39,7 @@ const (
 
 // normalizeHistoryConfig fills in the defaults for the fields a caller left at
 // their zero value.
-func normalizeHistoryConfig(config *HistoryConfig) {
+func normalizeHistoryConfig(config *historyConfig) {
 	if config.MaxEntries <= 0 {
 		config.MaxEntries = defaultMaxHistoryEntries
 	}
@@ -70,7 +56,7 @@ func normalizeHistoryConfig(config *HistoryConfig) {
 
 // historyManager manages command history persistence and rotation
 type historyManager struct {
-	config  *HistoryConfig
+	config  *historyConfig
 	history []string
 	// overflowed records whether the last save had to leave entries out of the
 	// file, so that the rotation which keeps them happens once rather than on
@@ -79,7 +65,7 @@ type historyManager struct {
 }
 
 // newHistoryManager creates a new history manager with the given configuration
-func newHistoryManager(config *HistoryConfig) *historyManager {
+func newHistoryManager(config *historyConfig) *historyManager {
 	if config == nil {
 		config = defaultHistoryConfig()
 	}
@@ -394,7 +380,7 @@ func (hm *historyManager) setHistory(history []string) {
 	hm.history = hm.trim(append([]string{}, history...))
 }
 
-// ClearHistory clears the current history
+// clearHistory empties the history
 func (hm *historyManager) clearHistory() {
 	if !hm.config.Enabled {
 		return
@@ -542,7 +528,7 @@ func (p *Prompt) searchHistory(ctx context.Context) (_ string, err error) {
 		}
 
 		// Read key input. Through the context the caller was given, so a
-		// RunWithContext that is canceled while the search is open returns then
+		// Run that is canceled while the search is open returns then
 		// rather than on the next keystroke: the search is a read loop of its
 		// own, and for as long as it is open it is the only thing watching.
 		r, err := p.readRuneContext(ctx)
@@ -583,9 +569,9 @@ func (p *Prompt) searchHistory(ctx context.Context) (_ string, err error) {
 			switch {
 			case seq == "":
 				return "", nil // a bare Escape, or Alt+key, cancels
-			case p.keyMap.GetSequenceAction(seq) == ActionMoveUp:
+			case p.keyMap.SequenceAction(seq) == ActionMoveUp:
 				selectedIndex = moveSearchSelection(selectedIndex, -1, len(searchResults))
-			case p.keyMap.GetSequenceAction(seq) == ActionMoveDown:
+			case p.keyMap.SequenceAction(seq) == ActionMoveDown:
 				selectedIndex = moveSearchSelection(selectedIndex, 1, len(searchResults))
 			}
 			// Any other sequence is consumed and ignored: the search has no use
@@ -821,8 +807,8 @@ func (p *Prompt) syncHistoryAfterAdd() {
 
 // getMaxHistoryEntries returns the configured maximum history entries or default
 func (p *Prompt) getMaxHistoryEntries() int {
-	if p.config.HistoryConfig != nil && p.config.HistoryConfig.MaxEntries > 0 {
-		return p.config.HistoryConfig.MaxEntries
+	if p.config.historyConfig != nil && p.config.historyConfig.MaxEntries > 0 {
+		return p.config.historyConfig.MaxEntries
 	}
 	return 1000 // Default max entries
 }

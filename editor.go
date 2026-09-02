@@ -126,7 +126,7 @@ func (p *Prompt) findWordBoundary(direction int) int {
 // that were separate.
 //
 // Completion decides what a word is by its own rule, which this is not. See
-// Document.GetWordBeforeCursor.
+// Document.WordBeforeCursor.
 func isWordChar(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r) || r == '_'
 }

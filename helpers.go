@@ -100,7 +100,7 @@ func NewFileCompleter() func(Document) []Suggestion {
 		// It is also the word the prompt measures a candidate against when the
 		// completer does not name the span it replaces, so what is offered here
 		// and what is applied there are the same string.
-		return completeFilePath(d.GetWordBeforeCursor())
+		return completeFilePath(d.WordBeforeCursor())
 	}
 }
 
@@ -210,14 +210,9 @@ type fuzzyMatcher struct {
 //		"kubectl get", "kubectl apply", "kubectl delete",
 //	}
 //
-//	config := prompt.Config{
-//		Prefix: "$ ",
-//		Completer: prompt.NewFuzzyCompleter(candidates),
-//	}
-//
-//	p, _ := prompt.New(config)
+//	p, _ := prompt.New("$ ", prompt.WithCompleter(prompt.NewFuzzyCompleter(candidates)))
 //	defer p.Close()
-//	result, _ := p.Run()
+//	result, _ := p.Run(ctx)
 func NewFuzzyCompleter(candidates []string) func(Document) []Suggestion {
 	fm := &fuzzyMatcher{
 		items: candidates,

@@ -69,7 +69,7 @@ func helperMain() {
 	}
 
 	p := open(1)
-	line, err := p.Run()
+	line, err := p.Run(context.Background())
 	fmt.Printf("session1=%q err=%v\r\n", line, err)
 	if watch {
 		_, stop := p.WatchInterrupt(context.Background())
@@ -89,7 +89,7 @@ func helperMain() {
 	}
 
 	p2 := open(2)
-	line, err = p2.Run()
+	line, err = p2.Run(context.Background())
 	fmt.Printf("session2=%q err=%v\r\n", line, err)
 	if err := p2.Close(); err != nil {
 		fmt.Printf("close2: %v\r\n", err)
@@ -296,7 +296,7 @@ func helperScenario(name string) {
 	case "reopen3":
 		for i := 1; i <= 3; i++ {
 			p := open(i)
-			line, err := p.Run()
+			line, err := p.Run(context.Background())
 			fmt.Printf("session%d=%q err=%v\r\n", i, line, err)
 			_, stop := p.WatchInterrupt(context.Background())
 			stop()
@@ -308,14 +308,14 @@ func helperScenario(name string) {
 		}
 	case "watchtwice":
 		p := open(1)
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		fmt.Printf("session1=%q err=%v\r\n", line, err)
 		for range 3 {
 			_, stop := p.WatchInterrupt(context.Background())
 			stop()
 			stop() // a CancelFunc may be called more than once
 		}
-		line, err = p.Run()
+		line, err = p.Run(context.Background())
 		fmt.Printf("session2=%q err=%v\r\n", line, err)
 		if err := p.Close(); err != nil {
 			fmt.Printf("close: %v\r\n", err)
@@ -323,7 +323,7 @@ func helperScenario(name string) {
 		}
 	case "watchnostop":
 		p := open(1)
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		fmt.Printf("session1=%q err=%v\r\n", line, err)
 		// The stop function is deliberately dropped: a watch left running is
 		// what Close has to cope with.
@@ -333,7 +333,7 @@ func helperScenario(name string) {
 			os.Exit(1)
 		}
 		p2 := open(2)
-		line, err = p2.Run()
+		line, err = p2.Run(context.Background())
 		fmt.Printf("session2=%q err=%v\r\n", line, err)
 		if err := p2.Close(); err != nil {
 			fmt.Printf("close2: %v\r\n", err)
@@ -341,7 +341,7 @@ func helperScenario(name string) {
 		}
 	case "doubleclose":
 		p := open(1)
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		fmt.Printf("session1=%q err=%v\r\n", line, err)
 		for range 3 {
 			if err := p.Close(); err != nil {
@@ -350,12 +350,12 @@ func helperScenario(name string) {
 			}
 		}
 		p2 := open(2)
-		line, err = p2.Run()
+		line, err = p2.Run(context.Background())
 		fmt.Printf("session2=%q err=%v\r\n", line, err)
 		_ = p2.Close()
 	case "childstty":
 		p := open(1)
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		fmt.Printf("session1=%q err=%v\r\n", line, err)
 		if err := p.Close(); err != nil {
 			fmt.Printf("close1: %v\r\n", err)
@@ -363,38 +363,38 @@ func helperScenario(name string) {
 		}
 		runChild("stty sane")
 		p2 := open(2)
-		line, err = p2.Run()
+		line, err = p2.Run(context.Background())
 		fmt.Printf("session2=%q err=%v\r\n", line, err)
 		_ = p2.Close()
 	case "nestedwatch":
 		p := open(1)
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		fmt.Printf("session1=%q err=%v\r\n", line, err)
 		_, stopA := p.WatchInterrupt(context.Background())
 		_, stopB := p.WatchInterrupt(context.Background())
 		stopB()
 		stopA()
-		line, err = p.Run()
+		line, err = p.Run(context.Background())
 		fmt.Printf("session2=%q err=%v\r\n", line, err)
 		_ = p.Close()
 	case "childraw":
 		// A child that leaves the terminal in raw mode and dies there.
 		p := open(1)
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		fmt.Printf("session1=%q err=%v\r\n", line, err)
 		if err := p.Close(); err != nil {
 			fmt.Printf("close1: %v\r\n", err)
 		}
 		runChild("stty raw -echo")
 		p2 := open(2)
-		line, err = p2.Run()
+		line, err = p2.Run(context.Background())
 		fmt.Printf("session2=%q err=%v\r\n", line, err)
 		_ = p2.Close()
 	case "winch":
 		p := open(1)
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		fmt.Printf("session1=%q err=%v\r\n", line, err)
-		line, err = p.Run()
+		line, err = p.Run(context.Background())
 		fmt.Printf("session2=%q err=%v\r\n", line, err)
 		_ = p.Close()
 	case "cancelduringrun":
@@ -404,7 +404,7 @@ func helperScenario(name string) {
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
 		go func() {
-			line, err := p.RunWithContext(ctx)
+			line, err := p.Run(ctx)
 			fmt.Printf("session1=%q err=%v\r\n", line, err)
 			close(done)
 		}()
@@ -420,14 +420,14 @@ func helperScenario(name string) {
 		_ = p.Close()
 	case "typeahead":
 		p := open(1)
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		fmt.Printf("session1=%q err=%v\r\n", line, err)
 		ctx, stop := p.WatchInterrupt(context.Background())
 		fmt.Printf("watching\r\n")
 		<-ctx.Done()
 		stop()
 		fmt.Printf("interrupted\r\n")
-		line, err = p.Run()
+		line, err = p.Run(context.Background())
 		fmt.Printf("session2=%q err=%v\r\n", line, err)
 		_ = p.Close()
 	case "watchdefault":
@@ -440,7 +440,7 @@ func helperScenario(name string) {
 			fmt.Printf("new: %v\r\n", err)
 			os.Exit(1)
 		}
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		fmt.Printf("session1=%q err=%v\r\n", line, err)
 		ctx, stop := p.WatchInterrupt(context.Background())
 		fmt.Printf("watching\r\n")
@@ -464,7 +464,7 @@ func helperScenario(name string) {
 			fmt.Printf("new: %v\r\n", err)
 			os.Exit(1)
 		}
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		fmt.Printf("session1=%q err=%v\r\n", line, err)
 		ctx, stop := p.WatchInterrupt(context.Background())
 		fmt.Printf("watching\r\n")
@@ -486,7 +486,7 @@ func helperScenario(name string) {
 		// window of it the terminal has room for; what must not happen is the
 		// terminal scrolling on every keystroke, taking the session with it.
 		p, err := New("sql> ",
-			WithMultiline(true),
+			WithMultiline(),
 			WithContinuationPrefix("..> "),
 			WithIsComplete(func(in string) bool { return strings.HasSuffix(in, ";") }),
 			WithPersistentRawMode(),
@@ -495,7 +495,7 @@ func helperScenario(name string) {
 			fmt.Printf("new: %v\r\n", err)
 			os.Exit(1)
 		}
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		fmt.Printf("entry=%q err=%v\r\n", line, err)
 		if err := p.Close(); err != nil {
 			fmt.Printf("close: %v\r\n", err)
@@ -504,7 +504,7 @@ func helperScenario(name string) {
 	case "runafterclose":
 		start := sttySettings()
 		p := open(1)
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		fmt.Printf("session1=%q err=%v\r\n", line, err)
 		if err := p.Close(); err != nil {
 			fmt.Printf("close: %v\r\n", err)
@@ -516,7 +516,7 @@ func helperScenario(name string) {
 		// restore it has already run. The prefix changes so that anything that
 		// Run draws is recognizable in the transcript: nothing may be.
 		p.SetPrefix("p2> ")
-		line, err = p.Run()
+		line, err = p.Run(context.Background())
 		fmt.Printf("session2=%q err=%v errEOF=%v\r\n", line, err, errors.Is(err, ErrEOF))
 		fmt.Printf("restored=%v\r\n", sttySettings() == closed)
 		// Printed, not asserted. Whether a whole session gives every setting
@@ -529,7 +529,7 @@ func helperScenario(name string) {
 		fmt.Printf("sessionrestored=%v\r\nstty0=%s\r\nstty1=%s\r\n", start == closed, start, closed)
 	case "childinput":
 		p := open(1)
-		line, err := p.Run()
+		line, err := p.Run(context.Background())
 		fmt.Printf("session1=%q err=%v\r\n", line, err)
 		if err := p.Close(); err != nil {
 			fmt.Printf("close1: %v\r\n", err)
@@ -537,7 +537,7 @@ func helperScenario(name string) {
 		fmt.Printf("childstart\r\n")
 		runChild("sleep 0.5")
 		p2 := open(2)
-		line, err = p2.Run()
+		line, err = p2.Run(context.Background())
 		fmt.Printf("session2=%q err=%v\r\n", line, err)
 		_ = p2.Close()
 	default:

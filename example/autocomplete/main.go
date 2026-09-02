@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -120,7 +121,7 @@ func main() {
 	// Create prompt with autocomplete using only public APIs
 	p, err := prompt.New("app> ",
 		prompt.WithCompleter(scrollTestCompleter),
-		prompt.WithColorScheme(prompt.ThemeNightOwl),
+		prompt.WithTheme(prompt.ThemeNightOwl),
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -128,7 +129,7 @@ func main() {
 	defer p.Close()
 
 	for {
-		result, err := p.Run()
+		result, err := p.Run(context.Background())
 		if err != nil {
 			if errors.Is(err, prompt.ErrEOF) {
 				fmt.Println("\nGoodbye!")
