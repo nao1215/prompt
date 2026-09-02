@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- An entry taller than the terminal is redrawn in place instead of scrolling the screen on every keystroke (PR [#130](https://github.com/nao1215/prompt/pull/130), [df75ebc](https://github.com/nao1215/prompt/commit/df75ebc), [#124](https://github.com/nao1215/prompt/issues/124)). The renderer drew the whole block whatever the terminal's height, so a twelve-row statement on an eight-row terminal pushed four rows of the session off the top per redraw, and the erase that precedes a redraw is a move up the terminal clamps at its top row, so it started in the middle of the block. Editing a line that had scrolled off drew the caret wherever that clamp left the move. The block now gets a viewport: the rows around the caret the terminal has room for are drawn, the rest are left undrawn, and the row counts the renderer remembers describe that window, which is what the erase arithmetic already took them for.
+
+- The output printed after a multiline entry no longer lands on top of the entry (PR [#130](https://github.com/nao1215/prompt/pull/130), [8a199da](https://github.com/nao1215/prompt/commit/8a199da), [#128](https://github.com/nao1215/prompt/issues/128)). Submitting from a line above the last wrote the line break from the caret's row, so an application printing its result drew it through the rows of the statement below the cursor. The entry is now redrawn with the caret after its last character before the line break is written, which leaves the cursor at the foot of the block.
+
+- Ctrl+C no longer writes `^C` through the entry or leaves rows of it on screen (PR [#130](https://github.com/nao1215/prompt/pull/130), [8a199da](https://github.com/nao1215/prompt/commit/8a199da), [#129](https://github.com/nao1215/prompt/issues/129)). It wrote from wherever the caret was, so it ate the character under the cursor and the rows below it survived into the next prompt, which is told that what is on screen is not its to erase. The interrupt ends the line at the foot of the block, as submitting does.
+
 ## [0.0.29] - 2026-09-01
 
 ### Fixed

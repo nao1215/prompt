@@ -219,7 +219,9 @@ func TestRendererPositionCursor(t *testing.T) {
 	lines := []string{"line1", "line2", "line3"}
 
 	// This mainly tests that the method doesn't crash
-	renderer.positionCursor(lines, 1, 2, "$ ")
+	if _, err := renderer.positionCursor(lines, 1, 2, "$ "); err != nil {
+		t.Fatalf("positionCursor: %v", err)
+	}
 
 	// Check that some output was written
 	result := output.String()
@@ -1061,7 +1063,9 @@ func TestRendererDisplayWidth(t *testing.T) {
 
 			var output bytes.Buffer
 			renderer := newRenderer(&output, ThemeDefault, nil)
-			renderer.positionCursor(tt.lines, tt.line, tt.col, tt.prefix)
+			if _, err := renderer.positionCursor(tt.lines, tt.line, tt.col, tt.prefix); err != nil {
+				t.Fatalf("positionCursor: %v", err)
+			}
 
 			if got := output.String(); !strings.Contains(got, tt.want) {
 				t.Errorf("positionCursor() wrote %q, want it to contain %q (%s)", got, tt.want, tt.why)
@@ -1092,7 +1096,9 @@ func TestRendererDisplayWidth(t *testing.T) {
 		renderer := newRenderer(&output, ThemeDefault, nil)
 		renderer.setContinuationPrefix("続き> ")
 
-		renderer.positionCursor([]string{"a", "bc"}, 1, 2, "$ ")
+		if _, err := renderer.positionCursor([]string{"a", "bc"}, 1, 2, "$ "); err != nil {
+			t.Fatalf("positionCursor: %v", err)
+		}
 		if got := output.String(); !strings.Contains(got, "\x1b[8C") {
 			t.Errorf("positionCursor() wrote %q, want it to contain %q (6 columns of prefix plus 2 of text)", got, "\x1b[8C")
 		}
@@ -1662,6 +1668,13 @@ type screenModel struct {
 	row     int
 	col     int
 	pending bool // the cursor is parked on the last cell with a wrap owed
+	// bound is the number of rows the screen has, or zero when it grows to fit
+	// whatever is drawn. A bounded screen scrolls the way a terminal does, and
+	// scrolled counts the rows that went off the top: what scrolls away is the
+	// session's scrollback, which belongs to the application rather than to the
+	// prompt.
+	bound    int
+	scrolled int
 }
 
 func newScreenModel(width int) *screenModel {
@@ -1670,19 +1683,50 @@ func newScreenModel(width int) *screenModel {
 	return s
 }
 
-// growTo makes sure the screen has at least rows rows. It grows rather than
-// clamping, because a block taller than the screen is a real answer the caller
-// wants: silently stopping at a fixed height reports a height that is short by
-// however far the block ran past it, and reads as a bug in the renderer.
+// newBoundedScreenModel is newScreenModel on a terminal that has a last row.
+// A render that reaches past it scrolls the screen instead of making it taller,
+// which is the difference the growing model cannot show: rows leaving the top.
+func newBoundedScreenModel(width, height int) *screenModel {
+	s := &screenModel{width: width, bound: height}
+	s.growTo(1)
+	return s
+}
+
+// growTo makes sure the screen has at least rows rows. Unbounded it grows,
+// because a block taller than the screen is a real answer the caller wants:
+// silently stopping at a fixed height reports a height that is short by however
+// far the block ran past it, and reads as a bug in the renderer. Bounded it
+// scrolls, which is what the terminal does with the rows that do not fit.
 func (s *screenModel) growTo(rows int) {
+	if s.bound > 0 && rows > s.bound {
+		s.scrollBy(rows - s.bound)
+		rows = s.bound
+	}
 	for len(s.cells) < rows {
-		row := make([]rune, s.width)
-		for col := range row {
-			row[col] = ' '
-		}
-		s.cells = append(s.cells, row)
+		s.cells = append(s.cells, s.blankRow())
 	}
 	s.height = len(s.cells)
+}
+
+func (s *screenModel) blankRow() []rune {
+	row := make([]rune, s.width)
+	for col := range row {
+		row[col] = ' '
+	}
+	return row
+}
+
+// scrollBy moves the screen up n rows, dropping that many from the top and
+// adding blank ones at the foot, and takes the cursor with it.
+func (s *screenModel) scrollBy(n int) {
+	s.scrolled += n
+	for range n {
+		if len(s.cells) >= s.bound {
+			s.cells = s.cells[1:]
+		}
+		s.cells = append(s.cells, s.blankRow())
+	}
+	s.row = max(s.row-n, 0)
 }
 
 // put writes one rune where the cursor is, the way a terminal does: a glyph is
@@ -1809,6 +1853,12 @@ func (s *screenModel) control(runes []rune, start int) int {
 		s.row, s.pending = max(s.row-count, 0), false
 	case 'B':
 		s.row, s.pending = s.row+count, false
+		// A terminal clamps a cursor-down at its last row. Only a line break and
+		// a wrap move the screen, so a move that reaches past the foot of a
+		// bounded screen stops there rather than scrolling it.
+		if s.bound > 0 {
+			s.row = min(s.row, s.bound-1)
+		}
 		s.growTo(s.row + 1)
 	case 'C':
 		s.col, s.pending = min(s.col+count, s.width-1), false
@@ -1826,6 +1876,32 @@ func (s *screenModel) control(runes []rune, start int) int {
 		}
 	}
 	return end
+}
+
+// TestABoundedScreenClampsACursorDownAtItsLastRow pins the model against the
+// terminal it stands for. A cursor-down that reaches past the foot of the screen
+// stops there; it is a line break and a filled row that scroll. A model that
+// scrolled here would report rows lost that a terminal never lost, and the
+// counts the render tests read off it are only worth what the model is faithful
+// to.
+func TestABoundedScreenClampsACursorDownAtItsLastRow(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 20, 8
+
+	screen := newBoundedScreenModel(width, height)
+	screen.feed(strings.Repeat("x\n", height-1)) // fill it, cursor on the last row
+	if screen.scrolled != 0 || screen.row != height-1 {
+		t.Fatalf("filling the screen left the cursor on row %d having scrolled %d", screen.row, screen.scrolled)
+	}
+
+	screen.feed("\x1b[9B")
+	if screen.scrolled != 0 {
+		t.Errorf("a cursor-down past the last row scrolled the screen by %d rows", screen.scrolled)
+	}
+	if screen.row != height-1 {
+		t.Errorf("a cursor-down past the last row left the cursor on row %d, want %d", screen.row, height-1)
+	}
 }
 
 // rows returns what is on screen, without the blank rows below it.

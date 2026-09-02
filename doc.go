@@ -167,6 +167,18 @@
 // contains newline characters, arrow keys navigate between lines instead of history,
 // and Home/End keys move to line boundaries instead of buffer boundaries.
 //
+// An entry taller than the terminal is drawn as the rows around the cursor that
+// the terminal has room for, redrawn in place. The rows outside that window are
+// left undrawn rather than drawn and scrolled away, because what scrolls off the
+// top of the screen is the application's output rather than the prompt's. The
+// window moves only as far as the cursor makes it: an entry does not scroll
+// under a cursor that is already on screen.
+//
+// A line ends at the foot of the entry, whichever line the cursor was on when
+// Enter or Ctrl+C was pressed. The cursor is left after the entry's last
+// character, so what an application prints next starts below the entry rather
+// than on top of the rows the cursor was above.
+//
 // Thread Safety:
 //
 // Prompt instances are not thread-safe. Each prompt should be used from a single

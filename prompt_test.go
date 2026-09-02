@@ -1173,7 +1173,7 @@ func TestRendererWithSuggestionEdgeCases(t *testing.T) {
 		renderer := newRenderer(failing, ThemeDefault, nil)
 
 		// Test renderMainLine error
-		_, err := renderer.renderMainLine("$ ", "test", 2)
+		_, _, err := renderer.renderMainLine("$ ", "test", 2)
 		if err == nil {
 			t.Error("Expected error from failing writer in renderMainLine")
 		}
@@ -1427,31 +1427,31 @@ func TestComprehensiveRendererCoverage(t *testing.T) {
 		renderer := newRenderer(&output, ThemeDefault, nil)
 
 		// Test cursor at beginning
-		_, err := renderer.renderMainLine("$ ", "hello", 0)
+		_, _, err := renderer.renderMainLine("$ ", "hello", 0)
 		if err != nil {
 			t.Errorf("renderMainLine() error = %v", err)
 		}
 
 		// Test cursor at end
-		_, err = renderer.renderMainLine("$ ", "hello", 5)
+		_, _, err = renderer.renderMainLine("$ ", "hello", 5)
 		if err != nil {
 			t.Errorf("renderMainLine() error = %v", err)
 		}
 
 		// Test cursor beyond end (should be safe)
-		_, err = renderer.renderMainLine("$ ", "hello", 10)
+		_, _, err = renderer.renderMainLine("$ ", "hello", 10)
 		if err != nil {
 			t.Errorf("renderMainLine() error = %v", err)
 		}
 
 		// Test with empty input
-		_, err = renderer.renderMainLine("$ ", "", 0)
+		_, _, err = renderer.renderMainLine("$ ", "", 0)
 		if err != nil {
 			t.Errorf("renderMainLine() error = %v", err)
 		}
 
 		// Test with unicode characters
-		_, err = renderer.renderMainLine("🚀 ", "こんにちは", 2)
+		_, _, err = renderer.renderMainLine("🚀 ", "こんにちは", 2)
 		if err != nil {
 			t.Errorf("renderMainLine() error = %v", err)
 		}
@@ -1697,7 +1697,7 @@ func TestFinalCoverageBoost(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			_, err := renderer.renderMainLine("$ ", tc.input, tc.cursor)
+			_, _, err := renderer.renderMainLine("$ ", tc.input, tc.cursor)
 			if err != nil {
 				t.Errorf("renderMainLine(%q, %d) error = %v", tc.input, tc.cursor, err)
 			}
@@ -3788,4 +3788,77 @@ func TestOptionsSetWhatTheyName(t *testing.T) {
 			t.Errorf("the highlighter answered %v, want the one that was set", got)
 		}
 	})
+}
+
+// TestSubmittingFromALineAboveTheLastEndsTheBlockBelowTheEntry submits a
+// multiline entry with the cursor on its first line, then prints what an
+// application prints after a line: the output belongs under the entry, and the
+// rows of the entry below the cursor are still on screen for it to land in.
+func TestSubmittingFromALineAboveTheLastEndsTheBlockBelowTheEntry(t *testing.T) {
+	t.Parallel()
+
+	const width = 20
+
+	var out bytes.Buffer
+	terminal := &sizedMockTerminal{width: width}
+	// Two Ups put the cursor on the first line; the statement is complete, so
+	// the Enter after them submits rather than opening another line.
+	terminal.mockTerminal = *newMockTerminal("select 1,\r2,\r3;\x1b[A\x1b[A\r")
+	p := newTestPromptOn(terminal,
+		WithMultiline(true),
+		WithContinuationPrefix("...> "),
+		WithIsComplete(func(in string) bool { return strings.HasSuffix(strings.TrimSpace(in), ";") }),
+	)
+	p.output = &out
+	p.renderer = newRenderer(&out, ThemeDefault, terminal)
+
+	line, err := p.Run()
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if want := "select 1,\n2,\n3;"; line != want {
+		t.Fatalf("Run() = %q, want %q", line, want)
+	}
+	fmt.Fprint(&out, "result\r\n")
+
+	screen := newScreenModel(width)
+	screen.feed(out.String())
+	want := []string{"$ select 1,", "...> 2,", "...> 3;", "result"}
+	if got := screen.rows(); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("the screen shows\n%q\nwant\n%q", got, want)
+	}
+}
+
+// TestCancelingFromALineAboveTheLastLeavesNoRowOfTheEntryBehind interrupts a
+// multiline entry with the cursor on its first line. What the next prompt is
+// drawn under has to be the whole entry: ^C written into the middle of it eats a
+// character, and the rows below the cursor are erased by nothing afterwards,
+// because the next Run is told that what is on screen is not its to erase.
+func TestCancelingFromALineAboveTheLastLeavesNoRowOfTheEntryBehind(t *testing.T) {
+	t.Parallel()
+
+	const width = 20
+
+	var out bytes.Buffer
+	terminal := &sizedMockTerminal{width: width}
+	terminal.mockTerminal = *newMockTerminal("select 1,\r2,\r3\x1b[A\x1b[A\x03")
+	p := newTestPromptOn(terminal,
+		WithMultiline(true),
+		WithContinuationPrefix("...> "),
+		WithIsComplete(func(in string) bool { return strings.HasSuffix(strings.TrimSpace(in), ";") }),
+	)
+	p.output = &out
+	p.renderer = newRenderer(&out, ThemeDefault, terminal)
+
+	if _, err := p.Run(); !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("Run() error = %v, want ErrInterrupted", err)
+	}
+	fmt.Fprint(&out, "$ ") // the prompt the REPL draws next
+
+	screen := newScreenModel(width)
+	screen.feed(out.String())
+	want := []string{"$ select 1,", "...> 2,", "...> 3^C", "$"}
+	if got := screen.rows(); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("the screen shows\n%q\nwant\n%q", got, want)
+	}
 }
