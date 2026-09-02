@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math/rand"
 	"strings"
 	"testing"
 )
@@ -320,6 +321,99 @@ func TestAClippedBlockColorsTheRunsTheHighlighterNamed(t *testing.T) {
 		want := fmt.Sprintf("%s%02d%s", red.ToANSI(), line, ansiReset())
 		if !strings.Contains(drawn, want) {
 			t.Errorf("line %d is drawn without the color its span named: %q", line, drawn)
+		}
+	}
+}
+
+// TestARandomEntryIsDrawnAsTheWindowOfItselfTheTerminalHasRoomFor builds
+// entries out of the pieces the wrap arithmetic has been wrong about before --
+// wide runes, combining marks, tabs, line breaks, an emoji -- and draws each one
+// twice: on a terminal tall enough to hold it, and on one that has to clip it.
+//
+// Three things have to hold for every one of them. The short screen shows
+// exactly the rows the tall screen shows at those positions, so the renderer's
+// own wrapping agrees with the terminal's. The caret is on the same character on
+// both, so the window has not moved the cursor. And nothing scrolls, however the
+// caret is walked around afterwards, because a redraw that changes nothing on
+// screen is what a keystroke in a tall entry has to be.
+//
+// The seed is fixed, so a failure is one anyone can reproduce from the iteration
+// it names.
+func TestARandomEntryIsDrawnAsTheWindowOfItselfTheTerminalHasRoomFor(t *testing.T) {
+	pieces := []string{"a", "z", "0", " ", "\t", "あ", "日", "é", "é", "😀", "\n", "\n", "select 1,"}
+	random := rand.New(rand.NewSource(2718)) //nolint:gosec // test input, not a secret
+	widths := []int{4, 7, 10, 20, 40}
+	heights := []int{1, 2, 3, 5, 8}
+
+	for iter := range 3000 {
+		width := widths[random.Intn(len(widths))]
+		height := heights[random.Intn(len(heights))]
+		var b strings.Builder
+		for range random.Intn(40) {
+			b.WriteString(pieces[random.Intn(len(pieces))])
+		}
+		input := b.String()
+		runes := []rune(input)
+		cursor := random.Intn(len(runes) + 1)
+
+		var tall bytes.Buffer
+		roomy := newRenderer(&tall, ThemeDefault, &sizedMockTerminal{width: width, height: 1000})
+		roomy.setContinuationPrefix("...> ")
+		if err := roomy.render("sql> ", input, cursor); err != nil {
+			t.Fatal(err)
+		}
+		whole := newScreenModel(width)
+		whole.feed(tall.String())
+
+		var short bytes.Buffer
+		clipped := newRenderer(&short, ThemeDefault, &sizedMockTerminal{width: width, height: height})
+		clipped.setContinuationPrefix("...> ")
+		if err := clipped.render("sql> ", input, cursor); err != nil {
+			t.Fatal(err)
+		}
+		window := newBoundedScreenModel(width, height)
+		window.feed(short.String())
+
+		rows := whole.rows()
+		top := clipped.viewTop
+		want := rows[min(top, len(rows)):min(top+height, len(rows))]
+		for len(want) > 0 && want[len(want)-1] == "" {
+			want = want[:len(want)-1]
+		}
+		if got := window.rows(); strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Fatalf("iter %d width=%d height=%d cursor=%d input=%q\n got  %q\n want %q (top=%d)",
+				iter, width, height, cursor, input, got, want, top)
+		}
+		// the caret has to be on screen and on the row it is on in the tall render
+		if window.row != whole.row-top || window.col != whole.col {
+			t.Fatalf("iter %d width=%d height=%d cursor=%d input=%q: caret at (%d,%d) clipped, (%d,%d) tall with top=%d",
+				iter, width, height, cursor, input, window.row, window.col, whole.row, whole.col, top)
+		}
+		if window.scrolled != 0 {
+			t.Fatalf("iter %d width=%d height=%d input=%q: the first render scrolled %d rows", iter, width, height, input, window.scrolled)
+		}
+		if clipped.lastLines > height {
+			t.Fatalf("iter %d width=%d height=%d input=%q: recorded a block of %d rows on a terminal of %d", iter, width, height, input, clipped.lastLines, height)
+		}
+
+		// Walk the caret around the entry on the same screen, the way cursor
+		// keys do. Nothing may scroll once the block is on screen, and the caret
+		// has to stay on it.
+		for range 6 {
+			at := random.Intn(len(runes) + 1)
+			short.Reset()
+			if err := clipped.render("sql> ", input, at); err != nil {
+				t.Fatal(err)
+			}
+			window.feed(short.String())
+			if window.scrolled != 0 {
+				t.Fatalf("iter %d width=%d height=%d input=%q cursor=%d: a redraw scrolled %d rows",
+					iter, width, height, input, at, window.scrolled)
+			}
+			if window.row < 0 || window.row >= height {
+				t.Fatalf("iter %d width=%d height=%d input=%q cursor=%d: the caret is on row %d of a %d-row terminal",
+					iter, width, height, input, at, window.row, height)
+			}
 		}
 	}
 }
