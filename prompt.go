@@ -994,7 +994,14 @@ func (p *Prompt) RunWithContext(ctx context.Context) (string, error) {
 			}
 
 		case ActionHistorySearch:
-			if result, err := p.searchHistory(); err == nil && result != "" {
+			result, searchErr := p.searchHistory(ctx)
+			// A canceled context ends the call rather than the search: the
+			// caller asked for the prompt to stop, and going back to the loop
+			// would draw a prompt nobody is going to read a key for.
+			if errors.Is(searchErr, context.Canceled) || errors.Is(searchErr, context.DeadlineExceeded) {
+				return "", searchErr
+			}
+			if searchErr == nil && result != "" {
 				p.setBuffer(result)
 				historyIndex = len(p.history)
 			}

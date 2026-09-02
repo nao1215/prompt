@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -511,7 +512,7 @@ func newHistorySearcher(history []string) func(string) []string {
 }
 
 // searchHistory implements reverse history search (like Ctrl+R in bash)
-func (p *Prompt) searchHistory() (_ string, err error) {
+func (p *Prompt) searchHistory(ctx context.Context) (_ string, err error) {
 	search := newHistorySearcher(p.history)
 	searchBuffer := []rune{}
 	searchResults := search("")
@@ -540,8 +541,11 @@ func (p *Prompt) searchHistory() (_ string, err error) {
 			return "", err
 		}
 
-		// Read key input
-		r, err := p.readRune()
+		// Read key input. Through the context the caller was given, so a
+		// RunWithContext that is canceled while the search is open returns then
+		// rather than on the next keystroke: the search is a read loop of its
+		// own, and for as long as it is open it is the only thing watching.
+		r, err := p.readRuneContext(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -642,7 +646,8 @@ func (p *Prompt) renderHistorySearch(query string, results []string, selected in
 // The block is redrawn on every keystroke and erased by a cursor move back up
 // its own height, so it has to leave the row that move starts from on screen.
 // Each line is written with a line break after it, which puts the cursor one row
-// below the block, so the room for it is a row less than the terminal's height.
+// below the block, so the room for it is a row less than what the terminal has
+// left under the caret -- see searchBudget.
 // A block that takes more than that never gets its first row back: every redraw
 // starts a row lower than the last and pushes that many rows of the session off
 // the top, and the header -- which is what names the entry Enter would take --
@@ -654,13 +659,10 @@ func (p *Prompt) renderHistorySearch(query string, results []string, selected in
 //
 // The header is always drawn, however little room there is, because a search
 // that shows nothing is a search the user cannot steer; it is cut to the rows
-// available. What the height costs is matches, down to none.
+// available. What the room costs is matches, down to none.
 func (p *Prompt) searchLines(query string, results []string, selected int) []string {
 	width, height := p.searchTerminalSize()
-	// One row is the cursor's, below the block. At least one row is the
-	// header's, because a terminal too short for even that is not a terminal
-	// this can be right on.
-	budget := max(height-1, 1)
+	budget := p.searchBudget(height)
 
 	// A history entry can hold newlines -- a statement entered across several
 	// lines is stored as one entry, which is what the file's escaping is for --
@@ -698,6 +700,30 @@ func (p *Prompt) searchLines(query string, results []string, selected int) []str
 		used += rows
 	}
 	return lines
+}
+
+// searchBudget returns how many rows the reverse-search block may occupy.
+//
+// The block is drawn from the row the caret was left on rather than from the top
+// of the screen, so what it has is what the terminal has left under that row:
+// the height, less the rows of the entry above the caret, less the row the
+// block's own trailing line break lands on -- which is the row the erase moves
+// up from and therefore has to stay on screen.
+//
+// Measuring against the height alone was right for a block at the top of the
+// screen and wrong under a multiline entry, where the rows above the caret are
+// rows nothing counted: a five-row entry on an eight-row terminal pushed itself
+// and four rows of the session off the top the moment Ctrl+R was pressed.
+//
+// At least one row, because the header is what names the entry Enter would take
+// and a search that shows nothing cannot be steered. What the room costs is
+// matches, down to none.
+func (p *Prompt) searchBudget(height int) int {
+	caret := 0
+	if p.renderer != nil {
+		caret = p.renderer.lastCursorRow
+	}
+	return max(height-1-caret, 1)
 }
 
 // searchTerminalSize reports the size the search block is measured against,
