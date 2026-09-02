@@ -202,7 +202,7 @@ func renderCursorRow(t *testing.T, input string, cursor int, highlight func(stri
 	var out bytes.Buffer
 	r := newRenderer(&out, ThemeDefault, newMockTerminal(""))
 	r.setHighlighter(highlight)
-	row, err := r.renderMainLine("$ ", input, cursor)
+	_, row, err := r.renderMainLine("$ ", input, cursor)
 	if err != nil {
 		t.Fatalf("renderMainLine(%q, %d): %v", input, cursor, err)
 	}

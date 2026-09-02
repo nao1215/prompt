@@ -1662,6 +1662,13 @@ type screenModel struct {
 	row     int
 	col     int
 	pending bool // the cursor is parked on the last cell with a wrap owed
+	// bound is the number of rows the screen has, or zero when it grows to fit
+	// whatever is drawn. A bounded screen scrolls the way a terminal does, and
+	// scrolled counts the rows that went off the top: what scrolls away is the
+	// session's scrollback, which belongs to the application rather than to the
+	// prompt.
+	bound    int
+	scrolled int
 }
 
 func newScreenModel(width int) *screenModel {
@@ -1670,19 +1677,50 @@ func newScreenModel(width int) *screenModel {
 	return s
 }
 
-// growTo makes sure the screen has at least rows rows. It grows rather than
-// clamping, because a block taller than the screen is a real answer the caller
-// wants: silently stopping at a fixed height reports a height that is short by
-// however far the block ran past it, and reads as a bug in the renderer.
+// newBoundedScreenModel is newScreenModel on a terminal that has a last row.
+// A render that reaches past it scrolls the screen instead of making it taller,
+// which is the difference the growing model cannot show: rows leaving the top.
+func newBoundedScreenModel(width, height int) *screenModel {
+	s := &screenModel{width: width, bound: height}
+	s.growTo(1)
+	return s
+}
+
+// growTo makes sure the screen has at least rows rows. Unbounded it grows,
+// because a block taller than the screen is a real answer the caller wants:
+// silently stopping at a fixed height reports a height that is short by however
+// far the block ran past it, and reads as a bug in the renderer. Bounded it
+// scrolls, which is what the terminal does with the rows that do not fit.
 func (s *screenModel) growTo(rows int) {
+	if s.bound > 0 && rows > s.bound {
+		s.scrollBy(rows - s.bound)
+		rows = s.bound
+	}
 	for len(s.cells) < rows {
-		row := make([]rune, s.width)
-		for col := range row {
-			row[col] = ' '
-		}
-		s.cells = append(s.cells, row)
+		s.cells = append(s.cells, s.blankRow())
 	}
 	s.height = len(s.cells)
+}
+
+func (s *screenModel) blankRow() []rune {
+	row := make([]rune, s.width)
+	for col := range row {
+		row[col] = ' '
+	}
+	return row
+}
+
+// scrollBy moves the screen up n rows, dropping that many from the top and
+// adding blank ones at the foot, and takes the cursor with it.
+func (s *screenModel) scrollBy(n int) {
+	s.scrolled += n
+	for range n {
+		if len(s.cells) >= s.bound {
+			s.cells = s.cells[1:]
+		}
+		s.cells = append(s.cells, s.blankRow())
+	}
+	s.row = max(s.row-n, 0)
 }
 
 // put writes one rune where the cursor is, the way a terminal does: a glyph is

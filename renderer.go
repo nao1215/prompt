@@ -108,6 +108,10 @@ type renderer struct {
 	// what may be drawn: a block taller than the terminal scrolls it, and the row
 	// count the renderer remembers then points at rows that have scrolled off.
 	height int
+	// viewTop is the block's first row that the last render drew, counted from
+	// the block's own first row. It is zero for a block the terminal has room
+	// for, which is every block until one does not fit. See viewportTop.
+	viewTop int
 	// continuationPrefix is drawn in front of every line after the first, so a
 	// multiline entry shows that the prompt is still collecting input. Empty
 	// (the default) keeps continuation lines flush against the left margin.
@@ -196,6 +200,10 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 			return err
 		}
 
+		// A menu is drawn only where the input block leaves room for a row of it,
+		// so the block on this path is one the terminal has room for whole.
+		r.viewTop = 0
+
 		// Update state AFTER rendering. The menu's height is the rows it drew, not
 		// the suggestions it holds: a suggestion wider than the terminal wraps onto
 		// more than one, and counting entries left those rows out of the erase.
@@ -205,7 +213,7 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 		r.lastCursorRow = r.lastLines - 1
 	} else {
 		// No suggestions - render normally with cursor
-		cursorRow, err := r.renderMainLine(prefix, input, cursor)
+		drawn, cursorRow, err := r.renderMainLine(prefix, input, cursor)
 		if err != nil {
 			return err
 		}
@@ -215,8 +223,9 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 			return err
 		}
 
-		// Update lastLines to match the actual number of lines rendered
-		r.lastLines = inputLines
+		// Update lastLines to match the actual number of lines rendered, which
+		// is the window rather than the block when the block does not fit.
+		r.lastLines = drawn
 		r.lastCursorRow = cursorRow
 	}
 
@@ -224,17 +233,34 @@ func (r *renderer) renderWithSuggestionsOffset(prefix, input string, cursor int,
 }
 
 // renderMainLine renders the main prompt line with prefix and input. It returns
-// the row, counted from the block's first row, where it left the cursor.
-func (r *renderer) renderMainLine(prefix, input string, cursor int) (int, error) {
-	if err := r.renderLines(prefix, input); err != nil {
-		return 0, err
+// how many rows it drew and the row, counted from the first row it drew, where
+// it left the cursor.
+//
+// The two are the same question asked of the block and of the screen, and they
+// part company when the block is taller than the terminal: what is drawn is then
+// the window around the caret rather than the whole block, and both numbers
+// describe the window, which is what the erase arithmetic takes them for.
+func (r *renderer) renderMainLine(prefix, input string, cursor int) (drawn, cursorRow int, err error) {
+	lines := r.splitIntoLines(input)
+	cursorLine, cursorCol := r.findCursorPosition([]rune(input), cursor)
+	row, col := r.cursorRowCol(lines, cursorLine, cursorCol, prefix)
+	total := r.blockRows(lines, prefix)
+
+	if total > r.terminalHeight() {
+		drawn, caret, err := r.renderClipped(prefix, input, row, r.spansFor(input))
+		if err != nil {
+			return 0, 0, err
+		}
+		r.placeCursor(drawn-1-caret, col)
+		return drawn, caret, nil
 	}
 
-	// Position cursor correctly
-	lines := r.splitIntoLines(input)
-	inputRunes := []rune(input)
-	cursorLine, cursorCol := r.findCursorPosition(inputRunes, cursor)
-	return r.positionCursor(lines, cursorLine, cursorCol, prefix), nil
+	r.viewTop = 0
+	if err := r.renderLines(prefix, input); err != nil {
+		return 0, 0, err
+	}
+	r.placeCursor(total-1-row, col)
+	return total, row, nil
 }
 
 // renderMainLineWithoutCursor renders the main prompt line without cursor positioning (for suggestions)
@@ -645,6 +671,7 @@ func (r *renderer) clearScreen() {
 func (r *renderer) forgetBlock() {
 	r.lastLines = 1
 	r.lastCursorRow = 0
+	r.viewTop = 0
 }
 
 func (r *renderer) clearPreviousLines() {
@@ -753,14 +780,20 @@ func (r *renderer) positionCursor(lines []string, cursorLine, cursorCol int, pre
 	// of the text after the cursor: a backward move stops at the left margin of
 	// the row it is on, so on a line long enough to wrap it could never reach the
 	// row above.
-	if up := r.blockRows(lines, prefix) - 1 - row; up > 0 {
+	r.placeCursor(r.blockRows(lines, prefix)-1-row, col)
+	return row
+}
+
+// placeCursor moves the cursor up from the foot of what was drawn and across to
+// its column.
+func (r *renderer) placeCursor(up, col int) {
+	if up > 0 {
 		fmt.Fprintf(r.output, "\x1b[%dA", up)
 	}
 	fmt.Fprint(r.output, "\r")
 	if col > 0 {
 		fmt.Fprintf(r.output, "\x1b[%dC", col)
 	}
-	return row
 }
 
 // cursorRowCol returns where the cursor sits inside the rendered block: the row
