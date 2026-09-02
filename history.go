@@ -569,9 +569,9 @@ func (p *Prompt) searchHistory(ctx context.Context) (_ string, err error) {
 			switch {
 			case seq == "":
 				return "", nil // a bare Escape, or Alt+key, cancels
-			case p.keyMap.sequenceAction(seq) == ActionMoveUp:
+			case p.keyMap.SequenceAction(seq) == ActionMoveUp:
 				selectedIndex = moveSearchSelection(selectedIndex, -1, len(searchResults))
-			case p.keyMap.sequenceAction(seq) == ActionMoveDown:
+			case p.keyMap.SequenceAction(seq) == ActionMoveDown:
 				selectedIndex = moveSearchSelection(selectedIndex, 1, len(searchResults))
 			}
 			// Any other sequence is consumed and ignored: the search has no use

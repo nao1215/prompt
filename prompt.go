@@ -664,7 +664,7 @@ func (p *Prompt) Run(ctx context.Context) (string, error) {
 				// popup with no way out left the line unrunnable.
 				suggestions = nil
 			}
-			action = p.keyMap.sequenceAction(seq)
+			action = p.keyMap.SequenceAction(seq)
 			// Inside a paste only the end marker is a signal. Anything else is
 			// content the terminal passed through: the ESC that introduced it is a
 			// control byte and is dropped, while the rest of the sequence is text
@@ -708,7 +708,7 @@ func (p *Prompt) Run(ctx context.Context) (string, error) {
 			}
 			continue
 		default:
-			action = p.keyMap.action(r)
+			action = p.keyMap.Action(r)
 		}
 
 		// Execute action

@@ -174,8 +174,8 @@ func (km *KeyMap) BindSequence(seq string, action KeyAction) {
 	km.sequences[seq] = action
 }
 
-// GetAction returns the action for a key, or ActionNone if not bound
-func (km *KeyMap) action(key rune) KeyAction {
+// Action returns what key is bound to, or ActionNone when it is bound to nothing.
+func (km *KeyMap) Action(key rune) KeyAction {
 	if km == nil || km.bindings == nil {
 		return ActionNone
 	}
@@ -185,8 +185,10 @@ func (km *KeyMap) action(key rune) KeyAction {
 	return ActionNone
 }
 
-// GetSequenceAction returns the action for an escape sequence, or ActionNone if not bound
-func (km *KeyMap) sequenceAction(seq string) KeyAction {
+// SequenceAction returns what an escape sequence is bound to, or ActionNone when
+// it is bound to nothing. The sequence is written without its leading ESC, as
+// BindSequence takes it.
+func (km *KeyMap) SequenceAction(seq string) KeyAction {
 	if km == nil || km.sequences == nil {
 		return ActionNone
 	}

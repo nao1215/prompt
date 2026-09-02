@@ -2097,7 +2097,7 @@ func TestAdvancedKeyBindingsExtended(t *testing.T) {
 	for _, action := range actions {
 		t.Run(action.name, func(t *testing.T) {
 			t.Parallel()
-			keyAction := keyMap.action(action.key)
+			keyAction := keyMap.Action(action.key)
 			if keyAction == ActionNone {
 				t.Errorf("Expected %s key to be bound", action.name)
 			}
