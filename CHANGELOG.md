@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-12
+
 ### Changed
 
 - Dependencies updated: `github.com/mattn/go-runewidth` 0.0.30, `github.com/mattn/go-isatty` 0.0.24 and `github.com/clipperhouse/uax29/v2` 2.7.0. `golang.org/x/term` and `golang.org/x/sys` are still held at 0.40.0 and 0.41.0: the whole golang.org/x family now declares `go 1.26.0`, and this library's floor is 1.24.0, which is a promise to its callers.
