@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Dependencies updated: `github.com/mattn/go-runewidth` 0.0.30, `github.com/mattn/go-isatty` 0.0.24 and `github.com/clipperhouse/uax29/v2` 2.7.0. `golang.org/x/term` and `golang.org/x/sys` are still held at 0.40.0 and 0.41.0: the whole golang.org/x family now declares `go 1.26.0`, and this library's floor is 1.24.0, which is a promise to its callers.
+- CI cross-builds for FreeBSD, OpenBSD and NetBSD. The terminal handling is split by build tag into a Windows half and a `!windows` half, so every BSD compiles the same files macOS does, and nothing was checking that they still compile.
+
 ### Added
 
 - The read loop's answer to every action a key can be bound to, held by a table. Each action is bound to a key nothing binds and driven on a line with the cursor inside it, so what it does is visible on both sides. The reason it exists: `ActionHistoryUp` and `ActionHistoryDown` were exported, documented and bindable, and the read loop had no case for either, so a key bound to one did nothing and nothing said so. An action is only real where the loop answers it, and this is the list of the answers.
