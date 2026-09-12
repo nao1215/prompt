@@ -38,3 +38,34 @@ jobs:
 
       - name: Run tests with coverage report output
         run: go test -cover -coverpkg=./... -coverprofile=coverage.out ./...
+
+  cross_build:
+    name: Cross build (${{ matrix.goos }})
+
+    # prompt's terminal handling is split by build tag into a Windows half and a
+    # `!windows` half, which means every BSD compiles the same files macOS does
+    # — and nothing was checking that they still compile at all. They are where
+    # the unix half is least exercised: golang.org/x/term and go-isatty both
+    # carry per-system files underneath it. A leg takes seconds and produces no
+    # binary; what it catches is a dependency dropping a system the `!windows`
+    # tag silently promises to support.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [freebsd, openbsd, netbsd]
+
+    env:
+      GOOS: ${{ matrix.goos }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "stable"
+
+      - name: Build
+        run: go build ./...
