@@ -16,7 +16,7 @@ This directory contains various examples demonstrating the capabilities of the p
 
 ### Prerequisites
 
-- Go 1.24.0 or higher
+- Go 1.26 or higher
 - Terminal with UTF-8 support
 - ANSI color support (most modern terminals)
 
