@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-21
+
 ### Changed
 
 - prompt now requires Go 1.26 or later (was 1.24). golang.org/x/term had been held at v0.40.0 because later releases require a newer Go; it moves to v0.46.0 and golang.org/x/sys to v0.48.0, both declaring `go 1.26.0`. Go 1.26 and 1.27 are the two releases the Go team still supports.
