@@ -28,7 +28,7 @@ The animation is [example/demo](./example/demo), a toy SQL shell built on this l
 go get github.com/nao1215/prompt
 ```
 
-Building needs Go 1.24 or later.
+Building needs Go 1.26 or later.
 
 ## Quick start
 
@@ -633,7 +633,7 @@ calling `Close` both end that wait, and the `Run` returns `context.Canceled` and
 ## Contributing
 
 Contributions are welcome; see the [Contributing Guide](./CONTRIBUTING.md). A
-GitHub Star also helps and motivates development. Development needs Go 1.24 or
+GitHub Star also helps and motivates development. Development needs Go 1.26 or
 later and golangci-lint, with tests run on Linux, macOS, and Windows.
 
 ## License

@@ -1,6 +1,6 @@
 module github.com/nao1215/prompt
 
-go 1.24.0
+go 1.26.0
 
 require (
 	github.com/creack/pty v1.1.24
@@ -8,8 +8,8 @@ require (
 	github.com/mattn/go-runewidth v0.0.30
 	github.com/mattn/go-tty v0.0.8
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/sys v0.41.0
-	golang.org/x/term v0.40.0
+	golang.org/x/sys v0.48.0
+	golang.org/x/term v0.46.0
 )
 
 require (
