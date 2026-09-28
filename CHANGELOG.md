@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-28
+
+### Changed
+
+- No change to the library's code or API since 0.3.0. This release only covers repository and CI work.
+- CI runs govulncheck against the Go vulnerability database on pull requests, pushes to main and daily, for the go.mod minimum and the latest Go, and a nightly workflow fuzzes every Fuzz target instead of only replaying the seed corpus.
+- CI workflows run with least-privilege token permissions and pin third-party actions by commit SHA; CodeQL and OpenSSF Scorecard workflows were added, and golangci-lint moved to v2.14.0.
+- The README gained an all-contributors section.
+
 ## [0.3.0] - 2026-09-21
 
 ### Changed
