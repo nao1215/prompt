@@ -3,6 +3,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/nao1215/prompt.svg)](https://pkg.go.dev/github.com/nao1215/prompt)
 [![MultiPlatformUnitTest](https://github.com/nao1215/prompt/actions/workflows/unit_test.yml/badge.svg)](https://github.com/nao1215/prompt/actions/workflows/unit_test.yml)
 ![Coverage](https://raw.githubusercontent.com/nao1215/octocovs-central-repo/main/badges/nao1215/prompt/coverage.svg)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/nao1215/prompt/badge)](https://scorecard.dev/viewer/?uri=github.com/nao1215/prompt)
 
 ![logo](./doc/img/logo-small.png)
 
