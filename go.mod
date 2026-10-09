@@ -4,8 +4,8 @@ go 1.26.0
 
 require (
 	github.com/creack/pty v1.1.24
-	github.com/mattn/go-colorable v0.1.15
-	github.com/mattn/go-runewidth v0.0.30
+	github.com/mattn/go-colorable v0.1.16
+	github.com/mattn/go-runewidth v0.0.31
 	github.com/mattn/go-tty v0.0.8
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/sys v0.48.0
