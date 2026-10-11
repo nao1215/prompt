@@ -67,9 +67,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The search runs on the newest Go rather than the go.mod floor: the
+      # unit tests cover the floor's minor series, and Go before 1.27.2 can fail a
+      # clean run with "context deadline exceeded" the moment -fuzztime
+      # expires (go.dev/issue/75804).
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: stable
       - name: Fuzz
         env:
           PKG: ${{ matrix.target.pkg }}
