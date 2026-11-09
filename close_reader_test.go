@@ -160,7 +160,11 @@ func TestRealTerminalInterruptsReads(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 	select {
-	case <-done:
+	case err := <-done:
+		// Nothing was typed, so the read can only have ended because of Close.
+		if err == nil {
+			t.Fatal("the read returned a key after Close although nothing was typed")
+		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("a read in progress survived Close, so a closed session keeps reading the terminal")
 	}
