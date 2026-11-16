@@ -110,8 +110,8 @@ func (r *ttyReader) Read(p []byte) (int, error) {
 // the pipe.
 func (r *ttyReader) wait() error {
 	fds := []unix.PollFd{
-		{Fd: int32(r.fd), Events: unix.POLLIN},    //nolint:gosec // a descriptor fits an int32
-		{Fd: int32(r.wakeR), Events: unix.POLLIN}, //nolint:gosec // a descriptor fits an int32
+		{Fd: int32(r.fd), Events: unix.POLLIN},    // #nosec G115 -- a descriptor fits an int32
+		{Fd: int32(r.wakeR), Events: unix.POLLIN}, // #nosec G115 -- a descriptor fits an int32
 	}
 	for {
 		_, err := unix.Poll(fds, -1)
