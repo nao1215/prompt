@@ -123,7 +123,7 @@ func (hm *historyManager) loadHistory() error {
 // returns that error: one long paste left the application unable to start until
 // the file was deleted by hand.
 func readHistoryFile(path string) ([]string, error) {
-	file, err := os.Open(path) //nolint:gosec // the path is the caller's own configuration
+	file, err := os.Open(path) // #nosec G304 -- the path is the caller's own configuration
 	if err != nil {
 		return nil, fmt.Errorf("failed to open history file: %w", err)
 	}
