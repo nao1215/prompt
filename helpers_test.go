@@ -416,6 +416,53 @@ func TestFuzzySearchListsOnlyWhatMatches(t *testing.T) {
 	}
 }
 
+// TestFuzzySearchKeepsTiesInTheirOrder pins how entries scoring the same are
+// ordered: the way they were given. The sort swapped any pair out of order
+// with a later, higher-scoring entry, so two entries tied on their score came
+// out reversed whenever a better match stood after them, and removing an
+// unrelated entry from the list reordered the rest. In reverse search the order
+// given is the history's, so a tie is listed in the order it was typed.
+func TestFuzzySearchKeepsTiesInTheirOrder(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		items []string
+		query string
+		want  []string
+	}{
+		{
+			name:  "a tie before a better match",
+			items: []string{"x git x", "y git y", "git"},
+			query: "git",
+			want:  []string{"git", "x git x", "y git y"},
+		},
+		{
+			name:  "a tie on both sides of a better match",
+			items: []string{"a git", "git status", "b git", "c git"},
+			query: "git",
+			want:  []string{"git status", "a git", "b git", "c git"},
+		},
+		{
+			name:  "the same list without its best match",
+			items: []string{"a git", "b git", "c git"},
+			query: "git",
+			want:  []string{"a git", "b git", "c git"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := (&fuzzyMatcher{items: tt.items}).searchFunc(tt.query)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("searchFunc(%q) over %q = %q, want %q", tt.query, tt.items, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestFuzzyCompleterSpanFollowsTheTextItMatched covers a Document built by hand
 // rather than by the prompt. TextBeforeCursor answers a position outside the
 // text with the whole text, so the span the suggestion names has to say the same
