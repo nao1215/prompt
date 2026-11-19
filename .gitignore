@@ -38,3 +38,9 @@ basic
 history
 multiline
 shell
+
+# Shrunk failing inputs written by rapid; the Property workflow uploads them.
+testdata/rapid/
+
+# Bytecode Python leaves beside scripts/lock_actions.py when it runs.
+__pycache__/

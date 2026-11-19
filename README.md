@@ -640,6 +640,19 @@ calling `Close` both end that wait, and the `Run` returns `context.Canceled` and
 - `context.DeadlineExceeded`: the context deadline passed
 - `context.Canceled`: the context was canceled
 
+## Testing
+
+| Technique | Bug class caught here |
+|---|---|
+| Examples and unit tests ([example_test.go](example_test.go), [keymap_test.go](keymap_test.go)) | A public function that no longer does what its godoc shows, or a key the read loop no longer answers |
+| Pseudo-terminal tests ([pty_reader_test.go](pty_reader_test.go)) | A prompt that loses keystrokes when it is closed and opened again, or when the terminal is resized under it, on a real terminal |
+| Property-based tests ([property_test.go](property_test.go)) | A cursor split, a history or a saved history file that loses, repeats or reorders what was typed |
+| Metamorphic and differential tests ([property_test.go](property_test.go)) | A fuzzy match list that reorders when unrelated candidates change, or a word, line or match that disagrees with `strings` and `regexp` |
+| Fuzzing ([renderer_test.go](renderer_test.go), [history_test.go](history_test.go), [viewport_test.go](viewport_test.go), [highlight_test.go](highlight_test.go)) | A layout that leaves the screen, or a history line that does not read back as it was written |
+| Mutation testing ([.github/workflows/mutation.yml](.github/workflows/mutation.yml)) | A test that runs a changed comparison or bound without noticing the change |
+
+How to run each one is in [doc/testing.md](doc/testing.md).
+
 ## Contributing
 
 Contributions are welcome; see the [Contributing Guide](./CONTRIBUTING.md). A
