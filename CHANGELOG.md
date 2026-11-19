@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-19
+
 ### Fixed
 
 - `NewFuzzyCompleter` and reverse search (Ctrl+R) list entries that score the same in the order they were given, which for reverse search is the order they were typed. The sort swapped a pair of tied entries whenever a better match stood after them, so their order depended on what else was in the list.
@@ -16,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI scans the repository with gosec and Trivy on every pull request (Trivy covers dependency vulnerabilities, committed secrets and misconfigurations, and also runs daily). Workflow actions are recorded in `.github/workflows/actions.lock`, which CI verifies against the pinned commits.
 - Dependencies updated: `golang.org/x/sys` 0.50.0 and `golang.org/x/term` 0.48.0. The Go minimum stays at 1.26.
 - CI scans the commits of pull requests and of pushes to main for committed secrets with gitleaks (Dependabot pull requests are skipped: they only change version numbers, and their read-only token cannot list the commits), runs the tests once more under the race detector, and moves govulncheck to v1.10.0. A new push to a pull request cancels the run it supersedes.
+- Property-based, metamorphic and differential tests (with rapid) cover the cursor split, the word and line before the cursor, the fuzzy matcher and the history, and draw 20,000 inputs per test every night. Mutation testing with gremlins runs on the lines a pull request changes and on the whole package weekly; `doc/testing.md` records the first score and how to run each technique.
 
 ## [0.3.1] - 2026-09-28
 
