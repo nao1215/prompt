@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - CI scans the repository with gosec and Trivy on every pull request (Trivy covers dependency vulnerabilities, committed secrets and misconfigurations, and also runs daily). Workflow actions are recorded in `.github/workflows/actions.lock`, which CI verifies against the pinned commits.
+- Dependencies updated: `golang.org/x/sys` 0.50.0 and `golang.org/x/term` 0.48.0. The Go minimum stays at 1.26.
+- CI scans the commits of pull requests and of pushes to main for committed secrets with gitleaks, runs the tests once more under the race detector, and moves govulncheck to v1.10.0. A new push to a pull request cancels the run it supersedes.
 
 ## [0.3.1] - 2026-09-28
 

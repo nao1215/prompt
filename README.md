@@ -1,10 +1,17 @@
 # prompt
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/nao1215/prompt.svg)](https://pkg.go.dev/github.com/nao1215/prompt)
+<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
+[![All Contributors](https://img.shields.io/badge/all_contributors-1-orange.svg?style=flat-square)](#contributors-)
+<!-- ALL-CONTRIBUTORS-BADGE:END -->
 [![MultiPlatformUnitTest](https://github.com/nao1215/prompt/actions/workflows/unit_test.yml/badge.svg)](https://github.com/nao1215/prompt/actions/workflows/unit_test.yml)
-[![Gosec](https://github.com/nao1215/prompt/actions/workflows/gosec.yml/badge.svg)](https://github.com/nao1215/prompt/actions/workflows/gosec.yml)
-[![Trivy](https://github.com/nao1215/prompt/actions/workflows/trivy.yml/badge.svg)](https://github.com/nao1215/prompt/actions/workflows/trivy.yml)
 ![Coverage](https://raw.githubusercontent.com/nao1215/octocovs-central-repo/main/badges/nao1215/prompt/coverage.svg)
+[![Gitleaks](https://github.com/nao1215/prompt/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/nao1215/prompt/actions/workflows/gitleaks.yml)
+[![Trivy](https://github.com/nao1215/prompt/actions/workflows/trivy.yml/badge.svg)](https://github.com/nao1215/prompt/actions/workflows/trivy.yml)
+[![govulncheck](https://github.com/nao1215/prompt/actions/workflows/govulncheck.yml/badge.svg)](https://github.com/nao1215/prompt/actions/workflows/govulncheck.yml)
+[![Gosec](https://github.com/nao1215/prompt/actions/workflows/gosec.yml/badge.svg)](https://github.com/nao1215/prompt/actions/workflows/gosec.yml)
+[![reviewdog](https://github.com/nao1215/prompt/actions/workflows/reviewdog.yml/badge.svg)](https://github.com/nao1215/prompt/actions/workflows/reviewdog.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/nao1215/prompt.svg)](https://pkg.go.dev/github.com/nao1215/prompt)
+[![License](https://img.shields.io/github/license/nao1215/prompt)](./LICENSE)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/nao1215/prompt/badge)](https://scorecard.dev/viewer/?uri=github.com/nao1215/prompt)
 
 ![logo](./doc/img/logo-small.png)

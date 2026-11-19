@@ -8,8 +8,8 @@ require (
 	github.com/mattn/go-runewidth v0.0.31
 	github.com/mattn/go-tty v0.0.8
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/sys v0.49.0
-	golang.org/x/term v0.47.0
+	golang.org/x/sys v0.50.0
+	golang.org/x/term v0.48.0
 )
 
 require (
