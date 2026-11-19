@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `NewFuzzyCompleter` and reverse search (Ctrl+R) list entries that score the same in the order they were given, which for reverse search is the order they were typed. The sort swapped a pair of tied entries whenever a better match stood after them, so their order depended on what else was in the list.
+
 ### Changed
 
 - CI scans the repository with gosec and Trivy on every pull request (Trivy covers dependency vulnerabilities, committed secrets and misconfigurations, and also runs daily). Workflow actions are recorded in `.github/workflows/actions.lock`, which CI verifies against the pinned commits.

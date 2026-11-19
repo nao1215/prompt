@@ -1,8 +1,10 @@
 package prompt
 
 import (
+	"cmp"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -290,14 +292,13 @@ func (f *fuzzyMatcher) fuzzySearch(query string) []fuzzyMatch {
 		}
 	}
 
-	// Sort by score (descending)
-	for i := range len(matches) - 1 {
-		for j := i + 1; j < len(matches); j++ {
-			if matches[i].score < matches[j].score {
-				matches[i], matches[j] = matches[j], matches[i]
-			}
-		}
-	}
+	// Best score first, and entries tied on their score in the order they were
+	// given. The sort has to be stable for that: in reverse search the order
+	// given is the history's, and a tie listed in some other order shuffles
+	// with every entry added or removed elsewhere in the list.
+	slices.SortStableFunc(matches, func(a, b fuzzyMatch) int {
+		return cmp.Compare(b.score, a.score)
+	})
 
 	return matches
 }
