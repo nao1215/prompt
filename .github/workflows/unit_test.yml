@@ -10,9 +10,15 @@ on:
 permissions:
   contents: read
 
+# Cancel the superseded run of a pull request when it is pushed again. Every
+# other run (push, schedule, manual) is its own group, so none is ever canceled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   unit_test:
-    name: Unit test (linux)
+    name: Unit test
 
     strategy:
       matrix:
@@ -41,6 +47,28 @@ jobs:
 
       - name: Run tests with coverage report output
         run: go test -cover -coverpkg=./... -coverprofile=coverage.out ./...
+
+  race_test:
+    name: Unit test (race detector)
+
+    # The reader goroutine hands key presses to the read loop through a channel,
+    # and Close and the interrupt handler stop it from other goroutines. That
+    # hand-off is the same Go code on every operating system, so one Linux leg
+    # watches it; a second platform would repeat it rather than cover more.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "stable"
+
+      - name: Run tests with the race detector
+        run: go test -race ./...
 
   cross_build:
     name: Cross build (${{ matrix.goos }})

@@ -26,6 +26,12 @@ on:
 permissions:
   contents: read
 
+# Cancel the superseded run of a pull request when it is pushed again. Every
+# other run (push, schedule, manual) is its own group, so none is ever canceled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   licenses:
     name: licenses (${{ matrix.goos }})
