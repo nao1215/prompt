@@ -201,8 +201,9 @@ p, err := prompt.New("$ ",
 ```
 
 The file is loaded when the prompt is built and written when an entry is added.
-A save writes at most one megabyte of entries, and a file that would lose
-entries to that limit is moved aside first, as `file.1` through `file.3`.
+A save writes at most one megabyte of entries, except that the newest entry is
+always written whatever its size. A file that would lose entries to that limit
+is moved aside first, as `file.1` through `file.3`.
 
 For a password or a token, keep no history at all. Nothing is remembered and no
 file is read or written:
