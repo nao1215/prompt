@@ -16,21 +16,19 @@
 
 ![logo](./doc/img/logo-small.png)
 
-prompt is a terminal prompt library for Go for building interactive command-line interfaces. It is a maintained replacement for the archived [c-bata/go-prompt](https://github.com/c-bata/go-prompt), keeping the same core idea, a read loop with completion and history, while running on Linux, macOS, and Windows.
+prompt is a Go library for interactive command-line prompts: a read loop with completion and history that runs on Linux, macOS, and Windows. It is a maintained replacement for the archived [c-bata/go-prompt](https://github.com/c-bata/go-prompt).
 
 ![demo](./doc/img/demo.gif)
 
-The animation is [example/demo](./example/demo), a toy SQL shell built on this library, driven by [demo.tape](./example/demo/demo.tape). Run it yourself with `go run ./example/demo`.
+The animation is [example/demo](./example/demo), a toy SQL shell recorded from [demo.tape](./example/demo/demo.tape). Run it with `go run ./example/demo`.
 
 ## Features
 
-- Tab completion, including fuzzy matching, with customizable suggestions and completer-chosen replacement spans
-- Command history with arrow-key navigation, persistence, and reverse search (Ctrl+R)
-- Emacs-style key bindings
-- Multi-line input with cursor navigation
-- Built-in color themes
-- A small API using the functional options pattern
-- Runs on Linux, macOS, and Windows
+- Tab completion, with fuzzy matching and completer-chosen replacement spans
+- History with arrow keys, a history file, and reverse search (Ctrl+R)
+- Emacs-style key bindings and multi-line input
+- Built-in color themes and input highlighting
+- Options passed to `prompt.New` in the functional options style
 
 ## Installation
 
@@ -129,108 +127,6 @@ func main() {
 }
 ```
 
-### With history and a context deadline
-
-```go
-package main
-
-import (
-    "context"
-    "errors"
-    "fmt"
-    "log"
-    "time"
-    "github.com/nao1215/prompt"
-)
-
-func main() {
-    p, err := prompt.New(">>> ",
-        prompt.WithMemoryHistory(100),
-        prompt.WithTheme(prompt.ThemeDracula),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer p.Close()
-
-    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-    defer cancel()
-
-    input, err := p.Run(ctx)
-    if errors.Is(err, context.DeadlineExceeded) {
-        fmt.Println("Timeout reached")
-        return
-    }
-
-    fmt.Printf("Input: %s\n", input)
-}
-```
-
-### SQL-like interactive shell
-
-```go
-package main
-
-import (
-    "context"
-    "errors"
-    "fmt"
-    "log"
-    "strings"
-    "github.com/nao1215/prompt"
-)
-
-func sqlCompleter(d prompt.Document) []prompt.Suggestion {
-    keywords := []string{
-        "SELECT", "FROM", "WHERE", "INSERT", "UPDATE",
-        "DELETE", "CREATE TABLE", "DROP TABLE",
-    }
-
-    suggestions := []prompt.Suggestion{}
-    input := strings.ToUpper(d.WordBeforeCursor())
-
-    for _, keyword := range keywords {
-        if strings.HasPrefix(keyword, input) {
-            suggestions = append(suggestions, prompt.Suggestion{
-                Text: keyword,
-                Description: "SQL keyword",
-            })
-        }
-    }
-    return suggestions
-}
-
-func main() {
-    p, err := prompt.New("sql> ",
-        prompt.WithCompleter(sqlCompleter),
-        prompt.WithMemoryHistory(50),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer p.Close()
-
-    for {
-        query, err := p.Run(context.Background())
-        if err != nil {
-            if errors.Is(err, prompt.ErrEOF) {
-                break
-            }
-            continue
-        }
-
-        if query == "exit" || query == "quit" {
-            break
-        }
-
-        if strings.TrimSpace(query) != "" {
-            fmt.Printf("Executing: %s\n", query)
-            // Execute SQL query here...
-        }
-    }
-}
-```
-
 ## Advanced usage
 
 ### Fuzzy completion
@@ -249,19 +145,17 @@ p, err := prompt.New("$ ",
 )
 ```
 
-`NewFuzzyCompleter` matches the input before the cursor rather than the word
-before it, ignores case, and accepts a subsequence, so `git st` finds
-`git status`, `GIT PU` finds `git push`, and `dckrbld` finds `docker build`.
-Accepting a candidate replaces the input before the cursor.
+`NewFuzzyCompleter` matches the whole input before the cursor, ignores case,
+and accepts a subsequence, so `git st` finds `git status`, `GIT PU` finds
+`git push`, and `dckrbld` finds `docker build`. Accepting a candidate replaces
+the input before the cursor.
 
 ### Completing a span of your own choosing
 
-By default the prompt decides what a suggestion replaces: it takes the word
-before the cursor and keeps a suggestion only when the word is a case-sensitive
-prefix of it. A completer that matches by another rule can name the span itself,
-and the prompt then applies that span literally and skips its own filter.
-
-`Replace` is counted in runes, the same unit as `Document.CursorPosition`.
+By default a suggestion replaces the word before the cursor and is kept only
+when that word is a case-sensitive prefix of it. A completer can set `Replace`
+to name the span itself, in runes like `Document.CursorPosition`, and the
+prompt then skips its own filter.
 
 ```go
 func completer(d prompt.Document) []prompt.Suggestion {
@@ -282,8 +176,7 @@ func completer(d prompt.Document) []prompt.Suggestion {
 }
 ```
 
-Typing `sel` and pressing Tab now yields `SELECT`. Leave `Replace` nil to keep
-the word-based behavior.
+Typing `sel` and pressing Tab yields `SELECT`.
 
 ### Custom key bindings
 
@@ -299,7 +192,7 @@ p, err := prompt.New("$ ",
 )
 ```
 
-### Persistent history
+### History
 
 ```go
 p, err := prompt.New("$ ",
@@ -307,10 +200,13 @@ p, err := prompt.New("$ ",
 )
 ```
 
-### No history at all
+The file is loaded when the prompt is built and written when an entry is added.
+A save writes at most one megabyte of entries, except that the newest entry is
+always written whatever its size. A file that would lose entries to that limit
+is moved aside first, as `file.1` through `file.3`.
 
-`Run` remembers every line it returns, so a one-off question whose answer should
-not be kept — a password, a token — asks for no history:
+For a password or a token, keep no history at all. Nothing is remembered and no
+file is read or written:
 
 ```go
 p, err := prompt.New("password: ",
@@ -318,36 +214,18 @@ p, err := prompt.New("password: ",
 )
 ```
 
-Nothing is remembered, the arrow keys and Ctrl+R have nothing to walk, and no
-file is read or written.
-
-The file is loaded when the prompt is built and written when an entry is added.
-A save writes at most one megabyte of entries, and a file that would lose
-entries to that limit is moved aside first, as `file.1` through `file.3`.
-
 ### Multi-line submit control
 
-In multiline mode, `WithIsComplete` decides whether Enter submits the buffer or
-starts a new line. It receives the whole buffer and returns true when the input
-is ready to run, so an app can buffer multi-line input such as SQL until a
-trailing `;`. Backslash continuation and bracketed paste are unaffected.
+In multiline mode, `WithIsComplete` receives the whole buffer and decides whether
+Enter submits it or starts a new line, for example to wait for a trailing `;`.
+`WithContinuationPrefix` marks a waiting line so it does not look like a hung
+program:
 
 ```go
 isComplete := func(input string) bool {
     return strings.HasSuffix(strings.TrimSpace(input), ";")
 }
 
-p, err := prompt.New("sql> ",
-    prompt.WithMultiline(),
-    prompt.WithIsComplete(isComplete),
-)
-```
-
-Pair it with `WithContinuationPrefix` so a buffered line says it is waiting.
-Without one, a statement `IsComplete` declined leaves the cursor on a bare line
-with nothing in front of it, which is indistinguishable from a hung program:
-
-```go
 p, err := prompt.New("sql> ",
     prompt.WithMultiline(),
     prompt.WithIsComplete(isComplete),
@@ -360,33 +238,14 @@ sql> SELECT id,
  ..> name FROM users;
 ```
 
-The prefix is drawn in the prompt's color and counted when positioning the cursor
-and measuring how many rows the input occupies, so editing a continuation line
-lands where the character is. It never appears in the returned input.
-
-An entry taller than the terminal is drawn as the rows around the cursor that the
-terminal has room for, redrawn in place. The rows outside that window are left
-undrawn rather than drawn and scrolled away, because what scrolls off the top of
-the screen is the application's output rather than the prompt's, and the window
-moves only as far as the cursor makes it. A line ends at the foot of the entry
-whichever of its lines the cursor was on, so what the application prints next
-starts below the entry rather than on top of it.
+The prefix never appears in the returned input.
 
 ### Persistent raw mode (REPL loops)
 
-A REPL that calls `Run` once per line normally enters raw mode at the start of
-each call and restores it when the call returns. Between one line's restore and
-the next line's re-acquisition the read loop is not consuming input, so bytes that
-a fast or automated driver (a pipe or pseudo-terminal) sends right after the
-prompt is re-rendered can be lost, making scripted sessions hang intermittently.
-
-`WithPersistentRawMode` keeps the terminal in raw mode across consecutive `Run`
-calls, closing that window and making input deterministic regardless of timing or
-load. Raw mode is acquired once on the first `Run` and released once — by `Close`
-or when input reaches EOF. Ctrl+C does not release it, because it ends the line
-rather than the session and the next `Run` continues where it left off. Because the terminal stays in
-raw mode between calls, print your own output between prompts with `\r\n` rather
-than `\n`.
+Each `Run` normally enters raw mode and restores it on return, and input that a
+pipe or pseudo-terminal sends between two calls can be lost. `WithPersistentRawMode`
+keeps raw mode from the first `Run` until `Close` or EOF; Ctrl+C does not release
+it. Print your own output between prompts with `\r\n` rather than `\n`.
 
 ```go
 p, err := prompt.New("$ ",
@@ -424,6 +283,13 @@ p, err := prompt.New("sql> ",
         // Keep the indentation of the line being continued.
         line := before[strings.LastIndex(before, "\n")+1:]
         return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+    }),
+)
+```
+
+What it returns is part of the input, so it is submitted and recorded in history
+like anything else typed.
+
 ### Coloring the input
 
 `WithHighlighter` is given the whole input and returns the runs to draw in a
@@ -444,20 +310,14 @@ p, err := prompt.New("sql> ",
 )
 ```
 
-Everything no run covers keeps the scheme's input color, and a run given the zero
-`prompt.Color` keeps it too, which is how a highlighter says "leave this one
-alone". The highlighter decides colors and nothing else: the input is drawn
-exactly as it is, and the prompt measures its layout from that text, so
-highlighting cannot move the cursor or wrap a line early. Runs that overlap, run
-backwards, or reach past either end of the input are normalized rather than
-rejected — getting a color wrong must not cost the line being typed. It is
-called on every render, so it should be cheap over a line's worth of text.
+Text outside every run, or in a run with the zero `prompt.Color`, keeps the
+scheme's input color. Highlighting changes colors only, never the cursor or line
+wrapping. The highlighter runs on every render, so keep it cheap.
 
 ### Handing the terminal to another program
 
-A prompt owns the terminal while it lives. To run an editor, a pager, or any
-other program that draws on the terminal, close the prompt and open a new one
-afterwards:
+To run an editor, a pager, or another program that draws on the terminal, close
+the prompt and open a new one afterwards:
 
 ```go
 if err := p.Close(); err != nil {
@@ -476,25 +336,14 @@ if err != nil {
 }
 ```
 
-On Unix, `Close` ends the goroutine reading the terminal before it returns, so
-the child process and the next prompt get the input typed into them. On Windows
-input is read through go-tty, whose read cannot be interrupted, so `Close` does
-not wait for it: a prompt opened there while an earlier reader is still blocked
-may lose keystrokes to it.
+On Windows the read through go-tty cannot be interrupted, so a prompt opened
+while an earlier reader is still blocked may lose keystrokes to it.
 
 ### Interrupting work between prompts
 
-`Run` returns as soon as a line is submitted, so while the application executes
-that line nothing is reading the terminal. Ctrl+C cannot reach the running work
-on its own. While the prompt holds the terminal it is a byte that waits in the
-input buffer and is read as part of the next line once the work is over; once
-the prompt has given the terminal back — which `Run` does when it returns,
-unless the session asked for persistent raw mode — the terminal turns it into a
-SIGINT that kills the application in the middle of that work.
-
-`WatchInterrupt` watches for the byte and the signal during that gap, and
-returns a context canceled when the key arrives, however the terminal delivers
-it:
+While the application runs a submitted line, nothing reads the terminal, so
+Ctrl+C either waits for the next line or kills the program as a SIGINT.
+`WatchInterrupt` returns a context that Ctrl+C cancels during that work:
 
 ```go
 for {
@@ -523,22 +372,10 @@ for {
 }
 ```
 
-Everything else typed while the work runs belongs to the next line: it is held
-and delivered to the following `Run` in the order it was typed, so typing ahead
-keeps working. Do not call `Run` while a watch is active — a line editor and a
-watcher cannot both own one terminal.
-
-While the watch is active, Ctrl+C no longer kills the application: it cancels
-the work instead, and `stop` restores the usual behavior. That holds for every
-interrupt the watch sees, not only the first — the work has been told to stop
-and has not finished stopping, which is exactly when the key gets pressed again.
-An interrupt sent any other way, such as `kill -INT` from another terminal,
-cancels the work too: nothing tells it apart from the key.
-
-Watches may be nested. There is one watcher for the prompt however many are
-active, and an interrupt cancels all of them: the work being watched is nested,
-so canceling the inner half alone would leave the outer half running with
-nothing left to stop it.
+Other keys typed during the work are delivered to the next `Run` in order. Do
+not call `Run` while a watch is active. See
+[`WatchInterrupt`](https://pkg.go.dev/github.com/nao1215/prompt#Prompt.WatchInterrupt)
+for repeated and nested interrupts.
 
 ## Key bindings
 
@@ -562,27 +399,15 @@ nothing left to stop it.
 | Ctrl+←/→ | Move by word boundaries |
 | Esc | Close the completion popup |
 
-A completion menu stands for the word before the cursor, so it lasts only as long
-as that word: editing the line, discarding it with Ctrl+U, or moving the cursor
-off the word ends the completion, and the next Tab asks the completer again.
-
-The menu lists at most ten candidates, and fewer when ten would not fit: it takes
-only the rows the terminal has left under the line being typed, so that line
-stays on screen. Up and Down scroll the list when it is longer than the window.
-A candidate wider than the terminal wraps onto more than one row, so fewer of
-them fit. On a terminal with no room at all -- an input that already fills the
-screen -- no menu is drawn. A single match still completes on Tab; with several
-matches, the next Tab accepts a candidate you cannot see.
+The completion menu closes when the word before the cursor changes, and the next
+Tab asks the completer again. It lists at most ten candidates, fewer when the
+terminal has fewer rows under the input, and Up and Down scroll longer lists.
 
 ## Color themes
 
-A prompt that names no theme draws the line being typed and the completion menu's
-candidates in the terminal's own foreground, and colors only what carries meaning
-wherever it lands: the prefix, the selected candidate, a description. The named
-themes below choose a foreground, so they say which background they are for.
-
-The zero `prompt.Color` is that same "the terminal's own color", which is what a
-field left out of a `ColorScheme` literal means. Black is `prompt.Color{B: 1}`.
+Without a theme, the input and the candidates use the terminal's foreground, and
+only the prefix, the selected candidate, and descriptions are colored. The zero
+`prompt.Color` means the terminal's own color, so black is `prompt.Color{B: 1}`.
 
 ```go
 // Available themes
@@ -602,9 +427,8 @@ p, err := prompt.New("$ ",
 )
 ```
 
-A scheme of your own decides foreground colors: the prefix, the input, and the
-completion menu. The prompt writes over the terminal's own background and leaves
-the terminal's own cursor alone, so there is no field for either.
+A `ColorScheme` sets foreground colors only; the terminal keeps its background
+and cursor.
 
 ## Examples
 
@@ -621,19 +445,11 @@ The [example](./example) directory has complete programs:
 
 ### Thread safety
 
-Drive one prompt from one goroutine: do not call `Run` concurrently, and do not
-edit a prompt's state from a second goroutine. Use a separate instance per
-goroutine if you need concurrency.
-
-Ending a session from another goroutine is the exception, because a prompt
-waiting for a key cannot end itself: canceling the context passed to `Run` and
-calling `Close` both end that wait, and the `Run` returns `context.Canceled` and
-`ErrEOF` respectively. A `Run` on a prompt that is already closed returns
-`ErrEOF` without touching the terminal.
+Drive one prompt from one goroutine. The exception is ending a session: from
+another goroutine, cancel the context passed to `Run` (it returns
+`context.Canceled`) or call `Close` (it returns `ErrEOF`).
 
 ### Error handling
-
-`Run` returns specific errors:
 
 - `prompt.ErrEOF`: Ctrl+D on an empty buffer, the input reaching its end, or a `Run` on a prompt that is already closed. It matches `io.EOF` as well as itself
 - `prompt.ErrInterrupted`: Ctrl+C
@@ -655,9 +471,8 @@ How to run each one is in [doc/testing.md](doc/testing.md).
 
 ## Contributing
 
-Contributions are welcome; see the [Contributing Guide](./CONTRIBUTING.md). A
-GitHub Star also helps and motivates development. Development needs Go 1.26 or
-later and golangci-lint, with tests run on Linux, macOS, and Windows.
+See the [Contributing Guide](./CONTRIBUTING.md). Development needs Go 1.26 or
+later and golangci-lint, and tests run on Linux, macOS, and Windows.
 
 ## Contributors ✨
 
@@ -683,4 +498,4 @@ This project follows the [all-contributors](https://github.com/all-contributors/
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+[MIT License](LICENSE)
