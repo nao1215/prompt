@@ -145,17 +145,7 @@ func TestMetamorphic_FuzzySearchIgnoresTheRest(t *testing.T) {
 
 		if len(items) > 0 {
 			k := rapid.IntRange(0, len(items)-1).Draw(t, "removed")
-			fewer := slices.Delete(slices.Clone(items), k, k+1)
-			got := (&fuzzyMatcher{items: fewer}).searchFunc(query)
-			want := slices.Clone(base)
-			if i := slices.Index(want, items[k]); i >= 0 {
-				want = slices.Delete(want, i, i+1)
-			}
-			// A duplicate of the removed candidate stays, and the first copy is
-			// the one removed above; the comparison is of the multiset in order.
-			if !slices.Equal(got, want) {
-				t.Fatalf("removing %q from %q: searchFunc(%q) = %q, want %q", items[k], items, query, got, want)
-			}
+			checkRemovingACandidate(t, items, query, k)
 		}
 
 		unmatched := strings.Repeat("z", len(query))
@@ -165,6 +155,69 @@ func TestMetamorphic_FuzzySearchIgnoresTheRest(t *testing.T) {
 			t.Fatalf("adding %q to %q: searchFunc(%q) = %q, want %q", unmatched, items, query, got, base)
 		}
 	})
+}
+
+// TestMetamorphic_FuzzySearchIgnoresTheRestRegressions replays the cases the
+// property above has failed on, so they run on every test run and not only
+// when rapid happens to draw them again.
+func TestMetamorphic_FuzzySearchIgnoresTheRestRegressions(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name  string
+		items []string
+		query string
+		k     int
+	}{
+		// -rapid.seed=12149352925014392157 in the nightly run of 2026-11-19. The
+		// matches were ["ai" "gi" "ai"], all tied, and removing the second "ai"
+		// leaves ["ai" "gi"]. The property removed the first "ai" from its
+		// expectation and wanted ["gi" "ai"].
+		{name: "removing the later of two equal candidates", items: []string{"ai", "gi", "ai"}, query: "i", k: 2},
+		{name: "removing the earlier of two equal candidates", items: []string{"ai", "gi", "ai"}, query: "i", k: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			checkRemovingACandidate(t, tt.items, tt.query, tt.k)
+		})
+	}
+}
+
+// checkRemovingACandidate removes items[k] and checks that searchFunc answers
+// with the old matches less the one items[k] produced, the rest in their order.
+//
+// A candidate given twice is matched twice, and the copies tie, so they keep
+// the order they were given in. The match items[k] produced is therefore the
+// copy of it whose rank among equal strings is the rank of items[k] among them,
+// which is not the first copy when items[k] is a later one.
+func checkRemovingACandidate(t interface {
+	Helper()
+	Fatalf(format string, args ...any)
+}, items []string, query string, k int) {
+	t.Helper()
+	base := (&fuzzyMatcher{items: items}).searchFunc(query)
+	fewer := slices.Delete(slices.Clone(items), k, k+1)
+	got := (&fuzzyMatcher{items: fewer}).searchFunc(query)
+
+	want := slices.Clone(base)
+	copyIndex := 0
+	for _, item := range items[:k] {
+		if item == items[k] {
+			copyIndex++
+		}
+	}
+	for i, match := range want {
+		if match != items[k] {
+			continue
+		}
+		if copyIndex == 0 {
+			want = slices.Delete(want, i, i+1)
+			break
+		}
+		copyIndex--
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("removing %q (index %d) from %q: searchFunc(%q) = %q, want %q", items[k], k, items, query, got, want)
+	}
 }
 
 // TestMetamorphic_FuzzySearchIgnoresCase checks that the case of the query

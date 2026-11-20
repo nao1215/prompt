@@ -489,7 +489,8 @@ func expandHistoryPath(path string) (string, error) {
 // because the tests that cover it are history tests.
 
 // newHistorySearcher returns the search function Ctrl+R calls for matches. It
-// ranks the history by fuzzy match against the query, closest first.
+// ranks the history by fuzzy match against the query, closest first, with ties
+// in history order. An entry the history holds twice is listed twice.
 func newHistorySearcher(history []string) func(string) []string {
 	fm := &fuzzyMatcher{
 		items: history,

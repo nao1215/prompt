@@ -185,8 +185,10 @@ type fuzzyMatcher struct {
 // case. A candidate matches when the input is a prefix of it, a substring of it,
 // or a subsequence of it -- its characters in order, with anything between, so
 // "dckrbld" finds "docker build" -- and nothing else matches. Candidates are
-// ordered by how they matched, an exact match first and a subsequence last. An
-// empty input matches every candidate.
+// ordered by how they matched, an exact match first and a subsequence last.
+// Candidates that tie keep the order they were given in. The list is not
+// deduplicated: a candidate given twice is offered twice. An empty input
+// matches every candidate.
 //
 // Each suggestion replaces the input before the cursor, which is what was
 // matched against. That is why a candidate holding a space completes: the prompt
@@ -274,7 +276,9 @@ type fuzzyMatch struct {
 	score int
 }
 
-// fuzzySearch performs fuzzy matching against items and returns sorted matches
+// fuzzySearch performs fuzzy matching against items and returns sorted matches.
+// Every item that matches is one match, so an item listed twice is matched
+// twice; equal items score the same and keep their relative order.
 func (f *fuzzyMatcher) fuzzySearch(query string) []fuzzyMatch {
 	if query == "" {
 		return nil
