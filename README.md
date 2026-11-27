@@ -465,7 +465,9 @@ another goroutine, cancel the context passed to `Run` (it returns
 | Property-based tests ([property_test.go](property_test.go)) | A cursor split, a history or a saved history file that loses, repeats or reorders what was typed |
 | Metamorphic and differential tests ([property_test.go](property_test.go)) | A fuzzy match list that reorders when unrelated candidates change, or a word, line or match that disagrees with `strings` and `regexp` |
 | Fuzzing ([renderer_test.go](renderer_test.go), [history_test.go](history_test.go), [viewport_test.go](viewport_test.go), [highlight_test.go](highlight_test.go)) | A layout that leaves the screen, or a history line that does not read back as it was written |
+| Fault injection ([write_failure_test.go](write_failure_test.go), [fault_test.go](fault_test.go)) | A failed write, terminal call or history file operation that is swallowed, or that loses a line already accepted |
 | Mutation testing ([.github/workflows/mutation.yml](.github/workflows/mutation.yml)) | A test that runs a changed comparison or bound without noticing the change |
+| Benchmark comparison ([.github/workflows/benchmark.yml](.github/workflows/benchmark.yml)) | A pull request that makes a key press or the history load consistently slower |
 
 How to run each one is in [doc/testing.md](doc/testing.md).
 

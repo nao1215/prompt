@@ -99,13 +99,13 @@ func writeFailureScenarios() []writeFailureScenario {
 }
 
 // TestEveryFailedWriteEndsTheSession makes each write of a scripted session
-// fail in turn. A prompt that cannot draw cannot show the user what they are
-// editing, so until the line is accepted a failed write must end the session
-// with its error, never let it carry on with the screen and the buffer out of
-// step. Once Enter has accepted the line, the writes left (the final redraw,
-// the line break, leaving raw mode) only tidy the screen, and losing them must
-// not lose the line: the session returns it. So the writes split at one
-// point, every failure before it an error and every failure after it the line.
+// fail in turn. A prompt that cannot draw leaves the screen and the buffer out
+// of step, so until the line is accepted a failed write must end the session
+// with its error. Once Enter has accepted the line, the writes left (the final
+// redraw, the line break, leaving raw mode) only tidy the screen, and the
+// session still returns the line when they fail. The writes therefore split at
+// one point: every failure before it is an error, and every failure after it
+// returns the line.
 func TestEveryFailedWriteEndsTheSession(t *testing.T) {
 	t.Parallel()
 

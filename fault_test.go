@@ -148,7 +148,7 @@ func TestZeroPromptCloses(t *testing.T) {
 
 // TestSizeFailureFallsBack checks that a terminal that cannot report its size
 // is drawn at the fallback size, by the editor and by reverse search alike,
-// rather than ending the session.
+// and the session goes on.
 func TestSizeFailureFallsBack(t *testing.T) {
 	t.Parallel()
 
