@@ -316,3 +316,25 @@ func TestDocumentTextMethodsAdvanced(t *testing.T) {
 		})
 	}
 }
+
+// TestWordBeforeCursorEscapedCountsABackslashAtTheStart checks that a separator
+// escaped by a backslash at the very start of the text stays inside the word,
+// and that an even run of backslashes escapes nothing.
+func TestWordBeforeCursorEscapedCountsABackslashAtTheStart(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		text string
+		want string
+	}{
+		{text: `\ x`, want: `\ x`},
+		{text: `\\ x`, want: "x"},
+		{text: `a\ x`, want: `a\ x`},
+	}
+	for _, tt := range tests {
+		doc := Document{Text: tt.text, CursorPosition: len([]rune(tt.text))}
+		if got := doc.WordBeforeCursorEscaped(); got != tt.want {
+			t.Errorf("WordBeforeCursorEscaped() of %q = %q, want %q", tt.text, got, tt.want)
+		}
+	}
+}

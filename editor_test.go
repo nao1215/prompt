@@ -646,3 +646,46 @@ func TestEnterCountsTheBackslashesAtTheEndOfTheLine(t *testing.T) {
 		})
 	}
 }
+
+// TestWordLeftFromTheStartStaysThere checks that Ctrl+Left with the cursor at
+// the start of the line goes nowhere.
+func TestWordLeftFromTheStartStaysThere(t *testing.T) {
+	t.Parallel()
+
+	for _, text := range []string{"", "word", " lead"} {
+		p := &Prompt{buffer: []rune(text), cursor: 0}
+		if got := p.findWordBoundary(-1); got != 0 {
+			t.Errorf("findWordBoundary(-1) at the start of %q = %d, want 0", text, got)
+		}
+	}
+}
+
+// TestCursorUpLandsOnTheLineAbove checks Up from the third line of an entry:
+// the cursor keeps its column on a line long enough for it and stops at the end
+// of one that is shorter, and in both cases stays on the second line.
+func TestCursorUpLandsOnTheLineAbove(t *testing.T) {
+	t.Parallel()
+
+	const text = "x\nab\nabcdef" // the second line is runes 2 and 3
+	tests := []struct {
+		name   string
+		cursor int
+		want   int
+	}{
+		{name: "column 0", cursor: 5, want: 2},
+		{name: "column 1", cursor: 6, want: 3},
+		{name: "column 2, the end of the line above", cursor: 7, want: 4},
+		{name: "column 3, past the end of the line above", cursor: 8, want: 4},
+		{name: "the end of the line", cursor: 11, want: 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &Prompt{buffer: []rune(text), cursor: tt.cursor}
+			if got := p.findCursorUp(); got != tt.want {
+				t.Errorf("findCursorUp() from %d = %d, want %d", tt.cursor, got, tt.want)
+			}
+		})
+	}
+}

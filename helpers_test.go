@@ -478,6 +478,7 @@ func TestFuzzyCompleterSpanFollowsTheTextItMatched(t *testing.T) {
 		wantEnd    int
 	}{
 		{name: "the cursor inside the text", candidates: []string{"select"}, doc: Document{Text: "select", CursorPosition: 3}, wantEnd: 3},
+		{name: "the cursor at the start", candidates: []string{"select"}, doc: Document{Text: "select", CursorPosition: 0}, wantEnd: 0},
 		{name: "the cursor at the end", candidates: []string{"select"}, doc: Document{Text: "select", CursorPosition: 6}, wantEnd: 6},
 		{name: "a negative cursor", candidates: []string{"select"}, doc: Document{Text: "select", CursorPosition: -1}, wantEnd: 6},
 		{name: "a cursor past the end", candidates: []string{"select"}, doc: Document{Text: "select", CursorPosition: 99}, wantEnd: 6},
