@@ -152,7 +152,9 @@ func viewportTop(previous, caret, total, height int) int {
 	if height <= 0 || total <= height {
 		return 0
 	}
-	top := min(max(previous, 0), total-height)
+	// A previous top past the last window is brought back by the clamp at the
+	// end, which every path below reaches.
+	top := max(previous, 0)
 	if caret < top {
 		top = caret
 	}
