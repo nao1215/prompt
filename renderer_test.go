@@ -2902,3 +2902,19 @@ func FuzzLayoutMatchesTheScreen(f *testing.F) {
 		}
 	})
 }
+
+// TestDifferential_LayoutMeasuresASCIIAsRunewidth checks the shortcut layout
+// takes for printable ASCII: every ASCII rune but the tab, which has tab stops
+// of its own, is as wide as runewidth says.
+func TestDifferential_LayoutMeasuresASCIIAsRunewidth(t *testing.T) {
+	t.Parallel()
+
+	for r := range rune(0x80) {
+		if r == '\t' {
+			continue
+		}
+		if _, col := layout(string(r), 80); col != runewidth.RuneWidth(r) {
+			t.Errorf("layout(%q) is %d cells wide, runewidth says %d", r, col, runewidth.RuneWidth(r))
+		}
+	}
+}

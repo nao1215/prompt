@@ -49,7 +49,13 @@ func layout(s string, width int) (rows, col int) {
 			col = min(col+tabWidth-col%tabWidth, width-1)
 			continue
 		}
-		w := runewidth.RuneWidth(r)
+		// Printable ASCII is one cell wide, which is what runewidth answers for
+		// it too; asking it costs a table lookup for every character of every
+		// line on every redraw.
+		w := 1
+		if r < 0x20 || r >= 0x7f {
+			w = runewidth.RuneWidth(r)
+		}
 		if w == 0 {
 			continue
 		}
