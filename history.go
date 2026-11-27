@@ -293,6 +293,10 @@ func decodeHistoryLine(line string) (string, bool) {
 	if line == "" {
 		return "", false
 	}
+	// Most entries hold no backslash, and nothing in such a line is escaped.
+	if strings.IndexByte(line, '\\') < 0 {
+		return line, true
+	}
 
 	var b strings.Builder
 	b.Grow(len(line))
