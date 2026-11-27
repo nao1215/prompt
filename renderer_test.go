@@ -3,6 +3,7 @@ package prompt
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -2916,5 +2917,197 @@ func TestDifferential_LayoutMeasuresASCIIAsRunewidth(t *testing.T) {
 		if _, col := layout(string(r), 80); col != runewidth.RuneWidth(r) {
 			t.Errorf("layout(%q) is %d cells wide, runewidth says %d", r, col, runewidth.RuneWidth(r))
 		}
+	}
+}
+
+// TestRenderLineContentKeepsASpanOnItsOwnLine checks a span that touches a line
+// break: it colors the runes it covers and never writes its color on the line
+// on the other side of the break.
+func TestRenderLineContentKeepsASpanOnItsOwnLine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		span      StyleSpan
+		colored   int // the line the span's runes are on
+		uncolored int // the line its color must not reach
+	}{
+		{name: "a span ending on the break", span: StyleSpan{Start: 0, End: 3, Color: red}, colored: 0, uncolored: 1},
+		{name: "a span starting on the break", span: StyleSpan{Start: 2, End: 4, Color: red}, colored: 1, uncolored: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rendered := renderedInput(t, "ab\ncd", func(string) []StyleSpan {
+				return []StyleSpan{tt.span}
+			})
+			lines := strings.Split(rendered, "\n")
+			if len(lines) != 2 {
+				t.Fatalf("rendered %q, want two lines", rendered)
+			}
+			if !strings.Contains(lines[tt.colored], red.ToANSI()) {
+				t.Errorf("line %d is %q, want it colored", tt.colored, lines[tt.colored])
+			}
+			if strings.Contains(lines[tt.uncolored], red.ToANSI()) {
+				t.Errorf("line %d is %q, want no color from a span on line %d", tt.uncolored, lines[tt.uncolored], tt.colored)
+			}
+		})
+	}
+}
+
+// TestRenderLineContentStartsWithASpanAtTheFirstRune checks that a span on the
+// line's first rune is the first thing written after the line is cleared, with
+// no run of the input color in front of it.
+func TestRenderLineContentStartsWithASpanAtTheFirstRune(t *testing.T) {
+	t.Parallel()
+
+	rendered := renderedInput(t, "ab", func(string) []StyleSpan {
+		return []StyleSpan{{Start: 0, End: 1, Color: red}}
+	})
+	if want := "\r\x1b[K" + red.ToANSI() + "a"; !strings.HasPrefix(rendered, want) {
+		t.Errorf("rendered %q, want it to start with %q", rendered, want)
+	}
+}
+
+// TestSpansForKeepsTheFirstOfTwoSpansWithOneStart checks the order of spans
+// that start on the same rune: the one the highlighter named first keeps the
+// runes both claim.
+func TestSpansForKeepsTheFirstOfTwoSpansWithOneStart(t *testing.T) {
+	t.Parallel()
+
+	r := newRenderer(&bytes.Buffer{}, ThemeDefault, nil)
+	r.setHighlighter(func(string) []StyleSpan {
+		return []StyleSpan{{Start: 0, End: 2, Color: red}, {Start: 0, End: 4, Color: blue}}
+	})
+	got := r.spansFor("abcd")
+	want := []StyleSpan{{Start: 0, End: 2, Color: red}, {Start: 2, End: 4, Color: blue}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("spansFor() = %v, want %v", got, want)
+	}
+}
+
+// TestRenderLineContentReportsAFailedWrite checks that a write the terminal
+// refuses is reported, for a colored run as for the plain tail.
+func TestRenderLineContentReportsAFailedWrite(t *testing.T) {
+	t.Parallel()
+
+	spans := []StyleSpan{{Start: 0, End: 1, Color: red}}
+	for ok := range 2 {
+		r := newRenderer(&failAfterWriter{ok: ok}, ThemeDefault, nil)
+		if err := r.renderLineContent("ab", 0, spans); !errors.Is(err, errWrite) {
+			t.Errorf("renderLineContent() with %d writes allowed = %v, want %v", ok, err, errWrite)
+		}
+	}
+}
+
+// TestLastMenuOffsetEndsOnTheLastCandidate checks the furthest the menu can
+// scroll: the offset of the window that ends on the last candidate, holding as
+// many as the terminal has rows for, ten at most.
+func TestLastMenuOffsetEndsOnTheLastCandidate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		height int
+		count  int
+		want   int
+	}{
+		// Ten rows hold the last ten of fifteen.
+		{name: "ten at most", height: 24, count: 15, want: 5},
+		// One row for the input leaves four for the menu, filled exactly.
+		{name: "rows filled exactly", height: 5, count: 6, want: 2},
+		{name: "a list that fits", height: 5, count: 4, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := newMockTerminal("")
+			mock.terminalSize = [2]int{80, tt.height}
+			r := newRenderer(&bytes.Buffer{}, ThemeDefault, mock)
+			r.measureTerminal()
+			suggestions := make([]Suggestion, tt.count)
+			for i := range suggestions {
+				suggestions[i] = Suggestion{Text: fmt.Sprintf("s%d", i)}
+			}
+			if got := r.lastMenuOffset("$ ", "s", suggestions); got != tt.want {
+				t.Errorf("lastMenuOffset() of %d candidates under %d rows = %d, want %d", tt.count, tt.height, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCursorMovesOfZeroAreNotWritten checks the moves the renderer leaves out
+// when there is no distance to cover. A terminal reads a count of zero as one,
+// so writing "\x1b[0A", "\x1b[0B" or "\x1b[0C" moves the cursor a cell.
+func TestCursorMovesOfZeroAreNotWritten(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		act  func(r *renderer) error
+		want string
+	}{
+		{
+			name: "erasing a one-row block clears its row",
+			act:  func(r *renderer) error { r.lastLines, r.lastCursorRow = 1, 0; r.clearPreviousLines(); return nil },
+			want: "\r\x1b[K",
+		},
+		{
+			name: "erasing from the first row of a taller block moves up nothing",
+			act:  func(r *renderer) error { r.lastLines, r.lastCursorRow = 3, 0; r.clearPreviousLines(); return nil },
+			want: "\r\x1b[0J",
+		},
+		{
+			name: "erasing from a lower row moves up to the first",
+			act:  func(r *renderer) error { r.lastLines, r.lastCursorRow = 3, 2; r.clearPreviousLines(); return nil },
+			want: "\x1b[2A\r\x1b[0J",
+		},
+		{
+			name: "a cursor on the last row is already at the foot",
+			act:  func(r *renderer) error { r.lastLines, r.lastCursorRow = 3, 2; r.moveToBlockFoot(); return nil },
+			want: "",
+		},
+		{
+			name: "a cursor above the last row moves down to the foot",
+			act:  func(r *renderer) error { r.lastLines, r.lastCursorRow = 3, 0; r.moveToBlockFoot(); return nil },
+			want: "\x1b[2B",
+		},
+		{
+			name: "placing the cursor at column zero only returns",
+			act:  func(r *renderer) error { return r.placeCursor(0, 0) },
+			want: "\r",
+		},
+		{
+			name: "placing the cursor further in moves right",
+			act:  func(r *renderer) error { return r.placeCursor(1, 3) },
+			want: "\x1b[1A\r\x1b[3C",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			r := newRenderer(&out, ThemeDefault, nil)
+			if err := tt.act(r); err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if got := out.String(); got != tt.want {
+				t.Errorf("wrote %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestPlaceCursorReportsAFailedMoveRight checks that the move to the column is
+// reported when the terminal refuses it, after the return went through.
+func TestPlaceCursorReportsAFailedMoveRight(t *testing.T) {
+	t.Parallel()
+
+	r := newRenderer(&failAfterWriter{ok: 1}, ThemeDefault, nil)
+	if err := r.placeCursor(0, 3); !errors.Is(err, errWrite) {
+		t.Errorf("placeCursor() = %v, want %v", err, errWrite)
 	}
 }
