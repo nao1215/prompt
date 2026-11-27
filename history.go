@@ -151,17 +151,18 @@ func readHistoryFile(path string) ([]string, error) {
 	}
 }
 
-// entriesOnDisk reports how many entries the history file holds now, which is
-// what a save is about to write over. A file that is not there holds none.
-func (hm *historyManager) entriesOnDisk() (int, error) {
+// entriesOnDisk reports whether the history file is there and how many entries
+// it holds, which is what a save is about to write over. A file that is not
+// there holds none.
+func (hm *historyManager) entriesOnDisk() (held int, exists bool, err error) {
 	entries, err := readHistoryFile(hm.config.File)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return 0, nil
+			return 0, false, nil
 		}
-		return 0, err
+		return 0, false, err
 	}
-	return len(entries), nil
+	return len(entries), true, nil
 }
 
 // SaveHistory saves the current history to the configured file
@@ -183,12 +184,12 @@ func (hm *historyManager) saveHistory() (err error) {
 	// Counting what is on disk asks the one question that covers both: is this
 	// save writing fewer entries than the file already holds?
 	writable := hm.writable()
-	held, err := hm.entriesOnDisk()
+	held, exists, err := hm.entriesOnDisk()
 	if err != nil {
 		return fmt.Errorf("failed to read the history file before writing it: %w", err)
 	}
 	dropping := len(writable) < len(hm.history) || held > len(writable)
-	if err := hm.rotateIfNeeded(dropping); err != nil {
+	if err := hm.rotateIfNeeded(dropping, exists); err != nil {
 		return fmt.Errorf("failed to rotate history file: %w", err)
 	}
 	hm.overflowed = dropping
@@ -382,20 +383,18 @@ func (hm *historyManager) clearHistory() {
 	hm.history = []string{}
 }
 
-// rotateIfNeeded checks if the history file needs rotation and performs it
-func (hm *historyManager) rotateIfNeeded(overflow bool) error {
+// rotateIfNeeded checks if the history file needs rotation and performs it.
+// exists is whether the save that asks found the file when it read it. A file
+// that is not there has nothing to keep, and no second look at the file is
+// taken that could fail after the oldest backup is already removed.
+func (hm *historyManager) rotateIfNeeded(overflow, exists bool) error {
 	// Rotation happens the first time the history outgrows the file, and keeps
 	// the last file that held all of it. Rotating on every save after that would
 	// write a near-identical copy each time and delete the oldest backup --
 	// which is the only place the entries being left out still exist -- within
 	// MaxBackups saves.
-	if !overflow || hm.overflowed {
+	if !overflow || hm.overflowed || !exists {
 		return nil
-	}
-
-	// Any other failure to stat the file is the rename's to report.
-	if _, err := os.Stat(hm.config.File); errors.Is(err, fs.ErrNotExist) {
-		return nil // Nothing on disk to keep
 	}
 
 	return hm.rotateHistoryFile()

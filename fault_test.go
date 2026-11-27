@@ -386,3 +386,25 @@ func TestExitRawModeReportsAFailedWrite(t *testing.T) {
 		t.Errorf("Restore called %d times, want 1", mock.restoreCount)
 	}
 }
+
+// TestFirstSaveThatOverflowsMakesNoBackup checks a save that leaves entries
+// out before any history file exists: there is nothing to move aside, so the
+// save writes the file and makes no backup.
+func TestFirstSaveThatOverflowsMakesNoBackup(t *testing.T) {
+	t.Parallel()
+
+	file := filepath.Join(t.TempDir(), "history")
+	hm := newHistoryManager(&historyConfig{Enabled: true, File: file, MaxFileSize: 8, MaxBackups: 2})
+	hm.addEntry("first entry")
+	hm.addEntry("second entry")
+	if err := hm.saveHistory(); err != nil {
+		t.Fatalf("saveHistory = %v", err)
+	}
+	if _, err := os.Stat(file + ".1"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("backup after the first save: %v, want none", err)
+	}
+	got, err := readHistoryFile(file)
+	if err != nil || len(got) != 1 || got[0] != "second entry" {
+		t.Errorf("history file = %q, %v; want the newest entry", got, err)
+	}
+}

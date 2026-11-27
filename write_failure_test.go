@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // errWrite is what failAfterWriter returns once its budget is spent.
@@ -98,14 +99,33 @@ func writeFailureScenarios() []writeFailureScenario {
 	}
 }
 
+// lastKeyTerminal calls at when the last rune of its script has been read,
+// which in every scenario here is the Enter that accepts the line.
+type lastKeyTerminal struct {
+	terminalInterface
+	left int
+	at   func()
+}
+
+func (k *lastKeyTerminal) ReadRune() (rune, int, error) {
+	r, n, err := k.terminalInterface.ReadRune()
+	if err == nil {
+		k.left--
+		if k.left == 0 {
+			k.at()
+		}
+	}
+	return r, n, err
+}
+
 // TestEveryFailedWriteEndsTheSession makes each write of a scripted session
 // fail in turn. A prompt that cannot draw leaves the screen and the buffer out
 // of step, so until the line is accepted a failed write must end the session
 // with its error. Once Enter has accepted the line, the writes left (the final
 // redraw, the line break, leaving raw mode) only tidy the screen, and the
-// session still returns the line when they fail. The writes therefore split at
-// one point: every failure before it is an error, and every failure after it
-// returns the line.
+// session still returns the line when they fail. Where the line is accepted is
+// taken from a run where every write succeeds: the number of writes made when
+// the Enter that ends the script is read.
 func TestEveryFailedWriteEndsTheSession(t *testing.T) {
 	t.Parallel()
 
@@ -114,29 +134,31 @@ func TestEveryFailedWriteEndsTheSession(t *testing.T) {
 			t.Parallel()
 
 			counter := &failAfterWriter{ok: 1 << 30}
-			got, err := sc.build(counter).Run(context.Background())
-			if err != nil || got != sc.want {
-				t.Fatalf("unfailing session = %q, %v; want %q, nil", got, err, sc.want)
+			p := sc.build(counter)
+			mock, ok := p.terminal.(*mockTerminal)
+			if !ok {
+				t.Fatalf("scenario terminal is %T, want *mockTerminal", p.terminal)
+			}
+			accepted := -1
+			p.terminal = &lastKeyTerminal{
+				terminalInterface: mock,
+				left:              utf8.RuneCountInString(mock.script),
+				at:                func() { accepted = counter.writes },
+			}
+			got, err := p.Run(context.Background())
+			if err != nil || got != sc.want || accepted < 0 {
+				t.Fatalf("unfailing session = %q, %v (Enter read after write %d); want %q, nil", got, err, accepted, sc.want)
 			}
 			total := counter.writes
 
-			accepted := -1 // the first write whose failure no longer ends the session
 			for ok := range total {
 				got, err := sc.build(&failAfterWriter{ok: ok}).Run(context.Background())
-				switch {
-				case errors.Is(err, errWrite) && accepted < 0:
-				case err == nil && got == sc.want:
-					if accepted < 0 {
-						accepted = ok
-					}
-				default:
-					t.Errorf("write %d of %d failed: Run = %q, %v; want the write's error before the line is accepted and the line after", ok+1, total, got, err)
+				if ok < accepted && !errors.Is(err, errWrite) {
+					t.Errorf("write %d of %d, before Enter, failed: Run = %q, %v; want the write's error", ok+1, total, got, err)
 				}
-			}
-			// The tidying after Enter is a handful of writes. A boundary far
-			// before the end would mean a failure during editing was swallowed.
-			if accepted < 0 || total-accepted > 20 {
-				t.Errorf("failures stop ending the session at write %d of %d", accepted+1, total)
+				if ok >= accepted && (err != nil || got != sc.want) {
+					t.Errorf("write %d of %d, after Enter, failed: Run = %q, %v; want %q, nil", ok+1, total, got, err, sc.want)
+				}
 			}
 		})
 	}

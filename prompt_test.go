@@ -318,6 +318,7 @@ func BenchmarkPromptRender(b *testing.B) {
 	// Use a bytes buffer to avoid terminal output
 	var output bytes.Buffer
 	p.output = &output
+	p.renderer.output = &output
 
 	b.ResetTimer()
 	for range b.N {
