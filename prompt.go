@@ -479,10 +479,9 @@ func New(prefix string, opts ...Option) (*Prompt, error) {
 }
 
 func newFromConfig(config options) (*Prompt, error) {
+	// newHistoryManager fills in the defaults of the config it is given.
 	if config.historyConfig == nil {
 		config.historyConfig = defaultHistoryConfig()
-	} else {
-		normalizeHistoryConfig(config.historyConfig)
 	}
 	if config.ColorScheme == nil {
 		config.ColorScheme = ThemeDefault
@@ -1014,11 +1013,6 @@ func (p *Prompt) Run(ctx context.Context) (string, error) {
 		default:
 			// Handle regular character input
 			if r >= 32 && r < 127 || r > 127 { // Printable characters
-				// Don't insert TAB as regular character (should be handled by ActionComplete)
-				if r == '\t' {
-					// TAB should have been handled as ActionComplete, ignore
-					continue
-				}
 				p.insertRune(r)
 				suggestions = nil             // Clear suggestions on new input
 				historyIndex = len(p.history) // Reset history position
@@ -1228,9 +1222,6 @@ func (p *Prompt) restoreOnExit() {
 
 // showCursor makes the terminal cursor visible again.
 func (p *Prompt) showCursor() {
-	if p.output == nil {
-		return
-	}
 	fmt.Fprint(p.output, showCursorSequence)
 }
 
@@ -1242,10 +1233,8 @@ func (p *Prompt) exitRawMode() error {
 		return nil
 	}
 	var errs []error
-	if p.output != nil {
-		if _, err := fmt.Fprint(p.output, bracketedPasteDisableSequence); err != nil {
-			errs = append(errs, err)
-		}
+	if _, err := fmt.Fprint(p.output, bracketedPasteDisableSequence); err != nil {
+		errs = append(errs, err)
 	}
 	if err := p.terminal.Restore(); err != nil {
 		errs = append(errs, err)

@@ -56,6 +56,12 @@ func openTTYReader() *ttyReader {
 	if err != nil {
 		return nil
 	}
+	return newTTYReader(fd)
+}
+
+// newTTYReader makes a reader of fd, which it takes over: on failure fd is
+// closed and nil returned.
+func newTTYReader(fd int) *ttyReader {
 	if err := unix.SetNonblock(fd, true); err != nil {
 		_ = unix.Close(fd)
 		return nil

@@ -20,9 +20,9 @@ func defaultHistoryConfig() *historyConfig {
 	return &historyConfig{
 		Enabled:     true,
 		MaxEntries:  defaultMaxHistoryEntries,
-		File:        "",          // Empty by default, can be set to use XDG config directory
-		MaxFileSize: 1024 * 1024, // 1MB
-		MaxBackups:  3,
+		File:        "", // Empty by default, can be set to use XDG config directory
+		MaxFileSize: defaultMaxHistoryFileSize,
+		MaxBackups:  defaultHistoryBackups,
 	}
 }
 
@@ -244,10 +244,7 @@ const historyFileMode = 0o600
 // touched, because how much is remembered for the session is MaxEntries'
 // business and saving should not change it.
 func (hm *historyManager) writable() []string {
-	limit := hm.config.MaxFileSize
-	if limit <= 0 {
-		return hm.history
-	}
+	limit := hm.config.MaxFileSize // positive: newHistoryManager set it
 	var size int64
 	for i := len(hm.history) - 1; i >= 0; i-- {
 		size += int64(len(encodeHistoryLine(hm.history[i]))) + 1 // the newline
@@ -354,10 +351,7 @@ func (hm *historyManager) addEntry(entry string) {
 // copy down again, so a manager used on its own grew for as long as the process
 // ran, however small a limit it was given.
 func (hm *historyManager) trim(history []string) []string {
-	limit := hm.config.MaxEntries
-	if limit <= 0 {
-		limit = defaultMaxHistoryEntries
-	}
+	limit := hm.config.MaxEntries // positive: newHistoryManager set it
 	if len(history) <= limit {
 		return history
 	}
@@ -390,9 +384,6 @@ func (hm *historyManager) clearHistory() {
 
 // rotateIfNeeded checks if the history file needs rotation and performs it
 func (hm *historyManager) rotateIfNeeded(overflow bool) error {
-	if hm.config.File == "" {
-		return nil
-	}
 	// Rotation happens the first time the history outgrows the file, and keeps
 	// the last file that held all of it. Rotating on every save after that would
 	// write a near-identical copy each time and delete the oldest backup --
@@ -402,11 +393,9 @@ func (hm *historyManager) rotateIfNeeded(overflow bool) error {
 		return nil
 	}
 
-	if _, err := os.Stat(hm.config.File); err != nil {
-		if os.IsNotExist(err) {
-			return nil // Nothing on disk to keep
-		}
-		return err
+	// Any other failure to stat the file is the rename's to report.
+	if _, err := os.Stat(hm.config.File); errors.Is(err, fs.ErrNotExist) {
+		return nil // Nothing on disk to keep
 	}
 
 	return hm.rotateHistoryFile()

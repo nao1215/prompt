@@ -278,12 +278,9 @@ type fuzzyMatch struct {
 
 // fuzzySearch performs fuzzy matching against items and returns sorted matches.
 // Every item that matches is one match, so an item listed twice is matched
-// twice; equal items score the same and keep their relative order.
+// twice; equal items score the same and keep their relative order. Both
+// callers answer an empty query themselves, so query is never empty.
 func (f *fuzzyMatcher) fuzzySearch(query string) []fuzzyMatch {
-	if query == "" {
-		return nil
-	}
-
 	var matches []fuzzyMatch
 	queryLower := strings.ToLower(query)
 

@@ -854,19 +854,16 @@ func (r *renderer) placeCursor(up, col int) error {
 // counted from the block's first row, and the column on that row. Both are in
 // terminal cells and both account for wrapping, so a logical line wide enough to
 // occupy three rows contributes three.
+//
+// lines and the cursor are splitIntoLines and findCursorPosition of the same
+// input, so the cursor is always inside the block.
 func (r *renderer) cursorRowCol(lines []string, cursorLine, cursorCol int, prefix string) (row, col int) {
 	width := r.terminalWidth()
-	if cursorLine >= len(lines) {
-		cursorLine = len(lines) - 1
-	}
 	for i := range cursorLine {
 		row += r.lineRows(i, lines[i], prefix)
 	}
 
 	lineRunes := []rune(lines[cursorLine])
-	if cursorCol > len(lineRunes) {
-		cursorCol = len(lineRunes)
-	}
 	before := r.linePrefix(cursorLine, prefix) + string(lineRunes[:cursorCol])
 	rows, col := layout(before, width)
 	if col >= width {
