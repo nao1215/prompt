@@ -896,3 +896,41 @@ func TestCompletingIsTyping(t *testing.T) {
 		}
 	}
 }
+
+// TestScrollToSelectionBringsABelowSelectionIntoView checks a selection below
+// the menu's window: the window scrolls just far enough for it to be the last
+// candidate listed. A five-row terminal leaves four rows for the menu, and a
+// one-row terminal leaves none, so there is no window to scroll.
+func TestScrollToSelectionBringsABelowSelectionIntoView(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		height   int
+		selected int
+		offset   int
+		want     int
+	}{
+		{name: "the last row of the window", height: 5, selected: 3, offset: 0, want: 0},
+		{name: "one past the window", height: 5, selected: 4, offset: 0, want: 1},
+		{name: "well past the window", height: 5, selected: 8, offset: 1, want: 5},
+		{name: "the last candidate", height: 5, selected: 9, offset: 0, want: 6},
+		{name: "no room for a menu", height: 1, selected: 4, offset: 0, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := newMockTerminal("")
+			mock.terminalSize = [2]int{80, tt.height}
+			p := newTestPrompt(mock)
+			suggestions := make([]Suggestion, 10)
+			for i := range suggestions {
+				suggestions[i] = Suggestion{Text: fmt.Sprintf("s%d", i)}
+			}
+			if got := p.scrollToSelection(suggestions, tt.selected, tt.offset); got != tt.want {
+				t.Errorf("scrollToSelection(selected %d, offset %d) = %d, want %d", tt.selected, tt.offset, got, tt.want)
+			}
+		})
+	}
+}

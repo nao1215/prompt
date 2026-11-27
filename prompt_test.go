@@ -3733,6 +3733,23 @@ func TestOptionsSetWhatTheyName(t *testing.T) {
 		if config.historyConfig.MaxEntries != 42 {
 			t.Errorf("WithFileHistory() set MaxEntries = %d, want 42", config.historyConfig.MaxEntries)
 		}
+		// The documented limits: one megabyte a save and three backups.
+		if config.historyConfig.MaxFileSize != 1<<20 {
+			t.Errorf("WithFileHistory() set MaxFileSize = %d, want %d", config.historyConfig.MaxFileSize, 1<<20)
+		}
+		if config.historyConfig.MaxBackups != 3 {
+			t.Errorf("WithFileHistory() set MaxBackups = %d, want 3", config.historyConfig.MaxBackups)
+		}
+	})
+
+	t.Run("WithFileHistory takes zero entries as the default", func(t *testing.T) {
+		t.Parallel()
+
+		var config options
+		WithFileHistory("/tmp/history", 0)(&config)
+		if config.historyConfig.MaxEntries != 1000 {
+			t.Errorf("WithFileHistory(0) set MaxEntries = %d, want 1000", config.historyConfig.MaxEntries)
+		}
 	})
 
 	t.Run("WithHighlighter takes the function as given", func(t *testing.T) {
@@ -4534,5 +4551,116 @@ func TestCtrlDEndsTheLineOnlyWhenItIsEmpty(t *testing.T) {
 				t.Errorf("Run() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// threeSuggestions completes anything to s0, s1 and s2.
+func threeSuggestions(Document) []Suggestion {
+	return []Suggestion{{Text: "s0"}, {Text: "s1"}, {Text: "s2"}}
+}
+
+// TestSuggestionSelectionStopsAtEitherEnd checks that Up on the first candidate
+// and Down on the last one keep the selection where it is, so Enter accepts a
+// candidate the menu holds.
+func TestSuggestionSelectionStopsAtEitherEnd(t *testing.T) {
+	t.Parallel()
+
+	down := "\x1b[B"
+	up := "\x1b[A"
+	tests := []struct {
+		name   string
+		script string
+		want   string
+	}{
+		{name: "first", script: "s\t\r\r", want: "s0"},
+		{name: "up on the first", script: "s\t" + up + "\r\r", want: "s0"},
+		{name: "down to the last", script: "s\t" + strings.Repeat(down, 2) + "\r\r", want: "s2"},
+		{name: "down past the last", script: "s\t" + strings.Repeat(down, 4) + "\r\r", want: "s2"},
+		{name: "past the last and back", script: "s\t" + strings.Repeat(down, 4) + up + "\r\r", want: "s1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newTestPrompt(newMockTerminal(tt.script), WithCompleter(threeSuggestions))
+			got, err := p.Run(context.Background())
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("Run() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSuggestionUpInsideTheWindowKeepsItsTop checks that moving up to a
+// candidate that is already on screen does not scroll the menu: the first
+// candidate stays listed. The list is longer than the four rows a five-row
+// terminal leaves for it, so the menu could scroll.
+func TestSuggestionUpInsideTheWindowKeepsItsTop(t *testing.T) {
+	t.Parallel()
+
+	suggest := func(Document) []Suggestion {
+		suggestions := make([]Suggestion, 12)
+		for i := range suggestions {
+			suggestions[i] = Suggestion{Text: fmt.Sprintf("s%d", i)}
+		}
+		return suggestions
+	}
+	var out bytes.Buffer
+	mock := newMockTerminal("s\t\x1b[B\x1b[B\x1b[A")
+	mock.terminalSize = [2]int{40, 5}
+	p := newTestPrompt(mock, WithCompleter(suggest))
+	p.output = &out
+	p.renderer = newRenderer(&out, ThemeDefault, mock)
+	if _, err := p.Run(context.Background()); !errors.Is(err, ErrEOF) {
+		t.Fatalf("Run() error = %v, want ErrEOF", err)
+	}
+	frames := strings.Split(out.String(), hideCursorSequence)
+	last := frames[len(frames)-1]
+	for _, want := range []string{"s0", menuSelectedIndicator + "s1", "s3"} {
+		if !strings.Contains(last, want) {
+			t.Errorf("the last menu drawn was %q, want it to list %q", last, want)
+		}
+	}
+}
+
+// pasteRenders runs a session that pastes content and returns the line and how
+// many times the prompt was drawn, counted by its prefix.
+func pasteRenders(t *testing.T, content string) (string, int) {
+	t.Helper()
+
+	var out bytes.Buffer
+	p := newTestPrompt(newMockTerminal("\x1b[200~" + content + "\x1b[201~\r"))
+	p.output = &out
+	p.renderer = newRenderer(&out, ThemeDefault, p.terminal)
+	got, err := p.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	return got, strings.Count(out.String(), "$ ")
+}
+
+// TestPasteIsDrawnOnceEveryInterval checks that a paste is drawn on its way in
+// once every pasteDrawInterval runes, whether they arrive as plain text or as
+// the text of an escape sequence the paste carried.
+func TestPasteIsDrawnOnceEveryInterval(t *testing.T) {
+	t.Parallel()
+
+	_, short := pasteRenders(t, strings.Repeat("x", pasteDrawInterval-1))
+	_, full := pasteRenders(t, strings.Repeat("x", pasteDrawInterval))
+	if full != short+1 {
+		t.Errorf("a paste of %d runes was drawn %d times and one of %d runes %d times, want one more draw at the interval",
+			pasteDrawInterval-1, short, pasteDrawInterval, full)
+	}
+
+	// The sequence's four runes after the ESC complete the interval.
+	got, mixed := pasteRenders(t, strings.Repeat("x", pasteDrawInterval-4)+"\x1b[31m")
+	if want := strings.Repeat("x", pasteDrawInterval-4) + "[31m"; got != want {
+		t.Fatalf("Run() = %q, want %q", got, want)
+	}
+	if mixed != full {
+		t.Errorf("a paste completing the interval with a sequence was drawn %d times, want %d", mixed, full)
 	}
 }

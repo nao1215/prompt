@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -526,4 +527,29 @@ func FuzzBlockRowsAgreeWithTheHeight(f *testing.F) {
 				width, prefix, input, got, want)
 		}
 	})
+}
+
+// TestWriteRowWritesEveryRunAndReportsAFailure checks that a row of several
+// input runs is written whole, and that a write the terminal refuses is
+// reported.
+func TestWriteRowWritesEveryRunAndReportsAFailure(t *testing.T) {
+	t.Parallel()
+
+	row := blockRow{{text: "$ ", start: prefixSegment}, {text: "ab", start: 0}, {text: "cd", start: 3}}
+
+	var out bytes.Buffer
+	r := newRenderer(&out, ThemeDefault, nil)
+	if err := r.writeRow(row, nil); err != nil {
+		t.Fatalf("writeRow() error = %v", err)
+	}
+	if got := visibleText(out.String()); got != "$ abcd" {
+		t.Errorf("writeRow() drew %q, want %q", got, "$ abcd")
+	}
+
+	for ok := range 3 {
+		r := newRenderer(&failAfterWriter{ok: ok}, ThemeDefault, nil)
+		if err := r.writeRow(row, nil); !errors.Is(err, errWrite) {
+			t.Errorf("writeRow() with %d writes allowed = %v, want %v", ok, err, errWrite)
+		}
+	}
 }

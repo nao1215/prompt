@@ -83,14 +83,14 @@ jobs:
           exit "$status"
       - name: Mutate every package
         if: github.event_name != 'pull_request'
-        # The whole package measured 85.04% on 2026-11-27 (doc/testing.md), so
-        # its floor is 85, raised as tests kill the survivors. The floor goes in
+        # The whole package measured 91.94% on 2026-11-27 (doc/testing.md), so
+        # its floor is 91, raised as tests kill the survivors. The floor goes in
         # a config file that --config reads in place of .gremlins.yaml. It
         # cannot go in the environment: gremlins v0.6.0 reads
         # GREMLINS_UNLEASH_THRESHOLD_EFFICACY as a string, takes it for no
         # threshold, and passes at any efficacy.
         run: |
-          printf 'unleash:\n  threshold:\n    efficacy: 85\n' > "$RUNNER_TEMP/gremlins.yaml"
+          printf 'unleash:\n  threshold:\n    efficacy: 91\n' > "$RUNNER_TEMP/gremlins.yaml"
           ulimit -v "$MUTANT_MEMORY_KIB"
           gremlins unleash --config "$RUNNER_TEMP/gremlins.yaml" --workers 2 --timeout-coefficient 10 --exclude-files '/' --output mutation.json .
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

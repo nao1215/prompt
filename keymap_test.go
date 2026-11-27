@@ -54,6 +54,10 @@ func TestReadEscapeSequenceBareEscape(t *testing.T) {
 		// A sequence too long to name is still read to its end, so its tail
 		// cannot be picked up as typed text; only what follows it is.
 		{name: "CSI past the bound reports no sequence and is consumed whole", input: "[" + strings.Repeat("1;", 40) + "Rx", wantSeq: "", wantNex: 'x'},
+		// The bound is maxCSILength runes with the "[": 31 parameter bytes fit
+		// and a 32nd does not.
+		{name: "CSI at the bound is named", input: "[" + strings.Repeat("1", maxCSILength-1) + "~x", wantSeq: "[" + strings.Repeat("1", maxCSILength-1) + "~", wantNex: 'x'},
+		{name: "CSI one past the bound reports no sequence", input: "[" + strings.Repeat("1", maxCSILength) + "~x", wantSeq: "", wantNex: 'x'},
 		// A byte outside the CSI grammar aborts the sequence and belongs to the
 		// input, so it is pushed back the way a bare Escape's rune is.
 		{name: "a control byte aborts a CSI and is kept", input: "[1;\rx", wantSeq: "", wantNex: '\r'},
