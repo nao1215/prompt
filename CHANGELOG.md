@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-27
+
 ### Changed
 
 - Fuzzy completion is about 40% faster: a candidate is matched in place instead of being copied into a slice of runes first. Measuring a line for wrapping skips the width table for printable ASCII, which makes redrawing a multiline entry about 12% faster, and a history line without a backslash is read without being decoded, which halves the allocations of loading such a file.
