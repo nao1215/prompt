@@ -310,17 +310,15 @@ func TestHistory(t *testing.T) {
 }
 
 func BenchmarkPromptRender(b *testing.B) {
-	p, err := newFromConfig(options{
-		Prefix: "$ ",
-	})
-	if err != nil {
-		b.Fatalf("New() failed: %v", err)
-	}
+	// A mock terminal, so the benchmark runs where there is no /dev/tty, as on
+	// a CI runner.
+	p := newTestPrompt(newMockTerminal(""))
 	defer p.Close()
 
 	// Use a bytes buffer to avoid terminal output
 	var output bytes.Buffer
 	p.output = &output
+	p.renderer.output = &output
 
 	b.ResetTimer()
 	for range b.N {

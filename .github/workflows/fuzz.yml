@@ -4,12 +4,22 @@ name: Fuzz
 # corpus and testdata/fuzz/. This workflow is the part that actually searches:
 # each target gets its own job and a few minutes of `go test -fuzz` every night.
 # Five minutes per target on every push would cost more than it finds, so the
-# search runs on schedule and on demand only.
+# long search runs on schedule and on demand, and a pull request gets a short
+# one.
 #
 # Targets are discovered, not listed, so a Fuzz function added later is fuzzed
 # without editing this file.
 
 on:
+  # A pull request fuzzes each target for a few seconds: enough to catch a
+  # change that makes a seed's neighbors crash, cheap enough for every push.
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.go'
+      - go.mod
+      - go.sum
+      - .github/workflows/fuzz.yml
   schedule:
     - cron: "0 5 * * *"
   workflow_dispatch:
@@ -25,9 +35,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   targets:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       matrix: ${{ steps.find.outputs.matrix }}
     steps:
@@ -78,7 +93,7 @@ jobs:
         env:
           PKG: ${{ matrix.target.pkg }}
           NAME: ${{ matrix.target.name }}
-          FUZZTIME: ${{ inputs.fuzztime || '5m' }}
+          FUZZTIME: ${{ github.event_name == 'pull_request' && '15s' || inputs.fuzztime || '5m' }}
         run: go test -run '^$' -fuzz "^${NAME}\$" -fuzztime "$FUZZTIME" "$PKG"
       # A failing input is written under <pkg>/testdata/fuzz/<Name>/. Download
       # it, commit it next to the target, and fix the bug with it as the

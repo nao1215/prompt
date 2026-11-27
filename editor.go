@@ -264,7 +264,9 @@ func (p *Prompt) getCurrentLineText() string {
 	return string(p.buffer[lineStart:lineEnd])
 }
 
-// removeTrailingBackslash removes the trailing backslash from the current line
+// removeTrailingBackslash removes the trailing backslash from the current line.
+// Its one caller, isShiftEnter, has already found an odd number of backslashes
+// at the end of the line, so there is one to remove.
 func (p *Prompt) removeTrailingBackslash() {
 	lineStart := p.findLineStart()
 	line := p.buffer[lineStart:p.findLineEnd()]
@@ -276,11 +278,8 @@ func (p *Prompt) removeTrailingBackslash() {
 	// prompt panicked, or, when the buffer's capacity happened to reach that far,
 	// deleted a rune that was not the backslash.
 	end := len(line)
-	for end > 0 && (line[end-1] == ' ' || line[end-1] == '\t') {
+	for line[end-1] == ' ' || line[end-1] == '\t' {
 		end--
-	}
-	if end == 0 || line[end-1] != '\\' {
-		return
 	}
 
 	backslashPos := lineStart + end - 1

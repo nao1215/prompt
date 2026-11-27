@@ -70,6 +70,30 @@ jobs:
       - name: Run tests with the race detector
         run: go test -race ./...
 
+  unit_test_32bit:
+    name: Unit test (GOARCH=386)
+
+    # int is 32 bits here. A width or offset computed by multiplying two ints,
+    # or a test constant that needs 64 bits, overflows or fails to compile, and
+    # the 64-bit legs cannot see either. A linux/amd64 runner runs 386 binaries
+    # natively.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GOARCH: "386"
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "stable"
+
+      - name: Run tests
+        run: go test ./...
+
   cross_build:
     name: Cross build (${{ matrix.goos }})
 

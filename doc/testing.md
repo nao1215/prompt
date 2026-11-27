@@ -10,6 +10,10 @@
 
 `pty_reader_test.go` (not on Windows) runs a prompt in a child process attached to a pseudo-terminal from [creack/pty](https://github.com/creack/pty), and types into it: closing a prompt and opening another, a child that leaves the terminal in raw mode, and a resize while a read is waiting. These are the paths the mock terminal cannot reach, because they depend on what the operating system does with the terminal.
 
+## Fault injection
+
+`write_failure_test.go` runs scripted sessions (typing with a highlighter, the completion menu, reverse search, a long paste, a block taller than the terminal) and makes each of their writes fail in turn. Until Enter accepts the line, a failed write has to end the session with its error. After that, the writes left only tidy the screen, so the line is still returned. `fault_test.go` makes the terminal fail (a read, raw mode, restoring it, reporting its size, closing it) and the history file (a backup that cannot be removed or moved, a directory that cannot be created). `tty_reader_unix_test.go` reads through the interruptible reader over a pseudo-terminal, a pipe, and a directory, whose read fails.
+
 ## Property-based tests
 
 The property tests draw their inputs with [rapid](https://pkg.go.dev/pgregory.net/rapid), which shrinks a failure to a small counterexample. They live in `property_test.go`, and their names start with `TestProperty_`, `TestMetamorphic_` or `TestDifferential_`. The drawn text is made of spaces, tabs, line breaks, backslashes and a few letters in and outside ASCII, because those are the characters the line-editing code treats differently.
@@ -49,6 +53,22 @@ The fuzz targets are in `renderer_test.go` (the layout stays on the screen and m
 go test . -run '^$' -fuzz '^FuzzHistoryLineRoundTrip$' -fuzztime 1m
 ```
 
+## Benchmarks
+
+`bench_test.go` measures the work done on every key press (layout, highlighting, the completion menu, fuzzy completion) and the read of the history file at start-up. The `Benchmark` workflow (`.github/workflows/benchmark.yml`) builds the base and the head of a pull request on one runner and runs them in turn for 8 rounds with `GOMAXPROCS=1`. It fails when a benchmark's median is more than 1.25 times the base's and even its fastest sample is slower than the base's median (`scripts/ci_benchmark.py`).
+
+```sh
+python3 scripts/ci_benchmark.py --base origin/main --head HEAD
+```
+
+## What a pull request has to pass
+
+- Coverage: octocov fails a pull request that lowers coverage or leaves it under 99%. `example/` and `terminal.go`, which needs a real terminal, are left out.
+- Unit tests on Linux, macOS, and Windows with the go.mod floor and the newest Go, as `GOARCH=386`, and under the race detector on Linux.
+- Each fuzz target for 15 seconds.
+- Mutation testing of the changed lines, which `.gremlins.yaml` fails at or below 90% efficacy.
+- The benchmark comparison above.
+
 ## Mutation testing
 
 [gremlins](https://github.com/go-gremlins/gremlins) v0.6.0 changes one comparison, bound or arithmetic operator at a time and runs the package's tests; a mutant no test notices is a line the tests execute without checking. The `Mutation` workflow (`.github/workflows/mutation.yml`) mutates the lines a pull request changes, and the whole package once a week. The programs under `example/` are left out.
@@ -59,10 +79,11 @@ git config diff.context 0; git config diff.interHunkContext 0   # one hunk per e
 gremlins unleash --diff origin/main --workers 4 --exclude-files / .
 ```
 
-Efficacy (killed / (killed + lived)) measured on 2026-11-19, the first full run, with `--workers 4 --timeout-coefficient 10` and a 4 GiB memory cap per process. A timed-out mutant is one whose tests no longer finish, counted apart from both:
+Efficacy (killed / (killed + lived)) with `--workers 3 --timeout-coefficient 10` and `GOFLAGS=-count=1`. A timed-out mutant is one whose tests no longer finish, counted apart from both:
 
-| Package | Killed | Lived | Not covered | Timed out | Efficacy |
+| Measured | Killed | Lived | Not covered | Timed out | Efficacy |
 |---|---|---|---|---|---|
-| `.` (root package) | 722 | 89 | 35 | 4 | 89.03% |
+| 2026-11-19, first full run | 722 | 89 | 35 | 4 | 89.03% |
+| 2026-11-27, after the fault injection tests | 671 | 118 | 27 | 11 | 85.04% |
 
-Most of the survivors move a boundary by one (`<` to `<=`) in the scrolling and layout arithmetic of `completion.go`, `editor.go` and `history.go`, which is where a test is worth adding next. Some cannot be killed: `TextBeforeCursor` returns the whole text for a cursor at the end of it whichever way its bound is compared. A pull request should not lower the efficacy below this table.
+The second run has fewer mutants because unreachable guards were removed, and fewer not covered because the new tests reach most of the rest. The weekly run fails below 85%, and a pull request's changed lines below 90% (`.gremlins.yaml`). Most of the survivors move a boundary by one (`<` to `<=`) in the scrolling and layout arithmetic of `history.go`, `prompt.go` and `renderer.go`, which is where a test is worth adding next. Some cannot be killed: `TextBeforeCursor` returns the whole text for a cursor at the end of it whichever way its bound is compared.

@@ -6,7 +6,8 @@ name: Mutation
 # git diff prints match the files gremlins mutates). The examples under
 # example/ are left out with --exclude-files: they are programs that show the
 # API, not the library. The score measured when this was added is in
-# doc/testing.md.
+# doc/testing.md. .gremlins.yaml fails a pull request's run at or below 90%
+# efficacy; the weekly run has its own floor below.
 on:
   schedule:
     - cron: '0 3 * * 0'
@@ -30,6 +31,11 @@ env:
   # hosted runner down with "runner has received a shutdown signal" and no log.
   # A 4 GiB cap per process makes it die as a killed mutant instead.
   MUTANT_MEMORY_KIB: '4194304'
+  # gremlins times each mutant against a multiple of how long an unmutated run
+  # of the tests took. setup-go restores the build cache, test results
+  # included, and a cached run takes milliseconds: every mutant then "times
+  # out", none is killed or lives, and the efficacy is 0. Never reuse a result.
+  GOFLAGS: '-count=1'
 
 jobs:
   mutation:
@@ -66,9 +72,16 @@ jobs:
           gremlins unleash --diff "$BASE_SHA" --workers 2 --timeout-coefficient 10 --exclude-files '/' --output mutation.json .
       - name: Mutate every package
         if: github.event_name != 'pull_request'
+        # The whole package measured 85.04% on 2026-11-27 (doc/testing.md), so
+        # its floor is 85, raised as tests kill the survivors. The floor goes in
+        # a config file that --config reads in place of .gremlins.yaml. It
+        # cannot go in the environment: gremlins v0.6.0 reads
+        # GREMLINS_UNLEASH_THRESHOLD_EFFICACY as a string, takes it for no
+        # threshold, and passes at any efficacy.
         run: |
+          printf 'unleash:\n  threshold:\n    efficacy: 85\n' > "$RUNNER_TEMP/gremlins.yaml"
           ulimit -v "$MUTANT_MEMORY_KIB"
-          gremlins unleash --workers 2 --timeout-coefficient 10 --exclude-files '/' --output mutation.json .
+          gremlins unleash --config "$RUNNER_TEMP/gremlins.yaml" --workers 2 --timeout-coefficient 10 --exclude-files '/' --output mutation.json .
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
