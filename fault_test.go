@@ -369,3 +369,20 @@ func TestHistorySaveReportsFileSystemFailures(t *testing.T) {
 		})
 	}
 }
+
+// TestExitRawModeReportsAFailedWrite checks that leaving raw mode reports a
+// failure to turn bracketed paste off, and still restores the terminal.
+func TestExitRawModeReportsAFailedWrite(t *testing.T) {
+	t.Parallel()
+
+	mock := newMockTerminal("")
+	p := newTestPrompt(mock)
+	p.output = &failAfterWriter{}
+	p.rawActive.Store(true)
+	if err := p.exitRawMode(); !errors.Is(err, errWrite) {
+		t.Fatalf("exitRawMode = %v, want the write's error", err)
+	}
+	if mock.restoreCount != 1 {
+		t.Errorf("Restore called %d times, want 1", mock.restoreCount)
+	}
+}
