@@ -2488,3 +2488,238 @@ func FuzzSearchBlockFitsWhatItDraws(f *testing.F) {
 		}
 	})
 }
+
+// TestSearchLinesNamesAndMarksTheSelection checks the rows of the search block:
+// the header names the selected match, the match itself is marked, and a
+// selection past the matches names nothing.
+func TestSearchLinesNamesAndMarksTheSelection(t *testing.T) {
+	t.Parallel()
+
+	results := []string{"alpha", "beta", "gamma"}
+	tests := []struct {
+		name     string
+		selected int
+		want     []string
+	}{
+		{
+			name:     "first match",
+			selected: 0,
+			want:     []string{"reverse-i-search: a -> alpha", "  > alpha", "    beta", "    gamma"},
+		},
+		{
+			name:     "middle match",
+			selected: 1,
+			want:     []string{"reverse-i-search: a -> beta", "    alpha", "  > beta", "    gamma"},
+		},
+		{
+			name:     "last match",
+			selected: 2,
+			want:     []string{"reverse-i-search: a -> gamma", "    alpha", "    beta", "  > gamma"},
+		},
+		{
+			name:     "past the matches",
+			selected: 3,
+			want:     []string{"reverse-i-search: a", "    alpha", "    beta", "    gamma"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := createPromptWithHistory(nil, "")
+			got := p.searchLines("a", results, tt.selected)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("searchLines(selected %d) = %q, want %q", tt.selected, got, tt.want)
+			}
+		})
+	}
+
+	t.Run("no matches", func(t *testing.T) {
+		t.Parallel()
+
+		p := createPromptWithHistory(nil, "")
+		got := p.searchLines("zz", nil, 0)
+		if want := []string{"reverse-i-search: zz"}; !slices.Equal(got, want) {
+			t.Errorf("searchLines() = %q, want %q", got, want)
+		}
+	})
+}
+
+// TestSearchLinesFillsTheRoomExactly checks that a match fitting the last row
+// the block may use is still listed. On a four-row terminal the block has three
+// rows: the header and two matches.
+func TestSearchLinesFillsTheRoomExactly(t *testing.T) {
+	t.Parallel()
+
+	p := createPromptWithHistory(nil, "")
+	mock := newMockTerminal("")
+	mock.terminalSize = [2]int{80, 4}
+	p.terminal = mock
+
+	got := p.searchLines("a", []string{"a1", "a2", "a3"}, 0)
+	want := []string{"reverse-i-search: a -> a1", "  > a1", "    a2"}
+	if !slices.Equal(got, want) {
+		t.Errorf("searchLines() = %q, want %q", got, want)
+	}
+}
+
+// TestSearchLinesFallsBackWhenTheTerminalReportsNoSize checks that a terminal
+// answering 0x0 is measured as 80x24, so the header is not cut and the matches
+// are listed, rather than measured as a terminal with no room at all.
+func TestSearchLinesFallsBackWhenTheTerminalReportsNoSize(t *testing.T) {
+	t.Parallel()
+
+	p := createPromptWithHistory(nil, "")
+	mock := newMockTerminal("")
+	mock.terminalSize = [2]int{0, 0}
+	p.terminal = mock
+
+	query := strings.Repeat("q", 40)
+	got := p.searchLines(query, []string{"one", "two"}, 0)
+	want := []string{"reverse-i-search: " + query + " -> one", "  > one", "    two"}
+	if !slices.Equal(got, want) {
+		t.Errorf("searchLines() = %q, want %q", got, want)
+	}
+}
+
+// TestSearchHistoryUpAndDownMoveOppositeWays checks the arrow keys with three
+// matches, where moving back from the first match and moving forward from it
+// land on different entries.
+func TestSearchHistoryUpAndDownMoveOppositeWays(t *testing.T) {
+	t.Parallel()
+
+	history := []string{"select 1", "select 2", "select 3"}
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "up wraps to the last match", input: "sel\x1b[A\r", want: "select 3"},
+		{name: "down moves to the next match", input: "sel\x1b[B\r", want: "select 2"},
+		{name: "up then down returns to the first", input: "sel\x1b[A\x1b[B\r", want: "select 1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := createPromptWithHistory(history, tt.input)
+			got, err := p.searchHistory(t.Context())
+			if err != nil {
+				t.Fatalf("searchHistory() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("searchHistory() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSearchHistoryBackspaceOnAnEmptyQuery checks that Backspace with nothing
+// typed yet changes nothing and the search goes on.
+func TestSearchHistoryBackspaceOnAnEmptyQuery(t *testing.T) {
+	t.Parallel()
+
+	p := createPromptWithHistory([]string{"ls", "pwd"}, "\x7f\x7fpw\r")
+	got, err := p.searchHistory(t.Context())
+	if err != nil {
+		t.Fatalf("searchHistory() error = %v", err)
+	}
+	if got != "pwd" {
+		t.Errorf("searchHistory() = %q, want %q", got, "pwd")
+	}
+}
+
+// TestSearchHistoryQueryTakesPrintableRunesOnly checks what typing adds to the
+// query: a space and a non-ASCII letter are added, a control character is not.
+func TestSearchHistoryQueryTakesPrintableRunesOnly(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := createPromptWithHistory(nil, "a b\x01é\x03")
+	p.output = &out
+	if _, err := p.searchHistory(t.Context()); err != nil {
+		t.Fatalf("searchHistory() error = %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "reverse-i-search: a bé\r\n") {
+		t.Errorf("searchHistory() wrote %q, want the query %q in the header", got, "a bé")
+	}
+}
+
+// TestWritableHistoryFitsTheLimitExactly checks that entries whose lines add up
+// to exactly MaxFileSize are all written.
+func TestWritableHistoryFitsTheLimitExactly(t *testing.T) {
+	t.Parallel()
+
+	hm := newHistoryManager(&historyConfig{Enabled: true, MaxEntries: 10, MaxFileSize: 6})
+	hm.history = []string{"aa", "bb", "cc"} // three bytes a line with the newline
+
+	if got, want := hm.writable(), []string{"bb", "cc"}; !slices.Equal(got, want) {
+		t.Errorf("writable() = %q, want %q", got, want)
+	}
+}
+
+// TestGetMaxHistoryEntriesFallsBackForNoLimit checks the in-memory limit: the
+// configured one when it is positive, the default otherwise.
+func TestGetMaxHistoryEntriesFallsBackForNoLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		config *historyConfig
+		want   int
+	}{
+		{name: "no config", config: nil, want: 1000},
+		{name: "zero", config: &historyConfig{MaxEntries: 0}, want: 1000},
+		{name: "one", config: &historyConfig{MaxEntries: 1}, want: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &Prompt{config: options{historyConfig: tt.config}}
+			if got := p.getMaxHistoryEntries(); got != tt.want {
+				t.Errorf("getMaxHistoryEntries() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSavingWhatTheFileAlreadyHoldsTakesNoBackup checks that a save writing as
+// many entries as the file holds loses nothing, so it moves no file aside.
+func TestSavingWhatTheFileAlreadyHoldsTakesNoBackup(t *testing.T) {
+	t.Parallel()
+
+	file := filepath.Join(t.TempDir(), "history")
+	hm := newHistoryManager(&historyConfig{Enabled: true, File: file, MaxEntries: 10, MaxBackups: 3})
+	hm.setHistory([]string{"one", "two"})
+	for range 2 {
+		if err := hm.saveHistory(); err != nil {
+			t.Fatalf("saveHistory() error = %v", err)
+		}
+	}
+	if _, err := os.Stat(file + ".1"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a save that dropped nothing left a backup: stat error = %v", err)
+	}
+	got, err := os.ReadFile(filepath.Clean(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "one\ntwo\n" {
+		t.Errorf("the history file holds %q, want %q", got, "one\ntwo\n")
+	}
+}
+
+// TestSearchHistoryReportsAFailedFinalErase checks that a search which ended
+// cleanly but could not erase its block says so, since the prompt is then
+// redrawn under a block still on screen.
+func TestSearchHistoryReportsAFailedFinalErase(t *testing.T) {
+	t.Parallel()
+
+	// The block for one match is three writes: the line clear, the header and
+	// the match. The erase after Ctrl+C is the fourth.
+	p := createPromptWithHistory([]string{"ls"}, "\x03")
+	p.output = &failAfterWriter{ok: 3}
+	if _, err := p.searchHistory(t.Context()); !errors.Is(err, errWrite) {
+		t.Errorf("searchHistory() error = %v, want %v", err, errWrite)
+	}
+}
