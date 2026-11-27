@@ -293,11 +293,18 @@ func decodeHistoryLine(line string) (string, bool) {
 	if line == "" {
 		return "", false
 	}
+	// Nothing before the first backslash is escaped, and most entries hold
+	// none at all.
+	first := strings.IndexByte(line, '\\')
+	if first < 0 {
+		return line, true
+	}
 
 	var b strings.Builder
 	b.Grow(len(line))
+	b.WriteString(line[:first])
 	escaped := false
-	for i := range len(line) {
+	for i := first; i < len(line); i++ {
 		c := line[i]
 		if escaped {
 			switch c {

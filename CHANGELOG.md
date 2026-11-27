@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Fuzzy completion is about 40% faster: a candidate is matched in place instead of being copied into a slice of runes first. Measuring a line for wrapping skips the width table for printable ASCII, which makes redrawing a multiline entry about 12% faster, and a history line without a backslash is read without being decoded, which halves the allocations of loading such a file.
+- A history save that leaves entries out decides whether to rotate from the read of the file it already made, without a second look at the file that could fail after the oldest backup is removed.
+- CI requires 99% coverage that may not drop, runs the unit tests as `GOARCH=386`, fuzzes every target for 15 seconds on a pull request, fails mutation testing below 90% on the changed lines and below the measured 85% on the weekly run, and compares the benchmarks of the base and the head of a pull request on one runner.
+
 ## [0.3.2] - 2026-11-19
 
 ### Fixed

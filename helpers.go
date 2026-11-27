@@ -2,10 +2,11 @@ package prompt
 
 import (
 	"cmp"
-	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // calculateFuzzyScore calculates a fuzzy matching score between input and
@@ -50,20 +51,23 @@ func calculateFuzzyScore(input, candidate string) int {
 	// rather than whether it arrived, and every caller reads a score above zero
 	// as a match: an entry sharing the first character of a six-character query
 	// was offered as one.
+	//
+	// The candidate is decoded in place rather than converted to a []rune, which
+	// would allocate for every candidate on every key press. An invalid byte
+	// decodes to utf8.RuneError either way.
 	score := 0
-	candidateRunes := []rune(searchCandidate)
 	candidateIdx := 0
 
 	for _, inputChar := range searchInput {
 		found := false
-		for candidateIdx < len(candidateRunes) {
-			if candidateRunes[candidateIdx] == inputChar {
+		for candidateIdx < len(searchCandidate) {
+			r, size := utf8.DecodeRuneInString(searchCandidate[candidateIdx:])
+			candidateIdx += size
+			if r == inputChar {
 				score += 10
-				candidateIdx++
 				found = true
 				break
 			}
-			candidateIdx++
 		}
 		if !found {
 			return 0
@@ -264,7 +268,7 @@ func (f *fuzzyMatcher) completionFunc(d Document) []Suggestion {
 	for i, match := range matches {
 		suggestions[i] = Suggestion{
 			Text:        match.text,
-			Description: fmt.Sprintf("score: %d", match.score),
+			Description: "score: " + strconv.Itoa(match.score),
 			Replace:     replace,
 		}
 	}

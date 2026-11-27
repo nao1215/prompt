@@ -34,10 +34,21 @@ func BenchmarkFuzzyCompletion(b *testing.B) {
 // BenchmarkLoadHistory reads a 1,000-entry history file with escaped
 // newlines, as New does when the prompt starts.
 func BenchmarkLoadHistory(b *testing.B) {
+	benchmarkLoadHistory(b, "SELECT %d\nFROM t WHERE c = '\\%d'")
+}
+
+// BenchmarkLoadPlainHistory reads a 1,000-entry history file of one-line
+// commands, which is what most history files hold.
+func BenchmarkLoadPlainHistory(b *testing.B) {
+	benchmarkLoadHistory(b, "git commit -m 'change %d' --author %d")
+}
+
+func benchmarkLoadHistory(b *testing.B, format string) {
+	b.Helper()
 	path := filepath.Join(b.TempDir(), "history")
 	hm := newHistoryManager(&historyConfig{Enabled: true, File: path, MaxEntries: 1000})
 	for i := range 1000 {
-		hm.addEntry(fmt.Sprintf("SELECT %d\nFROM t WHERE c = '\\%d'", i, i))
+		hm.addEntry(fmt.Sprintf(format, i, i))
 	}
 	if err := hm.saveHistory(); err != nil {
 		b.Fatal(err)
