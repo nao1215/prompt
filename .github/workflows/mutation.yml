@@ -6,7 +6,7 @@ name: Mutation
 # git diff prints match the files gremlins mutates). The examples under
 # example/ are left out with --exclude-files: they are programs that show the
 # API, not the library. The score measured when this was added is in
-# doc/testing.md.
+# doc/testing.md, and .gremlins.yaml fails the run at or below 90% efficacy.
 on:
   schedule:
     - cron: '0 3 * * 0'
@@ -30,6 +30,11 @@ env:
   # hosted runner down with "runner has received a shutdown signal" and no log.
   # A 4 GiB cap per process makes it die as a killed mutant instead.
   MUTANT_MEMORY_KIB: '4194304'
+  # gremlins times each mutant against a multiple of how long an unmutated run
+  # of the tests took. setup-go restores the build cache, test results
+  # included, and a cached run takes milliseconds: every mutant then "times
+  # out", none is killed or lives, and the efficacy is 0. Never reuse a result.
+  GOFLAGS: '-count=1'
 
 jobs:
   mutation:
