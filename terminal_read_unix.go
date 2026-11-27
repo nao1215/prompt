@@ -113,25 +113,20 @@ func (r *ttyReader) Read(p []byte) (int, error) {
 }
 
 // wait blocks until the terminal has something to read, or Close has written to
-// the pipe.
+// the pipe. A poll that a signal interrupts returns as if the terminal had
+// spoken: the read that follows finds nothing and waits again.
 func (r *ttyReader) wait() error {
 	fds := []unix.PollFd{
 		{Fd: int32(r.fd), Events: unix.POLLIN},    // #nosec G115 -- a descriptor fits an int32
 		{Fd: int32(r.wakeR), Events: unix.POLLIN}, // #nosec G115 -- a descriptor fits an int32
 	}
-	for {
-		_, err := unix.Poll(fds, -1)
-		if errors.Is(err, unix.EINTR) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if fds[1].Revents != 0 {
-			return errTerminalClosed
-		}
-		return nil
+	if _, err := unix.Poll(fds, -1); err != nil && !errors.Is(err, unix.EINTR) {
+		return err
 	}
+	if fds[1].Revents != 0 {
+		return errTerminalClosed
+	}
+	return nil
 }
 
 // Close ends a read in progress and releases the descriptors. It is idempotent.
